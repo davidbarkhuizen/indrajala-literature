@@ -1,0 +1,1966 @@
+                                            On the Statistical Query Complexity of Learning
+                                              Semiautomata: a Random Walk Approach
+
+                                                 George Giapitzakis1, * Kimon Fountoulakis1                         Eshaan Nichani2
+                                                                         Jason D. Lee3
+
+
+
+
+arXiv:2510.04115v1 [cs.LG] 5 Oct 2025
+                                            1                              2                          3
+                                                University of Waterloo         Princeton University       University of California, Berkeley
+
+                                                                                    October 7, 2025
+
+                                                                                         Abstract
+
+                                                      Semiautomata form a rich class of sequence-processing algorithms with applications
+                                                  in natural language processing, robotics, computational biology, and data mining. We
+                                                  establish the first Statistical Query hardness result for semiautomata under the uniform
+                                                  distribution over input words and initial states. We show that Statistical Query hardness
+                                                  can be established when both the alphabet size and input length are polynomial in the
+                                                  number of states. Unlike the case of deterministic finite automata, where hardness
+                                                  typically arises through the hardness of the language they recognize (e.g., parity), our
+                                                  result is derived solely from the internal state-transition structure of semiautomata.
+                                                  Our analysis reduces the task of distinguishing the final states of two semiautomata
+                                                  to studying the behavior of a random walk on the group SN × SN . By applying tools
+                                                  from Fourier analysis and the representation theory of the symmetric group, we obtain
+                                                  tight spectral gap bounds, demonstrating that after a polynomial number of steps in
+                                                  the number of states, distinct semiautomata become nearly uncorrelated, yielding the
+                                                  desired hardness result.
+
+
+                                        1        Introduction
+                                        We study the computational complexity of learning semiautomata with N states in the Sta-
+                                        tistical Query (SQ) model. Automata are among the most basic models of computation and
+                                        arise across formal methods (Clarke et al., 2001; Holzmann, 2011; Isberner, 2015), natural
+                                        language processing (Koskenniemi, 1983; Maletti, 2017; Mohri, 1996, 1997), robotics and
+                                        control systems (Chatzilygeroudis et al., 2020; Kress-Gazit et al., 2009), computational
+                                        biology (de la Higuera, 2010; Sakakibara, 2005; Tsafnat et al., 2011), and data mining
+
+                                            * Corresponding author: ggiapitz@uwaterloo.ca
+
+
+
+                                                                                             1
+(Laxman and Sastry, 2006). On the learning-theoretic side, the SQ model captures a broad
+class of noise-tolerant algorithms (Kearns and Vazirani, 1994), and its modern relevance is
+highlighted by its connections to the power of gradient-based methods (Abbe et al., 2021).
+Motivation: structural vs. language-based hardness. We investigate hardness results
+for semiautomata in the SQ model. Prior work on SQ hardness has focused primarily
+on deterministic finite automata (DFAs), that is, semiautomata with a designated initial
+state and a set of accepting states. While this distinction may seem subtle at first, it is
+crucial from a learnability perspective. For DFAs, hardness arises from the complexity
+of the languages they recognize. Typically, SQ hardness is established by embedding the
+computation of a hard function, such as parity (Blum et al., 1994), into a (random) DFA.
+Moreover, hardness results often rely on an adversarial input distribution (Angluin et al.,
+2010), instead of the more natural uniform distribution. In contrast, semiautomata are purely
+state-transition systems. As a result, SQ hardness for semiautomata must come exclusively
+from the structure of the transitions themselves, namely, from families of transition functions
+whose induced state-evolution statistics remain pairwise close under the uniform distribution
+over the input and initial state.
+Contributions. We construct a family of N ! semiautomata with N states and an alphabet of
+size Ω(N 3 ln N ) which are nearly uncorrelated after processing inputs of length Ω(N 2 ln N ),
+yielding a statistical dimension of N !. Consequently, any SQ learner for that class under the
+uniform distribution over the input and initial state must either (i) make a super-polynomial
+number of queries or (ii) use a super-polynomially small tolerance. Our analysis introduces
+a representation-theoretic toolkit for automata learning: we tie semiautomata processing
+of random words to the mixing of a random walk on the product of the symmetric group
+SN × SN , and identify a specific irreducible representation that controls indistinguishability.
+We propose a randomized construction such that any pair of semiautomata from a randomly
+generated family of size N ! is indistinguishable with high probability under the uniform
+distribution over input words and starting states. In our random construction, the letters
+of the alphabet are matched to transpositions and assigned to each semiautomaton by fair
+coin flips. We reduce the problem of distinguishing two semiautomata that read the same
+random input to tracking a single coupled random walk on SN × SN . In our construction,
+the probability that two semiautomata agree after starting from the same random initial state
+and processing T symbols has the form
+                                                                                T
+                        1                                                1
+                                                                      
+          Pagree (T ) =   + error(T, N )     with | error(T, N )| ≤ 1 −              ,
+                        N                                               2N
+with probability at least 1−exp(−N ln N ). Thus, the absolute error in the agreement beyond
+the baseline 1/N decays exponentially fast as a function of T . Taking T ≥ O(N 2 ln N )
+drives the absolute error to 1/N !, so any two semiautomata are statistically indistinguish-
+able on polynomial-length inputs. Because we build a family of N ! nearly uncorrelated
+semiautomata, the statistical dimension is N !, yielding the desired SQ lower bound. Unlike
+previous hardness results for DFAs, which rely on reductions to hard function classes such
+
+                                               2
+as parity (Angluin et al., 2010), our hardness result is inherently structural. We model
+the behavior of semiautomata processing a random word as a random walk on the group
+SN × SN and analyze its mixing properties by building off the representation-theoretic
+framework for random walks on SN developed by Diaconis and Shahshahani (1981).
+Finally, as a result of independent interest, we prove that the mixing time for the random
+walk of our random family construction is tight. In particular, the best-case mixing time
+for our random construction is T = Ω(N 2 ln N ). In other words, any smaller choice of
+T cannot guarantee the indistinguishability bound we obtain. This follows naturally as a
+byproduct of our proof strategy for the main result.
+Organization. The rest of the paper is organized as follows. In Section 2, we provide a
+review of the relevant literature on the learnability of automata. Section 3 establishes the
+notation and necessary mathematical preliminaries. The core of our technical approach is
+detailed in Section 4, where we connect the problem of distinguishing semiautomata to
+the mixing properties of a random walk on the product group SN × SN . In Section 5, we
+leverage this connection to present a randomized construction of a large family of nearly
+uncorrelated semiautomata. Finally, in Section 6, we use this construction to establish a
+high Statistical Query dimension, formally proving our main hardness result.
+
+
+2     Related work
+Learnability of automata is a foundational problem in computational learning theory, with
+a rich history spanning several decades (Angluin et al., 2010; Kearns and Valiant, 1994;
+Trakhtenbrot and Barzdin, 1973; Wang et al., 2025). To the best of our knowledge, no
+learnability results are currently known for the class of semiautomata. In contrast, the
+literature on DFA learnability is extensive. In this section, we restrict our review to results
+on DFA learning within the SQ model. For related work outside the SQ model, we refer the
+reader to Appendix A.
+
+2.1    The Statistical Query model
+The SQ model, introduced by Kearns (1998), formalizes a large and natural class of al-
+gorithms that learn by requesting statistical properties of the data distribution rather than
+inspecting individual examples. A key motivation for the model is its inherent robustness
+to noise; any SQ-learnable class is also PAC-learnable (Kearns, 1998). The computational
+complexity of learning within this model was elegantly characterized by Blum et al. (1994)
+using Fourier analysis, who introduced the concept of the SQ dimension to provide a combi-
+natorial measure for proving lower bounds. This model has been successfully used to prove
+the hardness of learning for many important concept classes, including noisy linear threshold
+functions (Blum and Frieze, 1996), halfspaces under Gaussian marginals (Diakonikolas
+et al., 2020; Hsu et al., 2022), high-dimensional Gaussians (Diakonikolas et al., 2017), and
+
+
+                                              3
+single-neuron networks (Goel et al., 2020), with some problems remaining open (Feldman,
+2014). The relevance of the SQ model has been underscored by work connecting it to other
+constrained learning models, such as those with memory or communication limits (Stein-
+hardt et al., 2016), and, most notably, to the capabilities of modern deep learning algorithms.
+Abbe et al. (2021) showed that learning with stochastic gradient descent (SGD) is equivalent
+in power to SQ learning when using large mini-batches or low-precision gradients, suggest-
+ing our hardness result has direct implications for a wide range of practical algorithms. For
+a comprehensive overview of the SQ model see the survey by Reyzin (2020). Our work
+contributes a new, SQ hardness result for a classic concept class (semiautomata), but does
+so by introducing novel representation-theoretic tools to establish a high SQ dimension.
+
+2.2    Related DFA hardness results
+One of the simplest SQ hardness results can be established from the work of Blum et al.
+(1994) on the hardness of the parity function. In particular, the existence of a DFA with
+2N + 1 states that can compute the parity of a fixed subset of any binary string of length N
+implies that the class of 2N + 1-state DFAs is hard to learn using Statistical Queries under
+the uniform distribution on inputs of length N .
+On a related note, Angluin et al. (2010) demonstrate that random DNF formulas, random
+log-depth decision trees, and random DFAs (where both transitions and accepting states
+are chosen uniformly at random) cannot be weakly learned with a polynomial number of
+statistical queries if the distribution over the input is chosen adversarially. The paper argues
+that even if a structure (such as a DNF formula or a DFA) is chosen randomly, an adversary
+can construct a “bad” input distribution that makes the learning problem hard. The core
+technique for establishing hardness is to show that, with high probability, a hard-to-learn
+parity function can be embedded into the random structure. The learnability of random
+DFAs using Statistical Queries under the uniform input distribution was explicitly posed as
+an open problem by Angluin et al. (2010). Similarly, Fish and Reyzin (2017) conjectured
+that learning random DFAs is hard in the PAC model. Although our work considers a slightly
+different random semiautomata model, with transitions generated by random transpositions,
+we hope it can serve as a first step toward addressing these open problems.
+The last negative result, which is also quite relevant to our work, is that of Wang et al.
+(2025). The paper establishes a computational hardness result for learning the class of k-fold
+composition functions in the SQ model. The k-fold composition task requires a model to
+compute the result of an interleaved composition of k permutations provided in the input
+context and k hidden, parametric permutations. This model can be interpreted as a restricted
+subclass of semiautomata with time-inhomogeneous transitions. The proof in Wang et al.
+(2025) relies heavily on the specific structure of the hypothesis class and mostly employs
+recursive algebraic calculations and combinatorial facts. Our result complements that of
+Wang et al. (2025) and is obtained by framing the problem as a random walk on the product
+of symmetric groups and by leveraging tools from Fourier analysis and representation theory
+
+
+                                               4
+3      Notation and preliminaries
+Throughout the text, we use boldface to denote vectors. We reserve the notation ei to denote
+the i-th standard basis vector. For n ∈ N := {1, 2, . . . } we use the
+                                                                   qPnotation [n] to refer to
+                                             n                         n
+the set {1, 2, . . . , n}. For a vector x ∈ C we denote by ∥x∥ :=      i=1 |xi | its Euclidean
+                                                                                2
+
+norm. For matrices A and B, A ⊗ B denotes their Kronecker product and A ⊕ B their direct
+sum. For a matrix A, we denote by ∥A∥2 := sup∥x∥=1 ∥Ax∥ its spectral norm. For a finite
+set S, we denote by U(S) the uniform distribution over its elements.
+
+3.1     Abstract algebra
+We direct unfamiliar readers to Appendix B, which provides a self-contained overview of
+the necessary results from the representation theory of finite groups, and constitutes the
+foundation for our analysis. For a group G, we denote by id its identity element. When G
+and H are groups, G × H denotes their direct product. We denote the symmetric group on
+N elements by SN . For a permutation g ∈ SN , we denote by fix(g) the set of fixed points of
+g. The trivial and standard representations of SN are denoted by triv and std, respectively.
+For a representation ρ and a function f : G → C, the Fourier transform of f with respect
+to ρ is given by ρ(f ) := g∈G f (g)ρ(g). For representations ρ and σ, ρ ⊗ σ denotes their
+                          P
+
+tensor product.
+
+3.2     Semiautomata
+A semiautomaton A is a triplet (Q, Σ, δ), where
+      • Q is a non-empty set of states.
+      • Σ is the input alphabet.
+      • δ : Q × Σ → Q is the transition function.
+We denote by A(Σ, Q) the set of semiautomata with alphabet Σ and state space Q. Through-
+out this work, we will only consider semiautomata where both Σ and Q are finite, and we
+denote by N = |Q| the number of states. The set of all finite words over the alphabet Σ is
+denoted by Σ∗ . For each symbol a ∈ Σ, we define the state-transition function δa : Q → Q
+by δa (X) = δ(X, a). Given a semiautomaton A, we define the function fδA : Σ∗ × Q → Q,
+which assigns to each word and initial state the corresponding final state. Specifically, for a
+word wT := a1 . . . aT and an initial state X, the final state is given by
+                         fδA (wT , X) := (δaT ◦ δaT −1 ◦ · · · ◦ δa1 )(X).
+
+3.3     The Statistical Query model
+The Statistical Query (SQ) model, introduced by Kearns (1998), is a restricted learning
+model where the learner accesses information about a dataset through statistical queries
+
+                                                5
+rather than individual examples. The learner interacts with a statistical query oracle whose
+definition is given below.
+Definition 3.1 (Statistical Query oracle). Let C be a concept class of functions mapping
+X to Y, and let f ∗ : X → Y be a ground-truth concept in C. Let D be a distribution over
+the input space X . An SQ oracle, denoted by STAT(f ∗ , D), accepts a query (h, τ ), where
+h : X × Y → [−1, 1] is a bounded statistical query function (statistic), and τ > 0 is the
+tolerance. The oracle returns a value v such that:
+
+                                        |v − Ex∼D [h(x, f ∗ (x))]| ≤ τ.
+
+The goal is to learn f ∗ up to arbitrarily small error after making a number of queries.
+Definition 3.2 (Statistical query hardness). Statistical query hardness for a concept class C
+is established by showing that there exists a ground-truth concept f ∗ ∈ C such that, in the
+worst case, any learner must either make a super-polynomial number of queries or use a
+tolerance τ such that 1/τ is super-polynomial in the problem parameters to learn f ∗ .
+
+
+4        The learning problem and random walk connections
+The concept class C consists of all functions fδA that map an initial state and an input word
+to the corresponding final state according to some semiautomaton A ∈ A(Σ, Q), namely
+C = {fδA : A ∈ A(Σ, Q)}. With the notation of Section 3.3, X = Σ∗ × Q and Y = Q.
+We investigate the hardness of learning C using statistical queries when the underlying
+distribution is uniform over input words of length T and initial states. We will show that
+when |Σ| and T scale polynomially with the number of states N , learning C is hard.
+
+4.1       Modeling single semiautomata as random walks
+To prove our hardness result, we will need to construct a “hard” set: a large family of
+concepts from C that are nearly uncorrelated (details are presented in Section 6). We
+restrict our search for the hard set by considering semiautomata where the state-transition
+functions δa are permutations for each a ∈ Σ.1 Under this restriction, we can model a single
+semiautomaton processing a uniformly random word as a random walk on the symmetric
+group SN . Consider a semiautomaton A where all its state-transition functions δa are
+permutations from a set Γ ⊆ SN .
+    1. The Walk State: The state of the random walk after t steps is the total permutation Pwt
+       computed so far. This is an element of the symmetric group SN .
+    2. The Starting State: Before processing any symbols, the total permutation is the identity
+       permutation, id ∈ SN , which maps every state in Q to itself.
+    1
+        In fact, our constructions will only require each δa to be either the identity or a transposition.
+
+
+                                                          6
+   3. The Transition Rule: Let Pwt ∈ SN be the permutation computed after processing the
+      first t symbols of a (random) word wT = a1 a2 . . . aT , and so, Pwt = δat ◦ · · · ◦ δa1 .
+      When the (t + 1)-th symbol, at+1 , is processed, the new walk state (total permutation)
+      becomes Pwt+1 = δat+1 ◦ Pwt .
+Under the uniform distribution assumption on the input word, the final state fδA (wT , X)
+coincides with PwT (X), for any initial state X ∈ Q.
+
+4.2    Modeling pairs of semiautomata as random walks
+Our hardness result relies on evaluating a correlation measure between pairs of distinct
+semiautomata from the hard set. This requires bounding the probability that two such
+semiautomata end in the same final state when started from the same uniformly chosen input
+word and initial state. This can also be modeled as a (coupled) random walk on the product
+group G = SN × SN . Let A and A′ be two semiautomata (operating on the same alphabet
+Σ and state-space Q) with permutation transition functions from a set Γ ⊆ SN .
+   1. The Walk Space: To track both processes simultaneously, the walk state is a pair
+      of permutations (Pwt , Pw′ t ), representing the total permutation computed by each
+      semiautomaton after t steps. This state is an element of the product group G =
+      SN × SN .
+   2. The Starting State: Both walks start at the identity, so the starting state is (id, id) ∈ G.
+   3. The Transition Rule: Let (Pt , Pt′ ) be the permutation computed after processing the
+      first t symbols of a (random) word wT = a1 a2 . . . aT . When the (t + 1)-th symbol,
+      at+1 , is processed, the state of the joint walk transitions as follows:
+
+                            (Pwt+1 , Pw′ t+1 ) = (δat+1 ◦ Pwt , δa′ t+1 ◦ Pw′ t ).
+
+As before, the pair (fδA (wT , X), fδA′ (wT , X)) coincides with (PwT (X), Pw′ T (X)) under the
+uniform distribution assumption on the input word, for any initial state X ∈ Q.
+The single-step probability distribution of this random walk is thus defined as follows:
+Definition 4.1 (Single-step probability). The probability distribution for a single step of the
+joint random walk defined in Section 4.2 is the function TSA : G → [0, 1] given by:
+
+                                   |{a ∈ Σ | (δa , δa′ ) = g}|
+                       TSA (g) =                                     ∀ g ∈ G.
+                                             |Σ|
+
+The support of TSA is contained in Γ × Γ.
+As noted above, our hardness result requires a careful analysis of the probability of agreement
+for two semiautomata after T steps under a uniformly random input word and initial state.
+Namely, we are interested in the probability that for an initial state X0 picked uniformly at
+
+                                                  7
+random from Q, after T steps of the random walk, the two states PwT (X0 ) and Pw′ T (X0 )
+coincide. To calculate this, we borrow tools from Fourier analysis and representation theory
+of the symmetric group. As it turns out, this probability is controlled solely by the Fourier
+transform of TSA with respect to the irreducible representation Π0 = std ⊗ std of SN × SN .
+The result, along with a proof outline, is presented in Theorem 4.1. The full proof relies on
+a technical lemma and is presented in Appendix C.
+Theorem 4.1 (Agreement probability). Consider the random walk corresponding to two
+semiautomata A and A′ operating on the same alphabet Σ and state-space Q, as described
+in Section 4.2. Let N = |Q| and let T ∈ N be the input length. Let X0 ∼ U(Q)
+be a (common) initial state picked uniformly at random. Denote by Pagree := Pagree (T )
+the probability that after processing the same uniformly random word wT ∈ Σ∗ , both
+semiautomata reach the same state. In terms of the random walk, this probability is given by
+                                                                            
+                 Pagree (T ) = PwT ∼U (Σ)⊗T ,X0 ∼U (Q) PwT (X0 ) = Pw′ T (X0 ) .
+
+Then
+                                        1     1
+                                 Pagree =  + v ⊤ MΠT0 v,
+                                        N     N
+where MΠ0 is the Fourier transform of the single-step distribution TSA with respect to the
+                                                        P −1
+irreducible representation Π0 = std ⊗ std of G and v = N   i=1 ei ⊗ ei .
+
+
+Proof outline. The proof begins by expressing the agreement probability, Pagree , as an
+expected value over the final states of the random walk on the product group SN × SN . This
+is written as
+                                       X                 | fix(h−1 g)|
+                           Pagree =          PT (g, h) ·               ,                (1)
+                                     (g,h)∈G
+                                                               N
+where PT denotes the distribution of the walk after T steps. The distribution PT is then
+decomposed as a sum of the uniform distribution on SN × SN and an error term: PT (g, h) =
+PU (g, h) + err(g, h). Substituting this into Equation (1), we find that the uniform part of the
+sum evaluates cleanly to the baseline agreement probability of 1/N . The remaining error
+term is then analyzed using the Plancherel formula from Fourier analysis (Lemma B.2), and
+is given by the following sum over non-trivial irreducible representations:
+                              1   1 X                      
+                                ·           dΠ Tr MΠT Π(f )∗ ,
+                              N |G| Π̸=triv
+
+where MΠ = Π(PT ) and f is given by f (g, h) = | fix(h−1 g)|. The key insight is that
+the Fourier transform of f is non-zero only for a single irreducible representation, Π0 =
+std ⊗ std (Lemma C.1). This collapses the sum above into a single term, yielding the final
+expression.
+
+Theorem 4.1 is central to our analysis: it reduces the task of bounding Pagree for our
+constructions from having to account for all (exponentially many) irreducible representations
+
+                                               8
+of SN × SN ,2 to considering just a single one. In the next section, we introduce a randomized
+construction used to generate a family of semiautomata and determine the required alphabet
+size |Σ| and word length T that ensure |Pagree − 1/N | ≤ 1/N !, a bound necessary for
+establishing SQ-learning hardness.
+
+
+5       Randomized construction of the hard set
+In this section, we present a randomized construction of a family of semiautomata that
+will form the basis of our hard set, which will be used to derive the statistical query lower
+bound. In what follows, we assume that all semiautomata operate on the same, fixed set of
+N states. The construction depends on a parameter k that controls the size of the alphabet.
+We construct M semiautomata operating on a common alphabet consisting of k labeled
+copies of every transposition in SN . For each semiautomaton i and symbol τ , we flip an
+independent fair coin to decide whether the state-transition function corresponding to τ acts
+as the identity or τ itself. Thus, each semiautomaton is defined by a random mask of swap
+and identity symbols. The formal definition is given below:
+Definition 5.1 (The randomized (k, M )-shuffle family construction). We construct a (ran-
+dom) family of semiautomata operating on the same alphabet with the following properties:
+    1. Let Σ1 = {τ1 , . . . , τ(N ) } be an enumeration of all transpositions in SN . The alphabet
+                               2                                                
+        Σk is the disjoint union of k copies of Σ1 . The size is |Σk | = k N2 .
+    2. A family F = {δ1 , . . . , δM } is generated by assigning to each symbol (transposition)
+       τ ∈ Σk and each semiautomaton δi an independent random variable bi (τ ) ∈ {0, 1}
+       with P(bi (τ ) = 1) = 1/2. Each transition function δi : Q × Σk → Q is given by
+                                   
+                                   τ (X)   if bi (τ ) = 1
+                   δi (X, τ ) =                             for all X ∈ Q and τ ∈ Σk .
+                                 X          if bi (τ ) = 0
+
+        For simplicity, we overload our notation to identify semiautomata by their transition
+        functions.
+We refer to the resulting family F as a randomized (k, M )-shuffle family.
+Note that while Definition 5.1 forces the alphabet to consist of transpositions, this is done
+only to discharge notation and enhance the readability of our proofs. Indeed,  it is easy to
+see that the construction can work with any alphabet, so long as its size is k N2 , simply by
+appropriately remapping the alphabet characters to transpositions.
+
+
+    The group SN × SN has p(N )2 irreducible representations, where p(N ) is the partition function (c.f.
+    2
+
+Remark B.3). The partition function grows exponentially (Hardy and Ramanujan, 1918) and hence there are
+exponentially many irreducible representations.
+
+
+                                                   9
+The main goal of this section is to find appropriate values for the alphabet parameter k and
+the input word length T such that, with high probability, any two semiautomata from a
+randomized (k, N !)-shuffle family F satisfy Pagree ≤ 1/N + 1/N !. Given the form of Pagree
+derived in Theorem 4.1, the first step is to show that, with high probability, the spectral
+norm of MΠ0 is bounded away from 1 for any choice of distinct semiautomata from F. This
+is done in Lemma 5.1, which we state and provide a proof outline here. The full proof is
+deferred to Appendix D.
+Lemma 5.1. Let N ≥ 4 and consider a randomized (k, M )-shuffle family F with M = N !
+and                            "                !                 #
+                  16(3N + 1)                 N!
+               k≥                N ln N + ln       + 2 ln(N − 1) .
+                    3(N − 1)                  2
+Then any two distinct semiautomata δi , δj ∈ F satisfy MΠi,j0                 1
+                                                                       ≤ 1 − 2N with probability at
+                                                                   2
+least 1 − exp(−N ln N ) where Π0 = std ⊗ std and MΠi,j0 denotes the Fourier transform of
+the single-step probability distribution for the joint walk according to δi and δj .
+
+Proof outline. The proof follows a two-step “expectation-concentration” argument. First,
+we calculate the expectation of the Fourier transform matrix, E[MΠi,j0 ], by averaging over
+all random choices in our semiautomaton construction. The canonical way by which
+randomness is introduced in the construction (through the fair coin toss), along with the use
+of transpositions as state-transition functions, ensures that the expectation has a manageable
+form. Namely, by applying a generalization of Schur’s Lemma (Corollary B.1), we show that
+the expected matrix is similar to a direct sum of scaled identity matrices, and that its spectral
+norm is 1 − N1−1 . Second, we show that the matrix for a randomized (k, N !)-shuffle family
+concentrates around this expectation. We use the Matrix Bernstein inequality (Lemma D.1)
+to prove that the deviation ∥MΠi,j0 −E[MΠi,j0 ]∥2 is very small with high probability, provided the
+alphabet size parameter k is sufficiently large. By combining the bound on the expectation’s
+norm with the high-probability bound on the deviation via the triangle inequality, we arrive
+                                     1
+at the final desired bound of 1 − 2N   .
+
+Combining Lemma 5.1 with Theorem 4.1, we can directly derive an upper bound on Pagree
+that converges to 1/N exponentially in T .
+Lemma 5.2. For M = N ! and N ≥ 4, if we choose the alphabet parameter
+                                      "                   !                    #
+                      16(3N + 1)             N!
+                   k≥            N ln N + ln    + 2 ln(N − 1) ,
+                       3(N − 1)              2
+
+then any pair of semiautomata (δi , δj ) from a randomized (k, M )-shuffle family F satisfies
+                                                              T
+                                             1       1
+                                                     
+                                  Pagree −     ≤ 1−
+                                             N      2N
+with probability at least 1 − exp(−N ln N ).
+
+                                                10
+Lastly, we show how to choose T to achieve the desired bound.
+Theorem 5.1. For T ≥ 2N ln(N !) and k and M as given in Lemma 5.2, we have that any
+pair of distinct semiautomata (δi , δj ) from a randomized (k, M )-shuffle family F satisfies
+|Pagree − 1/N | ≤ 1/N ! with probability at least 1 − exp(−N ln N ).
+The proofs of Lemma 5.2 and Theorem 5.1 are deferred to Appendix D. Notice that to
+achieve the desired bound, both k and T can be chosen to be polynomial in N . This is
+expressed in the following remark:
+Remark 5.1. Since ln(N !) = O(N ln N ), the high probability result of Theorem 5.1 holds
+for a choice of T = O(N 2 ln N ) and k = O(N ln N ). In that case, the total alphabet size
+is O(N 3 ln N ).
+Note that choosing bi (τ ) as a Ber(1/2) random variable is optimal. Intuitively, biasing
+the transitions toward either the identity or transpositions makes pairs of semiautomata
+easier to distinguish. As a result, a larger alphabet and longer inputs are needed to achieve
+indistinguishability. This is formalized in the following remark:
+Remark 5.2. In the randomized construction of Definition 5.1, defining each bi (τ ) as an
+independent
+   3       Ber(p) random variable with p ∈ (0,1) 2requires
+                                                             an alphabet of size at least
+    N ln N                                         N ln N
+O p2 (1−p)2 and an input word length of at least O p(1−p) . Both quantities are minimized
+when p = 1/2, showing that a fair coin flip is the most efficient choice for establishing
+hardness.
+As a result of independent interest, in Theorem 5.2 we prove that the choice of T above is
+asymptotically optimal. This essentially shows that to achieve the desired bound on Pagree
+with high probability, we must choose T = Ω(N 2 ln N ). In terms of the random walk,
+this shows that the best-case mixing time of the walk corresponding to the randomized
+(k, M )-shuffle family with k and M chosen as in Lemma 5.2 is Ω(N 2 ln N ). The proof of
+Theorem 5.2 follows easily by the analysis carried out in the proof of Lemma 5.1 and is
+deferred to Appendix E.
+Theorem 5.2 (Tightness of mixing time). Let N ≥ 5, and let k and M be as in Lemma 5.2.
+For any pair of distinct semiautomata (δi , δj ) from a randomized (k, M )-shuffle family to
+satisfy |Pagree − 1/N | ≤ 1/N ! with probability 1 − exp(−N ln N ), the input word length
+must be at least T = Ω(N 2 ln N ).
+
+
+6    Statistical Query hardness
+This section is organized into two parts, with the goal of establishing the hardness of learning
+semiautomata in the Statistical Query framework. In Section 6.1, we introduce the necessary
+notions of pairwise correlation and SQ dimension, together with a lower bound theorem
+for SQ learning. These results are stated in a general setting for concept classes whose
+
+
+                                              11
+functions take finitely many values, thereby extending earlier results from the binary case.
+In Section 6.2, we apply those results to obtain our main hardness result for semiautomata.
+
+6.1    General results
+Throughout this section, we assume a general concept class C consisting of functions
+f : X → Y, where X and Y are abstract spaces with |Y| < ∞. Likewise, we assume an
+arbitrary distribution D over X . The definitions and results we present are straightforward
+extensions of the well-known binary case Y = {0, 1}.
+Definition 6.1 (Pairwise correlation). Let F be a family of functions f : X → Y. Let D be
+a distribution over X . When Y is a finite set, the correlation between two distinct functions
+fi , fj ∈ F under D is defined in terms of the agreement probability as:
+                                                                     1
+                           χ(fi , fj ) = Px∼D [fi (x) = fj (x)] −       .
+                                                                    |Y|
+
+SQ lower bounds are typically proven by constructing a large family of functions that are
+nearly uncorrelated, formalized by the concept of SQ Dimension.
+Definition 6.2 (SQ dimension). Let C be a concept class over a distribution D. The statistical
+dimension SQDimD   C is the largest integer d such that there exists a subset {f1 , . . . , fd } ⊆ C
+of nearly uncorrelated functions satisfying |χ(fi , fj )| ≤ 1/d for all i, j ∈ [d] with i ̸= j.
+The following theorem, whose proof is given in Appendix F, establishes a lower bound on
+the number of queries a learner must make in the worst case in terms of the SQ dimension:
+Theorem 6.1 (SQ lower bound). Let C be a concept class and suppose SQDimD  C ≥ d. Then
+any SQ learner using tolerance τ > 0 requires, in the worst case, at least
+                                         (d − 1)(dτ 2 − |Y|)
+                                    q≥
+                                            2d(|Y| − 1)
+queries to learn the ground-truth concept f ∗ .
+
+6.2    The case of semiautomata
+We are now prepared to establish our main hardness result for the class of semiautomata.
+Recall that the concept class is defined as C = {fδA : A ∈ A(Σ, Q)} and that the underlying
+distribution DT on Σ∗ × Q is uniform over all states in Q and all words of length T in Σ∗ .
+Denoting by N = |Q| the number of states, our hardness result can be stated as follows:
+Theorem 6.2. Suppose the alphabet size and word length satisfy |Σ| = Ω(N 3 ln N ) and
+T = Ω(N 2 ln N ), respectively. Then for all c > 0, any SQ learner for C under the
+distribution DT must, in the worst case, either make ω(N c ) queries or use a tolerance of
+o(N −c ). Hence, learning C with statistical queries is hard.
+
+                                                12
+Proof. By Remark 5.1, a randomized (k, N !)-shuffle family F = {δ1 , . . . , δN ! } with k =
+O(N ln N ) satisfies |Pagree − 1/N | ≤ 1/N ! for any two distinct semiautomata. In terms of
+pairwise correlation, this translates to |χ(δi , δj )| ≤ 1/N ! for all i ̸= j. We have thus shown
+that the SQ dimension of C is at least N !. The result follows from Theorem 6.1.
+
+
+7     Conclusion and future work
+We have shown that learning semiautomata with N states and alphabet size Ω(N 3 ln N ) is
+computationally hard in the SQ model under the uniform distribution over initial states and
+inputs of length Ω(N 2 ln N ). Using a novel link between semiautomata distinguishability
+and mixing properties of random walks on SN × SN , we constructed a family of N ! nearly
+uncorrelated semiautomata, establishing SQ hardness. In terms of future work, we identify
+the following interesting research directions:
+    1. Studying hardness for different parameter regimes: Our hardness results are estab-
+       lished for semiautomata with alphabet size Ω(N 3 ln N ) and input length Ω(N 2 ln N ).
+       An important open question is whether comparable hardness results hold in other
+       parameter regimes, or whether more favorable positive results can be obtained. Ad-
+       dressing this may require considering semiautomata whose transition functions extend
+       beyond transpositions, or even beyond permutations altogether. A different line of
+       analysis might also reveal an interesting tradeoff: smaller alphabet sizes could ne-
+       cessitate longer input lengths to demonstrate hardness. Conversely, when both the
+       alphabet size and input length are sufficiently restricted, the class may even turn out
+       to be efficiently learnable.
+    2. Tightness of SQ-hardness theorem: Theorem 6.2 shows that any SQ learner must
+       either make a super-polynomial number of queries or operate with super-polynomially
+       small tolerance. A natural question is whether there exist algorithms that realize
+       these extremes individually: one incurring the query cost and another incurring the
+       tolerance cost.
+    3. Learnability in neural architectures: Our results indicate that conventional gradient-
+       based training of expressive models such as Transformers may not suffice to learn
+       the general class of semiautomata from a uniform data distribution, even though
+       Transformers are known to be capable of efficiently simulating semiautomata (Liu
+       et al., 2023). This motivates an investigation into alternative training paradigms that
+       could circumvent this limitation, like curriculum learning or reinforcement learning.
+
+
+
+
+                                               13
+Acknowledgments
+K. Fountoulakis would like to acknowledge the support of the Natural Sciences and Engi-
+neering Research Council of Canada (NSERC). Cette recherche a été financée par le Conseil
+de recherches en sciences naturelles et en génie du Canada (CRSNG), [RGPIN-2019-04067,
+DGECR-2019-00147].
+G. Giapitzakis would like to acknowledge the support of the Onassis Foundation - Scholar-
+ship ID: F ZU 020-1/2024-2025.
+In preparing this paper, we made use of Google’s Gemini 2.5 Pro. The randomized con-
+struction in Section 5, which is used in Theorem 5.1, was initially suggested by the model,
+prompting us to draw a connection with random walks on groups. This connection naturally
+led to the introduction of tools from group and representation theory that form the theoretical
+backbone of our results.
+
+
+References
+Emmanuel Abbe, Pritish Kamath, Eran Malach, Colin Sandon, and Nathan Srebro. On the
+ Power of Differentiable Learning versus PAC and SQ Learning. In Advances in Neural
+ Information Processing Systems, volume 34, pages 24340–24351. Curran Associates,
+ Inc., 2021.
+Dana Angluin. On the complexity of minimum inference of regular sets. Information and
+ Control, 39(3):337–350, 1978.
+Dana Angluin. Learning regular sets from queries and counterexamples. Information and
+ Computation, 75(2):87–106, 1987.
+Dana Angluin. Queries and Concept Learning. Machine Learning, 2(4):319–342, 1988.
+Dana Angluin, David Eisenstat, Leonid (Aryeh) Kontorovich, and Lev Reyzin. Lower
+  Bounds on Learning Random Structures with Statistical Queries. In Algorithmic Learning
+ Theory, pages 194–208, Berlin, Heidelberg, 2010. Springer Berlin Heidelberg.
+Dana Angluin, James Aspnes, Sarah Eisenstat, and Aryeh Kontorovich. On the Learnability
+  of Shuffle Ideals. Journal of Machine Learning Research, 14(11):1513–1531, 2013.
+José L. Balcázar, Josep Dı́az, Ricard Gavaldà, and Osamu Watanabe. The query complexity
+  of learning DFA. New Generation Computing, 12(4):337–358, 1994.
+Borja Balle. Learning finite-state machines: statistical and algorithmic aspects. PhD thesis,
+  Universitat Politècnica de Catalunya, 2013.
+Borja Balle, Jorge Castro, and Ricard Gavaldà. Learning probabilistic automata: A study in
+  state distinguishability. Theoretical Computer Science, 473:46–60, 2013.
+
+
+
+                                             14
+A. Blum and A. Frieze. A polynomial-time algorithm for learning noisy linear threshold
+  functions. In Proceedings of the 37th Annual Symposium on Foundations of Computer
+  Science, FOCS ’96, page 330. IEEE Computer Society, 1996.
+Avrim Blum, Merrick Furst, Jeffrey Jackson, Michael Kearns, Yishay Mansour, and Steven
+  Rudich. Weakly learning DNF and characterizing statistical query learning using Fourier
+  analysis. In Proceedings of the Twenty-Sixth Annual ACM Symposium on Theory of
+  Computing, STOC ’94, pages 253–262. Association for Computing Machinery, 1994.
+Benedikt Bollig, Peter Habermehl, Martin Leucker, and Benjamin Monmege. A Fresh
+  Approach to Learning Register Automata. In Developments in Language Theory, pages
+ 118–130. Springer Berlin Heidelberg, 2013.
+Rafael C. Carrasco and Jose Oncina. Learning stochastic regular grammars by means of
+  a state merging method. In Grammatical Inference and Applications, pages 139–152.
+  Springer Berlin Heidelberg, 1994.
+Carrasco, Rafael C. and Oncina, Jose. Learning deterministic regular grammars from
+  stochastic samples in polynomial time. RAIRO-Theor. Inf. Appl., 33(1):1–19, 1999.
+Konstantinos Chatzilygeroudis, Vassilis Vassiliades, Freek Stulp, Sylvain Calinon, and Jean-
+  Baptiste Mouret. A Survey on Policy Search Algorithms for Learning Robot Controllers
+  in a Handful of Trials. IEEE Transactions on Robotics, 36(2):328–347, 2020.
+Alexander Clark and Franck Thollard. PAC-learnability of Probabilistic Deterministic Finite
+  State Automata. Journal of Machine Learning Research, 5:473–497, 2004.
+Edmund Clarke, Orna Grumberg, and Doron Peled. Model Checking. MIT Press, 2001.
+Corinna Cortes, Leonid Kontorovich, and Mehryar Mohri. Learning Languages with
+  Rational Kernels. In Learning Theory, pages 349–364. Springer Berlin Heidelberg, 2007.
+Colin de la Higuera. Grammatical Inference: Learning Automata and Grammars. Cam-
+  bridge University Press, 2010.
+Persi Diaconis and Mehrdad Shahshahani. Generating a random permutation with random
+  transpositions. Zeitschrift für Wahrscheinlichkeitstheorie und Verwandte Gebiete, 57(2):
+  159–179, 1981.
+Ilias Diakonikolas, Daniel M. Kane, and Alistair Stewart. Statistical query lower bounds for
+   robust estimation of high-dimensional Gaussians and Gaussian mixtures. In Proceedings
+   of the 58th Annual IEEE Symposium on Foundations of Computer Science, FOCS ’17,
+   pages 73–84. IEEE, 2017.
+Ilias Diakonikolas, Daniel Kane, and Nikos Zarifis. Near-Optimal SQ Lower Bounds for
+   Agnostically Learning Halfspaces and ReLUs under Gaussian Marginals. In Advances
+   in Neural Information Processing Systems, volume 33, pages 13586–13596. Curran
+   Associates, Inc., 2020.
+
+
+                                            15
+Funda Ergün, S. Ravi Kumar, and Ronitt Rubinfeld. On learning bounded-width branching
+  programs. In Proceedings of the Eighth Annual Conference on Computational Learning
+  Theory, COLT ’95, pages 361–368. Association for Computing Machinery, 1995.
+Vitaly Feldman. Open Problem: The Statistical Query Complexity of Learning Sparse
+  Halfspaces. In Proceedings of The 27th Conference on Learning Theory, volume 35 of
+  Proceedings of Machine Learning Research, pages 1283–1289. PMLR, 2014.
+Benjamin Fish and Lev Reyzin. Open Problem: Meeting Times for Learning Random
+  Automata. In Proceedings of the 2017 Conference on Learning Theory, volume 65 of
+  Proceedings of Machine Learning Research, pages 8–11. PMLR, 2017.
+W. Fulton and J. Harris. Representation Theory: A First Course. Graduate Texts in
+ Mathematics. Springer New York, 2013.
+Surbhi Goel, Aravind Gollakota, Zhihan Jin, Sushrut Karmalkar, and Adam Klivans. Su-
+  perpolynomial Lower Bounds for Learning One-Layer Neural Networks using Gradient
+  Descent. In Proceedings of the 37th International Conference on Machine Learning,
+  volume 119 of Proceedings of Machine Learning Research, pages 3587–3596. PMLR,
+  2020.
+E Mark Gold. Complexity of automaton identification from given data. Information and
+  Control, 37(3):302–320, 1978.
+G. H. Hardy and S. Ramanujan. Asymptotic Formulaæ in Combinatory Analysis. Proceed-
+  ings of the London Mathematical Society, s2-17(1):75–115, 1918.
+Gerard Holzmann. The SPIN Model Checker: Primer and Reference Manual. Addison-
+ Wesley Professional, 1st edition, 2011.
+Daniel J Hsu, Clayton H Sanford, Rocco Servedio, and Emmanouil Vasileios Vlatakis-
+  Gkaragkounis. Near-Optimal Statistical Query Lower Bounds for Agnostically Learning
+  Intersections of Halfspaces with Gaussian Marginals. In Proceedings of Thirty Fifth Con-
+  ference on Learning Theory, volume 178 of Proceedings of Machine Learning Research,
+  pages 283–312. PMLR, 2022.
+Malte Isberner. Foundations of Active Automata Learning: An Algorithmic Perspective.
+ PhD thesis, TU Dortmund, 2015.
+Michael Kearns. Efficient noise-tolerant learning from statistical queries. Journal of the
+ ACM, 45(6):983–1006, 1998.
+Michael Kearns and Leslie Valiant. Cryptographic limitations on learning Boolean formulae
+ and finite automata. Journal of the ACM, 41(1):67–95, 1994.
+Michael J. Kearns and Umesh V. Vazirani. An Introduction to Computational Learning
+ Theory. MIT Press, 1994.
+
+
+
+                                           16
+Leonid Kontorovich, Corinna Cortes, and Mehryar Mohri. Learning Linearly Separable
+  Languages. In Algorithmic Learning Theory, pages 288–303. Springer Berlin Heidelberg,
+  2006.
+Leonid (Aryeh) Kontorovich and Boaz Nadler. Universal Kernel-Based Learning with
+  Applications to Regular Languages. Journal of Machine Learning Research, 10(39):
+  1095–1129, 2009.
+Leonid (Aryeh) Kontorovich, Corinna Cortes, and Mehryar Mohri. Kernel methods for
+  learning languages. Theoretical Computer Science, 405(3):223–236, 2008.
+Kimmo Koskenniemi. Two-level model for morphological analysis. In Proceedings of the
+  Eighth International Joint Conference on Artificial Intelligence - Volume 2, IJCAI’83,
+  pages 683–685. Morgan Kaufmann Publishers Inc., 1983.
+Hadas Kress-Gazit, Georgios E. Fainekos, and George J. Pappas. Temporal-logic-based
+  reactive mission and motion planning. IEEE Transactions on Robotics, 25(6):1370–1381,
+  2009.
+Loes Kruger, Bharat Garhewal, and Frits Vaandrager. Lower Bounds for Active Automata
+  Learning. In Proceedings of 16th edition of the International Conference on Grammatical
+  Inference, volume 217 of Proceedings of Machine Learning Research, pages 157–180.
+  PMLR, 2023.
+Kevin J. Lang, Barak A. Pearlmutter, and Rodney A. Price. Results of the Abbadingo
+  one DFA learning competition and a new evidence-driven state merging algorithm. In
+  Grammatical Inference, pages 1–12. Springer Berlin Heidelberg, 1998.
+S. Lang. Algebra. Graduate Texts in Mathematics. Springer New York, 2005.
+Srivatsan Laxman and P. S. Sastry. A survey of temporal data mining. Sadhana, 31(2):
+  173–198, 2006.
+Bingbin Liu, Jordan T. Ash, Surbhi Goel, Akshay Krishnamurthy, and Cyril Zhang. Trans-
+  formers Learn Shortcuts to Automata. In The Eleventh International Conference on
+  Learning Representations, 2023.
+Andreas Maletti. Survey: Finite-state technology in natural language processing. Theoretical
+ Computer Science, 679:2–17, 2017.
+Mehryar Mohri. On some applications of finite-state automata theory to natural language
+ processing. Natural Language Engineering, 2(1):61–80, 1996.
+Mehryar Mohri. Finite-state transducers in language and speech processing. Computational
+ Linguistics, 23(2):269–311, 1997.
+Nick Palmer and Paul W. Goldberg. PAC-Learnability of Probabilistic Deterministic Finite
+  State Automata in Terms of Variation Distance. In Algorithmic Learning Theory, pages
+  157–170, Berlin, Heidelberg, 2005. Springer Berlin Heidelberg.
+
+                                            17
+Rajesh Parekh and Vasant Honavar. Learning DFA from simple examples. In Algorithmic
+  Learning Theory, pages 116–131. Springer Berlin Heidelberg, 1997.
+Leonard Pitt and Manfred K. Warmuth. The minimum consistent DFA problem cannot be
+  approximated within any polynomial. Journal of the ACM, 40(1):95–142, 1993.
+Lev Reyzin. Statistical Queries and Statistical Algorithms: Foundations and Applications,
+  2020.
+Dana Ron, Yoram Singer, and Naftali Tishby. On the learnability and usage of acyclic
+  probabilistic finite automata. In Proceedings of the Eighth Annual Conference on Compu-
+  tational Learning Theory, COLT ’95, pages 31–40. Association for Computing Machinery,
+ 1995.
+Yasubumi Sakakibara. Grammatical inference in bioinformatics. IEEE Transactions on
+  Pattern Analysis and Machine Intelligence, 27(7):1051–1062, 2005.
+J.P. Serre. Linear Representations of Finite Groups. Graduate texts in mathematics. Springer-
+   Verlag, 1996.
+Jacob Steinhardt, Gregory Valiant, and Stefan Wager. Memory, Communication, and
+  Statistical Queries. In 29th Annual Conference on Learning Theory, volume 49 of
+  Proceedings of Machine Learning Research, pages 1490–1516. PMLR, 2016.
+Kaito Suzuki, Diptarama Hendrian, Ryo Yoshinaka, and Ayumi Shinohara. Query Learning
+  Algorithm for Symbolic Weighted Finite Automata. In Proceedings of the Fifteenth
+  International Conference on Grammatical Inference, volume 153 of Proceedings of
+  Machine Learning Research, pages 202–216. PMLR, 2021.
+Balázs Szörényi. Characterizing Statistical Query Learning: Simplified Notions and Proofs.
+  In Algorithmic Learning Theory, pages 186–200. Springer Berlin Heidelberg, 2009.
+B. A. Trakhtenbrot and J. M. Barzdin. Finite Automata: Behavior and Synthesis. North-
+  Holland Publishing Company, 1973.
+Joel A. Tropp. An Introduction to Matrix Concentration Inequalities. Foundations and
+  Trends® in Machine Learning, 8(1-2):1–230, 2015.
+Guy Tsafnat, Jaron Schaeffer, Andrew Clayphan, Jon R. Iredell, Sally R. Partridge, and
+ Enrico Coiera. Computational inference of grammars for larger-than-gene structures from
+ annotated gene sequences. Bioinformatics, 27(6):791–796, 2011.
+Marcell Vazquez-Chanlatte, Karim Elmaaroufi, Stefan Witwicki, Matei Zaharia, and San-
+ jit A. Seshia. L*LM: Learning Automata from Demonstrations, Examples, and Natural
+ Language. In Proceedings of the International Conference on Neuro-symbolic Systems,
+ volume 288 of Proceedings of Machine Learning Research, pages 543–569. PMLR, 2025.
+Zixuan Wang, Eshaan Nichani, Alberto Bietti, Alex Damian, Daniel Hsu, Jason D Lee, and
+  Denny Wu. Learning Compositional Functions with Transformers from Easy-to-Hard
+
+                                             18
+  Data. In Proceedings of Thirty Eighth Conference on Learning Theory, Proceedings of
+  Machine Learning Research, pages 5632–5711. PMLR, 2025.
+Gail Weiss, Yoav Goldberg, and Eran Yahav. Extracting Automata from Recurrent Neural
+  Networks Using Queries and Counterexamples. In Proceedings of the 35th International
+ Conference on Machine Learning, volume 80 of Proceedings of Machine Learning
+ Research, pages 5247–5256. PMLR, 2018.
+Wilson Wu. Learning Deterministic Finite Automata from Confidence Oracles, 2023. arXiv:
+ 2311.10963.
+Kevin Zhou. Query Learning Bounds for Advice and Nominal Automata. In Automated
+ Technology for Verification and Analysis, pages 257–278. Springer Nature Switzerland,
+  2025.
+
+
+
+
+                                          19
+A     More on related work
+In this section, we review a broad range of DFA learnability results outside the statistical
+query model. These include results in the PAC model, learning with margin-based guarantees,
+and query-based learning. We cover both positive and negative results.
+
+A.1    Learnability within the PAC model
+Positive results. One of the first positive results was given in (Clark and Thollard, 2004;
+Palmer and Goldberg, 2005), where, with structural assumptions, the PAC-learnability of
+probabilistic DFAs is proved. Another approach restricts the distribution of examples; for
+instance, Parekh and Honavar (1997) showed that “simple” DFAs are PAC-learnable under
+the universal distribution. Early work by Ron et al. (1995) showed that acyclic Probabilistic
+Deterministic Finite Automata (PDFAs) were learnable. This was followed by a series of
+results on learning general PDFAs using state-merging techniques (Carrasco and Oncina,
+1994; Carrasco, Rafael C. and Oncina, Jose, 1999; Lang et al., 1998). A key theoretical
+breakthrough came by Clark and Thollard (2004), which proved the PAC-learnability of
+PDFAs by parameterizing the complexity by the “distinguishability” of the automaton’s
+states. This line of research culminated in the work of Balle et al. (2013) (and the corre-
+sponding thesis (Balle, 2013)), which rigorously characterized state-merging algorithms.
+They proved that PDFAs are efficiently learnable, but crucially, that the complexity must
+depend polynomially on the inverse of the distinguishability parameter. Finally, the work
+by Ergün et al. (1995) investigates the PAC-learnability of deterministic finite automata
+(DFAs), focusing on the subclass of bounded-width branching programs. It shows that
+width-2 branching programs can be efficiently learned (both distribution-free and properly
+under the uniform distribution), while learning width-3 branching programs is at least as
+hard as learning disjunctive normal forms.
+Negative results. The first hardness results for DFA were established in the works of Angluin
+(1978); Gold (1978); Pitt and Warmuth (1993) under standard complexity assumptions.
+Subsequent works by Kearns and Valiant (1994) and Kearns and Vazirani (1994) established
+representation-independent hardness results for finite automata within the PAC model by
+utilizing “bad” distributions over the input so that any efficient learning algorithm that
+achieves a polynomial advantage over random guessing will break various cryptographic
+hardness assumptions. We remark that establishing a hardness result for the PAC-learnability
+of random DFAs, i.e., DFAs with transition functions and accepting states chosen uniformly
+at random, remains an open problem (Fish and Reyzin, 2017).
+
+A.2    Learnability with margin-based guarantees
+A different line of work from the state-merging approach considers margin-based guarantees,
+a framework weaker than PAC learning (Cortes et al., 2007; Kontorovich et al., 2006;
+Kontorovich and Nadler, 2009; Kontorovich et al., 2008). This approach embeds piecewise-
+
+                                             20
+testable languages and other discrete concepts into high-dimensional spaces using kernel
+methods and identifies languages via hyperplanes.
+
+A.3     Learnability based on queries
+The seminal L∗ algorithm by Angluin (1987) showed that DFAs are efficiently learnable
+in polynomial time using membership and equivalence queries. This foundational result
+established a fundamental dichotomy: DFAs are easy to learn with an interactive teacher
+but hard to learn from random examples alone. The power of queries has been extensively
+studied by Angluin (1988), with research exploring the query complexity of learning
+(Balcázar et al., 1994) and establishing lower bounds on the number of queries required
+(Kruger et al., 2023). This line of work has been extended to more complex automata
+models, such as register automata (Bollig et al., 2013), symbolic weighted automata (Suzuki
+et al., 2021), and nominal DFAs (Zhou, 2025), and has been surveyed in works like (Isberner,
+2015). More recently, researchers have explored using modern tools like Recurrent Neural
+Networks (Weiss et al., 2018) and Large Language Models (Vazquez-Chanlatte et al., 2025)
+to act as oracles. Other works have demonstrated learnability with different powerful oracles,
+such as those that provide confidence scores (Wu, 2023). Another approach has been to
+restrict the class of learnable automata, leading to positive SQ results for specific subclasses
+such as shuffle ideals (Angluin et al., 2013).
+
+
+B       Abstract algebra background
+This section provides a concise overview of the essential concepts from group theory and
+representation theory that are used in our proofs. It is divided into two parts: in Appendix B.1
+we present foundational definitions and results from both theories, while in Appendix B.2
+we focus specifically on the representation theory of the symmetric group SN , which plays
+a central role in our analysis.
+
+B.1     Group and representation theory basics
+To enhance readability, this section is further divided into two subsections: in Appendix B.1.1
+we present an overview of elementary definitions and facts from group theory, whereas
+in Appendix B.1.2 we provide a concise summary of key definitions and results from the
+representation theory of groups. The results presented in Appendix B.1.1 are standard and
+can be found in any introductory text on abstract algebra, such as Lang (2005). The results
+in Appendix B.1.2 are likewise standard within the representation theory literature and can
+be found, for instance, in Serre (1996).
+
+B.1.1    Group theory overview
+We begin by defining the notion of a group:
+
+                                              21
+Definition B.1 (Group). A group is a non-empty set G endowed with a binary operation
+⋆ : G × G → G such that the following three axioms are satisfied:
+   1. Associativity: For all a, b, c ∈ G one has (a ⋆ b) ⋆ c = a ⋆ (b ⋆ c).
+   2. Identity element: There exists an element id ∈ G such that for all elements g ∈ G
+      one has g ⋆ id = id ⋆g = g.
+   3. Inverse element: For each element g ∈ G there exists an element h ∈ G such that
+      g ⋆ h = h ⋆ g = id.
+From the above definition, it follows that id is unique and that for each g ∈ G, the element
+h ∈ G that satisfies Item 3 is unique. Hence, we may write g −1 to refer to that element.
+Furthermore, when it is clear from the context, for g, h ∈ G we will write gh instead of
+g ⋆ h and also use the notation g n := g ⋆ · · · ⋆ g. The order of G, denoted by |G|, is the
+size of the underlying set G. The order of an element g ∈ G, denoted by |g|, is the smallest
+integer n ∈ N such that g n = id. If no such n exists, we say that g has infinite order.
+The order of every element g ∈ G divides the order of the group G (Lagrange’s theorem,
+Proposition 2.2 in Lang (2005)), and in particular |g| ≤ |G|. The latter shows that when G
+is finite, every element has finite order and that g |G| = id. We can now define the notion of a
+homomorphism, which is a mapping between groups that respects their structure.
+Definition B.2. Let (G, ⋆) and (H, ∗) be groups. A homomorphism is a mapping f : G → H
+such that for all g1 , g2 ∈ G one has
+
+                                        f (g1 ⋆ g2 ) = f (g1 ) ∗ f (g2 ).
+
+From the definition, it follows that f maps the identity of G to the identity of H, namely
+f (idG ) = idH .3 When f is bijective, we say that it is an isomorphism and the groups G
+and H are called isomorphic. In that case we write G ≃ H. From an algebraic perspective,
+isomorphic groups are essentially the same group. An isomorphism f : G → G is called an
+automorphism of G.
+Example 1. Here we present two key examples, which we will encounter frequently in this
+work:
+ i) The set of all permutations of 1, 2, . . . , N , equipped with the operation of function
+    composition, where applying σ ◦ π means first applying π followed by σ, forms a group,
+    denoted by SN . Its order is |SN | = N !.
+ ii) Let V be a vector space over a field F. The set of automorphisms of V , i.e., the set of
+     all bijective linear transformations V → V , endowed with the function composition
+     operation, is a group, denoted by GL(V ). When V is a finite-dimensional vector
+     space of dimension d < ∞, the group GL(V ) is isomorphic to the group GL(d, F)
+     of invertible d × d matrices over F with the operation of matrix multiplication. The
+   3
+       To see why, write f (idG ) = f (idG idG ) = f (idG )2 and pre-multiply by f (idG )−1 .
+
+
+                                                       22
+    isomorphism maps each automorphism of V to its matrix representation, allowing us to
+    view elements of GL(V ) as d × d invertible matrices with entries in F.
+Next, we define the direct product of two groups as follows:
+Definition B.3 (Direct product). Let (G, ⋆) and (H, ∗) be groups. We endow the Cartesian
+product G × H with the binary operation ◦ : (G × H) × (G × H) → G × H defined
+component-wise:
+                          (g1 , h1 ) ◦ (g2 , h2 ) = (g1 ⋆ g2 , h1 ∗ h2 ).
+The resulting structure (G × H, ◦) satisfies the group axioms and is called the direct product
+of G and H, denoted by G × H.
+Lastly, we conclude this section by discussing conjugacy, a key property when studying
+group representations.
+Definition B.4 (Conjugacy). Let G be a group and let g, h ∈ G. The elements g and h are
+called conjugate if there exists a ∈ G such that h = aga−1 . This is an equivalence relation
+whose equivalence classes are called conjugacy classes.
+
+B.1.2   Representation theory overview
+At a high level, representation theory provides a powerful framework for studying groups by
+translating their abstract algebraic structure into the concrete language of linear algebra. We
+begin by presenting the definition of a representation:
+Definition B.5 (Representation). Let G be a group. A representation of G over a vector
+space V over some field F is a homomorphism ρ : G → GL(V ). The dimension of the
+representation, denoted by dρ , is the dimension of the vector space V .
+From this point forward, we will assume that all groups are finite, all representations are
+finite-dimensional, and that F = C. These assumptions hold in all cases relevant to our work.
+By the discussion in Example 1, we can therefore view the image of each g ∈ G under ρ, i.e.
+ρ(g), as an invertible dρ × dρ complex matrix. From the definition, we immediately get that
+ρ(id) = Idρ and that ρ(g −1 ) = ρ(g)−1 . Furthermore, it can be shown that ρ(g) can always
+be chosen to be unitary (c.f. Section 1.3 in Serre (1996)), in which case ρ(g −1 ) = ρ(g)∗ .
+Example 2. The trivial representation, denoted by triv, maps each group element to the
+1 × 1 identity matrix. Hence, dtriv = 1.
+We can define the notion of an isomorphism between two representations as follows:
+Definition B.6 (Isomorphic representations). Two representations (ρ, V ), (σ, V ′ ) of a group
+G are called isomorphic if there exists a linear isomorphism τ : V → V ′ such that
+τ ◦ ρ(g) = ρ′ (g) ◦ τ for all g ∈ G. In that case, we write ρ ≃ σ.
+Next, we define the concept of irreducible representations. Maschke’s theorem (Theorem
+2 in Serre (1996)) guarantees that every representation is isomorphic to a direct sum of
+
+                                              23
+irreducible representations, allowing us to restrict our study to only those representations
+that are irreducible.
+Definition B.7 (Irreducible representation). A representation ρ : G → GL(V ) over a vector
+space V is called irreducible if the only subspaces of V that are left invariant by every ρ(g)
+are {0} and V . In symbols, ρ is irreducible if the following holds for any subspace W ⊆ V :
+                 ρ(g)(W ) ⊆ W for all g ∈ G =⇒ W = {0} or W = V
+We use the abbreviation irreps to refer to the irreducible representations. The set of all
+irreducible unitary representations of G is denoted by Ĝ.
+Next, we define the direct sum of two representations.
+Definition B.8 (Direct sum of representations). Let ρ1 : G → GL(V1 ) and ρ2 : G →
+GL(V2 ) be two representations of G. Their direct sum is defined as the representation
+ρ1 ⊕ ρ2 : G → GL(V1 ⊕ V2 ) and its action is given by
+                                               "                #
+                                              ρ (g)   0
+                              (ρ1 ⊕ ρ2 )(g) = 1
+                                                0   ρ2 (g)
+for all g ∈ G. The definition trivially extends to a finite number of representations.
+In what follows, we characterize the irreducible representations of the direct product via the
+irreducible representations of the individual groups. To do so, we need to define the tensor
+product representation:
+Definition B.9 (Tensor product of representations). Let G and H be two groups and let
+ρ : G → GL(V1 ) and σ : H → GL(V2 ) be representations of G and H, respectively. We
+define the tensor product representation ρ ⊗ σ of the direct product G × H over V1 ⊗ V2 as
+the representation
+                              ρ ⊗ σ : G × H → GL(V1 ⊗ V2 )
+                                       (g, h) 7→ ρ(g) ⊗ σ(h)
+The dimension of ρ ⊗ σ is dρ⊗σ = dim(V1 ⊗ V2 ) = dim(V1 ) dim(V2 ) = dρ dσ .
+For finite groups, the action of the tensor product representation ρ ⊗ σ on an element
+(g, h) ∈ G × H can be realized as the Kronecker product of the corresponding matrices ρ(g)
+and σ(h). As such, standard Kronecker product properties apply.
+The following theorem yields a complete characterization of the irreducible representations
+of G × H.
+Theorem B.1 (Theorem 10 in Serre (1996)). Every irreducible (unitary) representation of
+G × H is isomorphic to a tensor product of irreducible (unitary) representations of G and
+H. Symbolically, if Π = G × H we have
+                                    n                       o
+                              Π̂ ≃ ρ ⊗ σ : ρ ∈ Ĝ, σ ∈ Ĥ .
+
+                                             24
+We now move to the study of characters, an essential tool in representation theory that
+captures key information about a representation.
+Definition B.10 (Character). Let ρ : G → GL(V ) be a representation of a group G
+over a vector space V . Define the character of ρ as the mapping χρ : G → C given by
+χρ (g) = Tr[ρ(g)] for each g ∈ G.
+Definition B.11 (Class function). A function f : G → C that is constant on every conjugacy
+class of G is called a class function.
+From the cyclic property of the trace, we immediately get the following:
+Remark B.1. The character of any representation is a class function.
+By Definition B.6 we can also deduce the following:
+Remark B.2. The characters of two isomorphic representations of G are equal. Namely, if
+ρ ≃ σ then χρ (g) = χσ (g) for all g ∈ G.
+
+Proof. Since ρ ≃ σ, there exists an invertible matrix P such that σ(g) = P ρ(g)P −1 for all
+g ∈ G. Hence,
+
+       χσ (g) = Tr(σ(g)) = Tr(P ρ(g)P −1 ) = Tr(P −1 P ρ(g)) = Tr(ρ(g)) = χρ (g).
+
+
+
+For two complex-valued functions f : G → C and h : G → C we define a scalar product as
+
+                                            1 X
+                                ⟨f, h⟩ =           f (g)h(g).                              (2)
+                                           |G| g∈G
+
+It can be shown that Equation (2) defines an inner product when restricted to the set of class
+functions. In particular, for the case of characters, we have the following theorem:
+Theorem B.2 (Orthogonality relations, Theorem 3 in Serre (1996)). If χ is the character of
+an irreducible representation of G, then ⟨χ, χ⟩ = 1. Furthermore, if χ, χ′ are the characters
+of two non-isomorphic irreducible representations of G, then ⟨χ, χ′ ⟩ = 0.
+Next, we present Schur’s orthogonality relations, also known as the “Great Orthogonality
+Theorem”, which provides a powerful tool for simplifying several calculations in our proofs:
+Theorem B.3 (Great Orthogonality Theorem, Corollaries 1-3 in Serre (1996)). Let ρ and
+σ be two non-isomorphic irreducible unitary representations ρ and σ of G. Let ρ(g)ij and
+σ(g)kl denote matrix elements of ρ(g) and σ(g), respectively. Then
+
+                                         ρ(g)∗ij σ(g)kl = 0.
+                                    X
+
+                                   g∈G
+
+
+
+                                               25
+For matrices of the same irreducible unitary representation ρ, the relation is:
+                                                         |G|
+                                      ρ(g)∗ij ρ(g)kl =
+                                 X
+                                                             δil δjk ,
+                                g∈G                       dρ
+
+where δ denotes the Kronecker delta and A∗ the conjugate transpose of a matrix A.
+The strength of representation theory lies in its ability to provide a clean analogue of
+Fourier analysis when working on groups. This perspective proves especially valuable when
+analyzing random processes on groups. We provide the definition below:
+Definition B.12 (Fourier transform). Let G be a group and let ρ : G → GL(V ) be a
+representation. The Fourier transform is a matrix valued function acting on G given by
+                                                X
+                                      ρ(f ) =         f (g)ρ(g).
+                                                g∈G
+
+
+The convolution of two functions acting on the same group is defined as follows:
+Definition B.13 (Convolution). Let G be a group and let f1 : G → C and f2 : G → C be
+functions acting on G. The convolution f1 ∗ f2 : G → C is given by
+
+                                                      f2 (gh−1 )f1 (h).
+                                                X
+                              (f1 ∗ f2 )(g) =
+                                                h∈G
+
+
+The following textbook result gives the Fourier transform of the convolution of two functions
+in terms of their individual Fourier transforms:
+Lemma B.1 (Lemma 1 in Diaconis and Shahshahani (1981)). Let G be a group and let f1 ,
+f2 be functions acting on G. Then for any representation ρ we have
+
+                                   ρ(f1 ∗ f2 ) = ρ(f1 )ρ(f2 ).
+
+By induction, Lemma B.1 generalizes for the convolution of more than two functions.
+Concluding this section, we present a series of standard lemmas that we use in our analysis:
+Lemma B.2 (Plancherel formula, Exercise 3.32 in Fulton and Harris (2013)). Let G be a
+group and f, h : G → C. Then
+                                             1 X
+                                                     dρ Tr[ρ(f )ρ(h)∗ ].
+                         X
+                              f (g)h(g) =
+                        g∈G                 |G| ρ∈Ĝ
+
+The sum of the right-hand side is taken over all irreducible unitary representations of G.
+Lemma B.3 (Schur’s lemma, Proposition 4 in Serre (1996)). Let ρ1 : G → GL(V1 )
+and ρ2 : G → GL(V2 ) be irreducible representations of G, and let M be a matrix that
+ρ2 (g)M = M ρ1 (g) for all g ∈ G. Then:
+
+                                                 26
+   1. If ρ1 and ρ2 are not isomorphic, we have M = 0
+   2. If V1 = V2 and ρ1 = ρ2 , then M = cI for some c ∈ C.
+Schur’s Lemma gives rise to a useful corollary in the case where a representation ρ : G →
+GL(V ) can be decomposed into a direct sum of non-isomorphic irreps (ρ1 , V1 ), . . . , (ρk , Vk ),
+i.e., ρ = ρ1 ⊕ · · · ⊕ ρk and ρi ̸≃ ρj for all i ̸= j:
+Corollary B.1 (Schur’s Lemma for reducible representations). Let ρ : G → GL(V )
+be a representation of G that decomposes as a direct sum of non-isomorphic irreps
+(ρ1 , V1 ), . . . , (ρk , Vk ), and let M be a matrix such that ρ(g)M = M ρ(g) for all g ∈ G.
+Then
+                                           c1 Idρ1    0    ...   0
+                                                                   
+                                          0       c2 Idρ2 . . . 0 
+                                                                   
+                                    M =  ..               ..   .. 
+                                          .                   .  . 
+                                                                    
+
+                                          0           ...         0      ck Idρk
+for some constants c1 , . . . , ck ∈ C.
+
+Proof. Recall that by Definition B.8 we have
+                                                                              
+                                          ρ1 (g) . . .                  0
+                                          .      ..                    .. 
+                                  ρ(g) =  ..
+                                                    .                   . 
+                                                                           
+                                                  0         ...       ρk (g)
+
+The condition ρ(g)M = M ρ(g) thus translates to
+                                                                                                        
+    M11 . . .     M1k ρ1 (g) . . .          0         ρ1 (g) . . .                   0       M11 . . .   M1k
+    .   ...       ..   .   ...            ..      .      ...                     ..   .    ...     .. 
+    .
+    .                  ..
+                    .                        .  =  ..                                  ..
+                                                                                       .                  . 
+                                                                                         
+                                                                                                             
+    Mk1 . . .     Mkk     0  ...          ρk (g)        0    ...                   ρk (g) Mk1 . . .      Mkk
+
+where Mij are dρi × dρj blocks of M . This gives Mij ρj (g) = ρi (g)Mij for all i, j ∈ [k].
+The result trivially follows by applying Schur’s Lemma (Lemma B.3).
+
+Lemma B.4 (Lemma 5 in Diaconis and Shahshahani (1981)). Let G be a group and ρ an
+irreducible representation of G. Let f : G → C be a class function, i.e., it is constant on
+each conjugacy class. Let fi be the value of f on the i-th conjugacy class, ni the cardinality
+of the i-th conjugacy class, and χi the value of the character of ρ on the i-th conjugacy class.
+Then
+                                                        1 X
+                         ρ(f ) = CI where C =                  fi ni χi .
+                                                        dρ i
+The sum is taken over distinct conjugacy classes.
+The last result, which we prove, characterizes the Fourier transforms of the uniform proba-
+bility distribution on a group G with respect to irreducible representations.
+
+                                                      27
+Lemma B.5. Let G be a group and U : G → C be the uniform probability distribution over
+G, namely U (g) = 1/|G| for all g ∈ G. Then
+                                      
+                                      1            if ρ = triv
+                            ρ(U ) =
+                                      0d ×d
+                                           ρ   ρ    if ρ ∈ Ĝ \ {triv}.
+
+Proof. The case ρ = triv follows by the definition of the trivial representation. For an irrep
+ρ ̸= triv we use Schur’s lemma (Lemma B.3). Notice that for all g ∈ G we have
+                                                           1 X
+                           ρ(U )ρ(g) = ρ(g)ρ(U ) =                ρ(g).
+                                                          |G| g∈G
+
+Hence, Schur’s lemma asserts that ρ(U ) = cIdρ for some c ∈ C. Taking the trace of both
+sides, we get
+                                  1 X
+                                         χρ (g) = cdρ .
+                                 |G| g∈G
+The left-hand side of the above expression is precisely the product of the characters of ρ and
+triv, ⟨χρ , χtriv ⟩. By the orthogonality relations of characters, ⟨χρ , χtriv ⟩ = 0 and so c = 0.
+This concludes the proof.
+
+B.2    Representations of the symmetric group
+Although the results of the previous section apply to any finite group, this work exclusively
+focuses on the symmetric group SN and the product group SN × SN . Fortunately, the
+representation theory of symmetric groups is well studied, and we can draw on a wealth
+of established results. In this section, we summarize the key definitions and facts about
+the representations of SN . Most of the results presented as “Facts” are taken from Chapter
+4 of Fulton and Harris (2013). Alongside each statement, we provide a reference to the
+corresponding passage. Recall the definition of the symmetric group from Example 1:
+Definition B.14 (Symmetric group). The set SN of all permutations of [N ] (i.e., bijections
+f : [N ] → [N ]), equipped with function composition, forms a group of order N ! called the
+symmetric group on N elements.
+It can be shown that irreducible representations of SN are in one-to-one correspondence
+with the partitions of N . A partition of a positive integer N is a tuple (λ1 , . . . , λk ) ∈ Nk
+such that λ1 ≥ λ2 ≥ · · · ≥ λk ≥ 1 and λ1 + · · · + λk = N . We can now characterize the
+irreps of SN as follows:
+Fact B.1 (p. 44 in Fulton and Harris (2013)). Each irrep of SN corresponds to a partition of
+N . Conversely, each partition of N corresponds to an irrep of SN . The trivial representation
+of SN corresponds to the partition (N ).
+
+
+
+                                                   28
+The standard representation of SN , denoted by std, is the representation corresponding
+to the partition (N − 1, 1). In what follows, we will occasionally denote irreps by their
+corresponding partitions. For example, we may write (N − 1, 1) instead of std.
+If we let p(N ) denote the number of partitions of N ∈ N, Fact B.1 and Theorem B.1 give
+the following:
+Remark B.3. The number of irreducible representations is p(N ) for SN and p(N )2 for
+SN × SN .
+The following fact states that irreducible representations of SN can be defined over the reals.
+Fact B.2 (p. 46 in Fulton and Harris (2013)). Each irreducible representation of SN can be
+defined over the rationals. In particular, we can define every irreducible representation ρ of
+SN such that ρ(g) is an orthogonal matrix for every g ∈ G.
+The dimension of an irrep can be determined solely by the corresponding partition, as shown
+in the following fact:
+Fact B.3 (Equation 4.11 in Fulton and Harris (2013)). Let ρ = (λ1 , . . . , λk ) be an irrep of
+SN . Then
+                                         N! Y
+                               dρ =                     (li − lj ),
+                                    l1 ! · · · lk ! i<j
+where li = λi + k − i.
+Another quantity of interest is the character ratio of transpositions. For an irrep ρ, it is
+defined as r(ρ) = χρ (τ )/dρ , where χρ (τ ) is the character of ρ evaluated at any transposi-
+tion.4 The following fact gives a closed-form expression for r(ρ) that only depends on the
+corresponding partition:
+Fact B.4 (Lemma 7 in Diaconis and Shahshahani (1981)). Let ρ = (λ1 , . . . , λk ) be an irrep
+of SN . The character ratio of transpositions is given by
+                                          k
+                                   1     Xh                                 i
+                     r(ρ) =                  (λj − j)(λj − j + 1) − j(j − 1) .
+                               N (N − 1) j=1
+
+Example 3. Using Fact B.4 we can obtain the following:
+ i) It follows by the definition of the trivial representation that r(triv) = 1. It is easy to see
+    that the expression given in Fact B.4 gives the same result.
+                                                                            −3
+ ii) For the standard representation std = (N − 1, 1), we obtain r(std) = N
+                                                                          N −1
+                                                                               .
+We now introduce the permutation representation of SN , a useful non-irreducible representa-
+tion of SN .
+
+   4
+       Note that this is well-defined since transpositions form a conjugacy class.
+
+
+                                                       29
+Definition B.15 (Permutation representation). Let {e1 , . . . , eN } be the standard basis of
+CN . The permutation representation5 of SN , denoted by perm, is the homomorphism
+ρ : SN → GL(CN ) defined by
+                                   ρ(g)(ei ) = eg(i)
+for all g ∈ SN and i ∈ [N ].
+We leave the verification that perm is indeed a valid representation of SN as an (easy)
+exercise. In essence, the permutation representation of an element g ∈ SN is the linear map
+that acts by permuting the standard basis vectors of CN according to g. The permutation
+representation is closely related to the number of fixed points of the elements of SN . This is
+made precise in Lemma B.6, following the definition of fixed points.
+Definition B.16. Let g ∈ SN be a permutation. We say that i ∈ [N ] is a fixed point of g if
+g(i) = i. The set of fixed points of g is denoted by fix(g) = {i ∈ [N ] : g(i) = i}.
+Lemma B.6. The character of perm on any g ∈ SN is equal to the number of fixed points
+of g. Namely, χperm (g) = | fix(g)| for all g ∈ SN .
+
+Proof. Observe that, by definition, when expressed in the standard basis, ρ(g) is a permu-
+tation matrix. The diagonal element in the (i, i)-th coordinate is equal to 1 if and only if
+ρ(g)(ei ) = ei , which happens if and only if g(i) = i, or equivalently i ∈ fix(g). Hence,
+                                                    N
+                                                    X
+                                     χperm (g) =          ρ(g)ii = | fix(g)|,
+                                                    i=1
+
+which concludes the proof.
+
+Since perm is not irreducible, Maschke’s theorem guarantees that it is isomorphic to a direct
+sum of irreps. The decomposition is given in the following fact:
+Fact B.5 (p. 55 in Fulton and Harris (2013)). The permutation decomposition of SN is
+isomorphic to the direct sum of the trivial and the standard representation of SN , namely
+perm ≃ triv ⊕ std. Consequently,
+
+                              χperm (g) = χtriv (g) + χstd (g) = 1 + χstd (g)
+
+for all g ∈ SN .
+
+
+C         Proof of Theorem 4.1
+In this section, we provide the full proof of Theorem 4.1. The proof relies on a technical
+lemma regarding the Fourier transform of the function on SN × SN given by (g, h) 7→
+| fix(h−1 g)|, which we state and prove first.
+    5
+        In some textbooks it may also be referred to as the defining representation of SN .
+
+
+                                                          30
+Lemma C.1 (Fourier transform of fix). Let G = SN × SN and f : G → C be given by
+f (g, h) = | fix(h−1 g)|. Then for any non-trivial irreducible representation Π of G, we have
+                                         
+                                          (N !)2 P            if Π = std ⊗ std
+                                            N −1      diag
+                              Π(f ) =
+                                         0                    otherwise
+                                              dΠ ×dΠ
+
+                                                                                             nP           o
+                                                                                               N −1
+where Pdiag is the orthogonal projection onto the diagonal subspace span                       i=1 ei ⊗ ei .
+
+
+Proof. By Theorem B.1, we can write Π = ρ ⊗ σ with at least one of the irreps ρ, σ ∈ ŜN
+being non-trivial. The Fourier transform of f is thus given by
+
+                                                     | fix(h−1 g)|ρ(g) ⊗ σ(h)
+                                           X
+                              Π(f ) =
+                                         g,h∈SN
+
+
+Performing the change of variables g ′ = h−1 g, the above sum becomes
+                               X
+                  Π(f ) =              | fix(g)|ρ(hg) ⊗ σ(h)
+                              g,h∈SN
+                               X
+                          =            | fix(g)|(ρ(h) ⊗ σ(h))(ρ(g) ⊗ Idσ )
+                              g,h∈SN
+                                                                          
+                              X                   X                       
+                          =          | fix(g)|               ρ(h) ⊗ σ(h) (ρ(g) ⊗ Idσ )
+                                                                          
+                              g∈SN                   h∈SN
+                                                                                
+                                  X                             X
+                          =           ρ(h) ⊗ σ(h)                   | fix(g)|ρ(g) ⊗ Idσ
+                               h∈SN                             g∈SN
+
+
+
+Since | fix(·)| is the character of the permutation representation of SN (Lemma B.6), and
+hence a class function on SN , by Lemma B.4, the second sum is equal to CIdρ where
+
+                         1 X                       N!
+                 C=              | fix(g)|χρ (g) =    (⟨χtriv , χρ ⟩ + ⟨χstd , χρ ⟩).
+                         dρ g∈SN                   dρ
+
+The last equality follows from the fact that the permutation representation decomposes as
+the direct sum of the trivial representation and the standard representation (Fact B.5). In
+particular, character orthogonality (Theorem B.2) yields C ̸= 0 if and only if ρ ∈ {triv, std}.
+For the first sum, let                             X
+                                        M=              ρ(h) ⊗ σ(h).
+                                                 h∈SN
+
+Indexing M by the indices of the products we get
+
+                                                                           ρ(h)⊤
+                                        X                              X
+                    M(i,j),(k,l) =            ρ(h)ij σ(h)kl =                  ji σ(h)kl .
+                                       h∈SN                         h∈SN
+
+
+
+                                                        31
+By the Great Orthogonality Theorem (Theorem B.3) and the fact that ρ can be taken such
+that ρ(h) is real for every h ∈ SN (Fact B.2), M(i,j),(k,l) vanishes, unless ρ = σ, in which
+case it works out to
+                                                 N!
+                                  M(i,j),(k,l) =    δjl δik .
+                                                 dρ
+In matrix form, when ρ = σ
+                                            ρ   d
+                                      N! X
+                                   M=          Eij ⊗ Eij ,
+                                      dρ i,j=1
+
+where Eij = ei ej ⊤ ∈ Rdρ ×dρ . Putting everything together, we obtain that Π(f ) does not
+vanish if and only if ρ = σ and ρ ∈ {triv, std}. If ρ = σ = triv then Π = triv, and so the
+only non-trivial irrep Π for which the Fourier transform does not vanish is Π = std ⊗ std.
+In that case, combining the above calculations with the fact that dstd ⊗ std = d2std = (N − 1)2 ,
+we obtain
+                                                  −1
+                                        (N !)2 NX
+                             Π(f ) =                 Eij ⊗ Eij .
+                                      (N − 1)2 i,j=1
+                                                               PN −1
+To see why this is equal to the required expression, let v =      i=1   ei ⊗ ei and observe that
+          −1                     −1                                  −1
+   1 NX                   1 NX             ⊤           ⊤      1 NX
+             Eij ⊗ Eij =            (e  e
+                                       i j   ) ⊗ (e e
+                                                   i j   ) =            (ei ⊗ ei )(ej ⊗ ej )⊤
+ N − 1 i,j=1             ∥v∥2 i,j=1                          ∥v∥2 i,j=1
+                                                  ! N −1         ⊤
+                                    N −1
+                            1                                              1
+                                                                                vv ⊤ .
+                                    X                X
+                         =                 ei ⊗ ei       ej ⊗ ej  =
+                           ∥v∥2     i=1              j=1                  ∥v∥ 2
+
+
+The latter expression is precisely equal to Pdiag , the orthogonal projection matrix onto
+span{v}, thus concluding the proof.
+
+We are now ready to prove Theorem 4.1, which we restate for convenience:
+Theorem 4.1 (Agreement probability). Consider the random walk corresponding to two
+semiautomata A and A′ operating on the same alphabet Σ and state-space Q, as described
+in Section 4.2. Let N = |Q| and let T ∈ N be the input length. Let X0 ∼ U(Q)
+be a (common) initial state picked uniformly at random. Denote by Pagree := Pagree (T )
+the probability that after processing the same uniformly random word wT ∈ Σ∗ , both
+semiautomata reach the same state. In terms of the random walk, this probability is given by
+                                                                             
+                 Pagree (T ) = PwT ∼U (Σ)⊗T ,X0 ∼U (Q) PwT (X0 ) = Pw′ T (X0 ) .
+
+Then
+                                        1     1
+                                  Pagree = + v ⊤ MΠT0 v,
+                                        N     N
+where MΠ0 is the Fourier transform of the single-step distribution TSA with respect to the
+                                                        P −1
+irreducible representation Π0 = std ⊗ std of G and v = N   i=1 ei ⊗ ei .
+
+
+                                                32
+Proof. The analysis of Pagree requires understanding the convergence of the joint distribution
+of (PwT , Pw′ T ) on the product group G = SN ×SN . We condition on the final state (g, h) ∈ G
+of the random walk after T steps. Let PT (g, h) = PwT (PwT = g, Pw′ T = h). The number
+of states on which two permutations g and h agree is the number of fixed points of h−1 g,
+denoted fix(h−1 g). Thus, we write:
+
+                       P(PwT = g, Pw′ T = h) · PX∼U (Q) (g(X) = h(X) | PwT = g, Pw′ T = h)
+                 X
+  Pagree =
+             (g,h)∈G
+                 X                   |{X ∈ Q | g(X) = h(X)}|
+         =             PT (g, h) ·
+             (g,h)∈G
+                                                N
+                 X                   | fix(h−1 g)|
+         =             PT (g, h) ·                 .
+             (g,h)∈G
+                                           N
+
+The distribution PT of the random walk on G can be written in terms of the uniform
+distribution over the elements of G, PU (g, h) = 1/|G| and a residual term err(g, h), namely
+PT (g, h) = PU (g, h) + err(g, h), where err(g, h) = PT (g, h) − PU (g, h). Therefore, we get
+                                                     !
+           1 X         1
+  Pagree =                  + err(g, h) · fix(h−1 g)
+           N (g,h)∈G (N !)2
+                 1                          1 X
+                               fix(h−1 g) +           (PT (g, h) − PU (g, h)) · fix(h−1 g) . (3)
+                         X
+        =
+             N · (N !) (g,h)∈G
+                      2                     N (g,h)∈G
+             |               {z                  }   |                         {z            }
+                         Main Term                                         Error Term
+
+For the main term of Equation (3) notice that for fixed g ∈ SN we have
+
+                                                fix(h−1 g) =
+                                         X                     X
+                                                                      fix(h)
+                                         h∈SN                  h∈SN
+
+since the map h 7→ h−1 g is a bijection. Hence, we have
+                                                              2
+                             1       X                 1             2   1
+             Main Term =                fix(g) =            · (N !)  =   ,                     (4)
+                         N · (N !)2 g∈SN           N · (N !)2            N
+
+where the second-to-last equality follows from the fact that
+
+                                                     1{g(X)=X} =                 1{g(X)=X}
+                     X                   X X                          X X
+                            fix(g) =
+                     g∈SN                g∈SN X∈Q                     X∈Q g∈SN
+                                         X
+                                     =         (N − 1)! = N · (N − 1)! = N !.
+                                         X∈Q
+
+We now turn our attention to the error term of Equation (3), given by
+                             1 X
+                                       (PT (g, h) − PU (g, h)) · fix(h−1 g).
+                             N (g,h)∈G
+
+                                                         33
+By letting f (g, h) = fix(h−1 g) and using the Plancherel formula (Lemma B.2), the error
+term is equal to:
+                            1     1 X
+                                ·        dΠ Tr (Π(err)Π(f )∗ ) .                     (5)
+                            N |G| Π∈Ĝ
+Since the Fourier transform is linear and Π(PU ) = 0 for any non-trivial irrep Π (Lemma B.5),
+and Π(PT ) = MΠT where MΠ is the Fourier transform of the single-step distribution
+(Lemma B.1), the expression simplifies to a sum over non-trivial irreps:
+                            1   1 X                      
+                              ·           dΠ Tr MΠT Π(f )∗ .
+                            N |G| Π̸=triv
+
+Finally, using Lemma C.1, we see that all terms of the sum vanish except for the contribution
+of the irrep std ⊗ std, which gives
+
+                                  1       (N !)2
+                Error Term =            ·        · (N − 1)2 Tr(MΠT0 Pdiag )
+                              N · (N !)2 N − 1
+                              N −1      1      
+                                                    T    ⊤
+                                                           
+                            =        ·      Tr   M Π0 vv
+                                N      ∥v∥2
+                              1
+                            = v ⊤ MΠT0 v,                                                 (6)
+                              N
+where the last equality follows from the cyclic property of the trace and the fact that
+∥v∥2 = N − 1. Substituting Equation (4) and Equation (6) into Equation (3) we obtain
+                                           1  1
+                                Pagree =     + v ⊤ MΠT0 v,
+                                           N  N
+as required.
+
+
+D     Proofs from Section 5
+In this section, we provide detailed proofs of the key results presented in Section 5:
+Lemma 5.1, Lemma 5.2, and Theorem 5.1. For the proof of Lemma 5.2, we make use of the
+following version of the Matrix Bernstein inequality for Hermitian matrices:
+Lemma D.1 (Matrix Bernstein inequality, Theorem 6.6.1 in Tropp (2015)). Let Z1 , . . . , Zm
+be independent random d × d Hermitian matrices with E[Zi ] = 0 and ∥Zi ∥2 ≤ B a.s. Let
+v=∥ m          2
+      P
+        i=1 E[Zi ]∥2 be the matrix variance parameter. Then for any t > 0:
+
+                             m
+                                           !                        !
+                             X                       −t2
+                        P        Zi > t ≤ d · exp
+                             i=1   2
+                                                  2v + 23 Bt
+
+The statements of the results are restated below for convenience.
+
+                                               34
+Lemma 5.1. Let N ≥ 4 and consider a randomized (k, M )-shuffle family F with M = N !
+and                            "                !                 #
+                  16(3N + 1)                 N!
+               k≥                N ln N + ln       + 2 ln(N − 1) .
+                    3(N − 1)                  2
+Then any two distinct semiautomata δi , δj ∈ F satisfy MΠi,j0                         1
+                                                                               ≤ 1 − 2N with probability at
+                                                                           2
+least 1 − exp(−N ln N ) where Π0 = std ⊗ std and MΠi,j0 denotes the Fourier transform of
+the single-step probability distribution for the joint walk according to δi and δj .
+
+Proof. Our proof can be summarized in two key steps: first, we compute the operator
+norm of the expectation of the Fourier transform of the single-step probability distribution;
+subsequently, we use concentration arguments to show that for the particular choice of k
+and M , the norm of the actual operator concentrates around this norm.
+Let ρ = std and take δi , δj ∈ F with i ̸= j. To avoid cluttering, we denote the state-
+transition function for each character τ ∈ Σk by δi (τ ). The expected Fourier transform of
+the single-step probability distribution for the joint walk according to δi and δj is given by
+                    1 X
+    E[MΠi,j0 ] =               E[ρ(δi (τ )) ⊗ ρ(δj (τ ))]
+                   |Σk | τ ∈Σk
+                           k X
+                     1 X            1                                                       
+             =                         ρ(τ ) ⊗ ρ(τ ) + ρ(τ ) ⊗ Idρ + Idρ ⊗ ρ(τ ) + Idρ ⊗ Idρ
+                   k|Σ1 | j=1 τ ∈Σ1 4
+                         "                                                                      
+                 1 X                          X                           X
+             =              ρ(τ ) ⊗ ρ(τ ) +       ρ(τ ) ⊗ Idρ + Idρ ⊗       ρ(τ )
+               4|Σ1 | τ ∈Σ1                   τ ∈Σ1                       τ ∈Σ1
+                                          #
+                            + |Σ1 |Id2ρ
+                                                             
+                 1       X                                     
+             =             ρ(τ ) ⊗ ρ(τ ) + 2cρ Id2 + |Σ1 |Id2                                          (7)
+               4|Σ1 |        τ ∈Σ1
+                                                   ρ          ρ
+
+
+
+where cρ = |Σ1 |r(ρ) is given by an application of Lemma B.4. Next, let
+                                               X
+                                          S=           ρ(τ ) ⊗ ρ(τ )
+                                               τ ∈Σ1
+
+and consider π(g) = ρ(g) ⊗ ρ(g) for all g ∈ SN . By Exercise 4.19 in Fulton and Harris
+(2013), for N ≥ 4, π is a (non-irreducible) representation of SN that decomposes as a direct
+sum of non-isomorphic irreps
+                            π ≃ triv ⊕ std ⊕(N − 2, 2) ⊕ (N − 2, 1, 1)                                   (8)
+where we identify representations by their corresponding partition. A short calculation
+shows that for all g ∈ SN we have
+                            π(g)Sπ(g)−1 =              ρ(gτ g −1 ) ⊗ ρ(gτ g −1 ).
+                                                X
+
+                                               τ ∈Σ1
+
+
+
+                                                       35
+and since the set of transpositions is a conjugacy class (Definition B.4), the sum above is
+equal to S. Hence, π(g)S = Sπ(g) for all g ∈ G, and by the generalization of Schur’s
+Lemma given in Corollary B.1, we obtain that (under a change of basis) S has a block
+diagonal form. In particular, we have that6
+
+              S = ctriv Idtriv ⊕ cstd Idstd ⊕ c(N −2,2) Id(N −2,2) ⊕ c(N −2,1,1) Id(N −2,1,1)
+
+The coefficients ca can be calculated by restricting S to the underlying vector space Va
+corresponding to each direct summand of Equation (8) and taking traces. Hence, for
+a ∈ {triv, std, (N − 2, 2), (N − 2, 1, 1)} we find
+                                                     X
+                                          ca d a =           χa (τ )
+                                                     τ ∈Σ1
+
+which, given that Σ1 is the set of transpositions, simplifies to
+                                                   χa (τ )
+                                    ca = |Σ1 | ·           = |Σ1 |r(a)
+                                                    da
+where χa (τ ) is the character of a on transpositions. The eigenvalues of E[MΠi,j0 ] are thus
+given by 4|Σ1 1 | (ca + 2cρ + |Σ1 |) for a ∈ {triv, std, (N − 2, 2), (N − 2, 1, 1)}. Substituting
+the values for ca , we find that the eigenvalues are given by 14 (r(a) + 2r(ρ) + 1). The value
+of the character ratios can be computed by invoking Fact B.4:
+    • For a = triv, we find r(a) = 1.
+                                        −3
+    • For a = ρ = std, we find r(a) = N
+                                      N −1
+                                           .
+    • For a = (N − 2, 2), we find r(a) = NN−4 .
+                                            N −5
+    • For a = (N − 2, 1, 1), we find r(a) = N −1
+                                                 .
+By the calculations above, we have
+                                    (                                                    )
+                                        N − 2 2N − 5 N 2 − 3N + 1 N − 3
+               spec(E[MΠi,j0 ]) =            ,        ,          ,      .                            (9)
+                                        N − 1 2(N − 1) N (N − 1) N − 1
+Since the expectation is Hermitian (representations can always be chosen to be unitary, see
+Appendix B.1.2), the operator norm of E[MΠi,j0 ] is equal to its maximum absolute eigenvalue
+and hence
+                                           N −2                1
+                           ∥E[MΠi,j0 ]∥2 =          =1−           .                     (10)
+                                           N −1            N −1
+For the last step of the proof, we will choose appropriate values for k and M and use the
+Matrix Bernstein inequality to derive a high probability bound on the operator norm ∥MΠi,j0 ∥2
+    6
+    While Corollary B.1 does not require a change of basis, in this case it is induced by the isomorphism
+between the representations in Equation (8). From this point onward, we assume that S is expressed in the
+new basis.
+
+
+                                                     36
+for a randomized (k, M )-shuffle family. Let F be such a family (the values k and M will be
+determined later) and fix δi , δj ∈ F. From the triangle inequality, we get
+
+                                  ∥MΠi,j0 ∥2 ≤ ∥E[MΠi,j0 ]∥2 + ∥MΠi,j0 − E[MΠi,j0 ]∥2 .                                         (11)
+
+For every τ ∈ Σk we let
+
+                          Zτi,j = ρ(δi (τ )) ⊗ ρ(δj (τ )) − E[ρ(δi (τ )) ⊗ ρ(δj (τ ))]
+
+and rewrite
+                                                                            1 X i,j
+                                           MΠi,j0 − E[MΠi,j0 ] =                      Z .                                       (12)
+                                                                           |Σk | τ ∈Σk τ
+By construction, the Zτi,j are independent, Hermitian,7 zero-mean matrices that satisfy
+
+              ∥Zτi,j ∥2 ≤ ∥ρ(δi (τ )) ⊗ ρ(δj (τ ))∥2 + ∥E[ρ(δi (τ )) ⊗ ρ(δj (τ ))]∥2 ≤ 2
+                                                                                       h               i
+                                                                                                   2
+                                                                                           (Zτi,j )            . For every τ ∈ Σk we
+                                                                          P
+We now analyze the variance parameter v =                                    τ ∈Σk E                       2
+have
+                           2   
+              E        Zτi,j          = E[(ρ(δi (τ )) ⊗ ρ(δj (τ )))2 ] − E[ρ(δi (τ )) ⊗ ρ(δj (τ ))]2
+                                      = Id2ρ − E[ρ(δi (τ )) ⊗ ρ(δj (τ ))]2
+
+where the last equality follows from the fact that transpositions in SN satisfy τ 2 = id and
+hence δi (τ )2 = id (regardless of the realization). Consequently,
+
+          (ρ(δi (τ )) ⊗ ρ(δj (τ )))2 = ρ(δi (τ ))2 ⊗ ρ(δj (τ ))2 = ρ(δi (τ )2 ) ⊗ ρ(δj (τ )2 )
+                                     = ρ(id) ⊗ ρ(id) = Id2ρ .
+
+By an application of Jensen’s inequality we get ∥E[ρ(δi (τ )) ⊗ ρ(δj (τ ))]∥2 ≤ 1, and since
+the expectation is Hermitian, we can deduce that Idρ − E[ρ(δi (τ )) ⊗ ρ(δj (τ ))]2 is positive
+semidefinite with eigenvalues bounded by 1. Hence,
+                                             2   
+                                         Zτi,j                          (Id2ρ − E[ρ(δi (τ )) ⊗ ρ(δj (τ ))]2 )
+                         X                                      X
+              v=                  E                         =
+                        τ ∈Σk                           2       τ ∈Σk                                                   2
+                               ∥Id2ρ − E[ρ(δi (τ )) ⊗ ρ(δj (τ ))]2 ∥2 ≤
+                        X                                                                   X
+                  ≤                                                                                1 = |Σk |.
+                       τ ∈Σk                                                               τ ∈Σk
+
+
+We call a randomized (k, M )-shuffle family F “bad” if there exist distinct semiautomata
+δi , δj ∈ F such that ∥MΠi,j0 − E[MΠi,j0 ]∥2 > 2N
+                                                1
+                                                  , and “good” otherwise. Notice that by
+    7
+     To see why, notice that since transpositions satisfy τ 2 = id we have δi (τ )2 = δj (τ )2 = id. Since ρ
+preserves the group operation and can be chosen to be unitary, ρ(δi (τ )) and ρ(δj (τ )) are Hermitian. The
+Kronecker product and the expectation of Hermitian (random) matrices are Hermitian.
+
+
+                                                                    37
+Equation (11), and the derivation in Equation (10), whenever F is a good family, every
+distinct pair of semiautomata δi , δj ∈ F satisfy
+                                                                                1    1      1
+        ∥MΠi,j0 ∥2 ≤ ∥E[MΠi,j0 ]∥2 + ∥MΠi,j0 − E[MΠi,j0 ]∥2 < 1 −                 +    =1−    ,
+                                                                                N   2N     2N
+as required. Hence, it suffices to consider the probability of generating a bad family. By the
+union bound
+                                                                       1
+                                                                        
+                                                  i,j        i,j
+                                       X
+                  P(F is bad) ≤               P ∥MΠ0 − E[MΠ0 ]∥2 >         .
+                                    δi ,δj ∈F                        2N
+Each term of the summation above can be upper-bounded by an application of the matrix
+Bernstein inequality. Indeed, by Equation (12) and matrix Bernstein we have
+                                                                                                   
+                                         1               1 X i,j                               1 
+                                              
+             P ∥MΠi,j0 − E[MΠi,j0 ]∥2 >            = P            Z                        ≥
+                                        2N              |Σk | τ ∈Σk τ                         2N
+                                                                                        2
+                                                                                               
+                                                                                        |Σk | 
+                                                                        Zτi,j
+                                                                X
+                                                   = P                             ≥
+                                                                τ ∈Σk                    2N
+                                                                                2
+                                                                                            2
+                                                                                                   
+                                                                                    − |Σk|
+                                                                                       4N 2
+                                                   ≤ d2ρ · exp                                     
+                                                                        2|Σk | + 23 · 2 · |Σk|
+                                                                                           2N
+
+Since the right-hand side of the above inequality does not depend on δi and δj , we can bound
+                                                                                    2
+                                                                                               
+                                                         − |Σ k|
+                                         !
+                                 N!                         4N 2
+                   P(F is bad) ≤    · d2ρ · exp            2      |Σk |
+                                                                         
+                                 2                2|Σk | + 3 · 2 · 2N
+                                          
+Substituting dρ = N − 1 and |Σk | = k N2 , and after some algebraic manipulations, we find
+that taking                        "                   !               #
+                      16(3N + 1)                   N!
+                  k≥                 N ln N + ln         + 2 ln(N − 1)
+                       3(N − 1)                     2
+guarantees that the probability of F being bad is upper bounded by exp(−N ln N ), con-
+cluding the proof.
+
+Lemma 5.2. For M = N ! and N ≥ 4, if we choose the alphabet parameter
+                                     "                            !                             #
+                      16(3N + 1)             N!
+                   k≥            N ln N + ln    + 2 ln(N − 1) ,
+                       3(N − 1)              2
+then any pair of semiautomata (δi , δj ) from a randomized (k, M )-shuffle family F satisfies
+                                                                        T
+                                          1       1
+                                                        
+                                 Pagree −   ≤ 1−
+                                          N      2N
+with probability at least 1 − exp(−N ln N ).
+
+                                                   38
+Proof. Let δi , δj ∈ F with i ̸= j. By Theorem 4.1 we have
+                                           1  1
+                                Pagree =     + v ⊤ MΠT0 v
+                                           N  N
+              −1
+where v = N i=1 ei ⊗ ei . By Lemma 5.1, for the choice of k assumed, with probability
+            P
+
+1 − exp(−N ln N ) we have
+                 |v ⊤ MΠT0 v|   ∥MΠT0 ∥2 · ∥v∥2
+                                                                   T                         T
+             1                                        1                 N −1       1
+                                                                              
+    Pagree −   =              ≤                 ≤ 1−                         ≤ 1−                  .
+             N        N               N              2N                  N        2N
+This concludes the proof.
+
+Theorem 5.1. For T ≥ 2N ln(N !) and k and M as given in Lemma 5.2, we have that any
+pair of distinct semiautomata (δi , δj ) from a randomized (k, M )-shuffle family F satisfies
+|Pagree − 1/N | ≤ 1/N ! with probability at least 1 − exp(−N ln N ).
+
+Proof. From the bound of Lemma 5.2, the inequality 1 − x ≤ e−x which holds for all x ∈ R,
+and the choice of T ≥ 2N ln(N !), we get:
+                                 T                                            !
+                 1       1                       T                2N ln(N !)           1
+                                                    
+        Pagree −   ≤ 1−                 ≤ exp −           ≤ exp −                  =      ,
+                 N      2N                      2N                   2N                N!
+concluding the proof.
+
+
+E      Proof of Theorem 5.2
+In this section, we prove Theorem 5.2, which we restate for convenience:
+Theorem 5.2 (Tightness of mixing time). Let N ≥ 5, and let k and M be as in Lemma 5.2.
+For any pair of distinct semiautomata (δi , δj ) from a randomized (k, M )-shuffle family to
+satisfy |Pagree − 1/N | ≤ 1/N ! with probability 1 − exp(−N ln N ), the input word length
+must be at least T = Ω(N 2 ln N ).
+The proof requires deriving a lower bound on |Pagree − 1/N | that decays exponentially in T ,
+which is given by the following lemma:
+Lemma E.1. For M = N ! and N ≥ 5, if we choose the alphabet parameter
+                                    "                     !                #
+                     16(3N + 1)             N!
+                  k≥            N ln N + ln    + 2 ln(N − 1) ,
+                      3(N − 1)              2
+then any pair of semiautomata (δi , δj ) from a randomized (k, M )-shuffle family F satisfies
+                                                              T
+                                        1   1    3
+                                                  
+                               Pagree −   ≥   1−
+                                        N   2    N
+with probability at least 1 − exp(−N ln N ).
+
+                                             39
+Proof. From Equation (9), the minimum eigenvalue of the expected operator E[MΠi,j0 ] is
+given by λmin (E[MΠi,j0 ]) = N −3
+                             N −1
+                                  . Furthermore, we have shown that, for k chosen as in the
+statement, with probability at least 1 − exp(−N ln N ), the deviation ∥MΠi,j0 − E[MΠi,j0 ]∥2
+satisfies
+                                                             1
+                                   ∥MΠi,j0 − E[MΠi,j0 ]∥2 ≤    .
+                                                            2N
+By Weyl’s inequality, with probability at least 1 − exp(−N ln N ), it holds
+
+                                                                                           N −3   1
+           λmin (MΠ0 ) ≥ λmin (E[MΠi,j0 ]) − ∥MΠi,j0 − E[MΠi,j0 ]∥2 ≥                           −   .            (13)
+                                                                                           N − 1 2N
+
+For N ≥ 4, the right-hand side of the above inequality is positive, and so MΠi,j0 is positive
+definite, in which case
+                                            T                             T
+                            v ⊤ MΠi,j             v ≥ λmin (MΠi,j )               · ∥v∥2
+
+Substituting ∥v∥2 = N − 1 and the lower bound for the minimum eigenvalue obtained in
+Equation (13), we obtain
+                                       T
+               1   v    ⊤
+                                MΠi,j        v⊤     N −1 N −3   1
+                                                                                      T
+                                                                                              1
+                                                                                                
+                                                                                                   3
+                                                                                                        T
+      Pagree −   =                                ≥           −                             ≥   1−           ,
+               N                  N                  N   N − 1 2N                             2    N
+where the last inequality is valid for N ≥ 5. This concludes the proof.
+
+Using the lower bound established in Lemma E.1, we are now ready to prove Theorem 5.2:
+
+Proof of Theorem 5.2. By Lemma E.1, T must satisfy
+                                                             T
+                                             1    3                     1
+                                              
+                                               1−                  ≤       .
+                                             2    N                     N!
+Solving for T we obtain
+                                                        ln(N !/2)
+                                                  T ≥        
+                                                                  N
+                                                                        .
+                                                        ln       N −3
+
+The numerator is Θ(N ln N ) while a Taylor approximation on the denominator shows that
+for N ≫ 1:
+                               N                   3      3
+                                                  
+                        ln            = − ln 1 −       ≈ .
+                             N −3                  N      N
+Thus, the denominator is Θ(1/N ), which shows that T = Ω(N 2 ln N ).
+
+
+
+
+                                                         40
+F     Proof of Theorem 6.1
+In this section, we prove Theorem 6.1, by generalizing the standard argument for the case
+Y = {0, 1} (e.g. Theorem 2 in Szörényi (2009)). For convenience, we restate the theorem
+first:
+Theorem 6.1 (SQ lower bound). Let C be a concept class and suppose SQDimD  C ≥ d. Then
+any SQ learner using tolerance τ > 0 requires, in the worst case, at least
+
+                                       (d − 1)(dτ 2 − |Y|)
+                                  q≥
+                                          2d(|Y| − 1)
+
+queries to learn the ground-truth concept f ∗ .
+
+Proof. We represent each concept f ∈ C as a vector-valued function uf : X → R|Y| given
+by uf (x) = ef (x) − ē where ey is the standard basis vector corresponding to label y and
+ē is the vector with all entries equal to 1/|Y|. It is easy to verify that by the linearity of
+expectation, for any f, g ∈ C we have χ(f, g) = ⟨uf , ug ⟩D where the L2 (X , R|Y| ) inner
+product ⟨·, ·⟩D is defined as
+
+                              ⟨u, v⟩D := Ex∼D [⟨u(x), v(x)⟩] .
+
+Assume that f1 , . . . , fd ∈ C fulfill |χ(fi , fj )| ≤ 1/d for all i, j ∈ [d] with i ̸= j. To
+discharge notation, we will write ui instead of ufi to refer to the representation defined
+above. By the previous discussion, we have |⟨ui , uj ⟩D | ≤ 1/d for all i, j ∈ [d] with i ̸= j.
+We present an adversarial answering strategy for the oracle that guarantees that the learner
+can eliminate only a small number of concepts after every answer when the ground-truth
+concept f ∗ is one of the fi ’s.
+Let h : X × Y → [−1, 1] be an arbitrary query function used by the learner. The learner
+requests the value of the expectation:
+
+                                  v ∗ := Ex∼D [h(x, f ∗ (x))]
+
+and the oracle returns an answer v̂ such that |v ∗ − v̂| ≤ τ . Using this information, the
+learner can eliminate any fi for which |vi − v̂| > τ . We represent h by the vector-valued
+function H : X → R|Y| where the y-th component of H(x) is equal to h(x, y). Since
+h(x, fi (x)) = ⟨H(x), efi (x) ⟩, we have:
+
+                          vi = Ex∼D [⟨H(x), efi (x) ⟩] = ⟨H, efi ⟩D .
+
+Since ui (x) = efi (x) − ē, we can rearrange this to write efi (x) = ui (x) + ē. Substituting
+this into the expression for vi :
+
+                       vi = ⟨H, ui + ē⟩D = ⟨H, ui ⟩D + ⟨H, ē⟩D .
+
+
+                                              41
+Consider the adversarial answering strategy where the oracle responds with v̂ = ⟨H, ē⟩D .
+As such, the learner eliminates all concepts fi for which |⟨H, ui ⟩D | > τ . Under this
+answering strategy, we can count how many candidates the learner can eliminate with each
+query. Define A+ = {i ∈ [d] : ⟨H, ui ⟩D ≥ τ } and A− = {i ∈ [d] : ⟨H, ui ⟩D ≤ −τ }, and
+notice that the number of eliminated candidates is precisely |A+ | + |A− |. To upper bound
+the cardinality of A+ , we apply the Cauchy-Schwartz inequality to obtain:
+                                   *                     +2                                  2
+
+                                                              ≤ ∥H∥2D ·
+                                             X                                    X
+                                        H,          ui                                  ui                         (14)
+                                             i∈A+         D                      i∈A+        D
+
+By the definition of A+ , the left-hand side of Equation (14) is at least (|A+ |τ )2 . On the
+other hand, since |h(x, y)| ≤ 1 we have
+                                                                                 
+
+                                    ∥H∥2D = Ex∼D                      h(x, y)2  ≤ |Y|,
+                                                                  X
+
+                                                               y∈Y
+
+
+and
+              2
+                                                                                                                |A+ |2
+                                                         ∥ui ∥2D +            ⟨ui , uj ⟩D ≤ |A+ |(1 − 1/|Y) +
+  X                    X                        X                      X
+         ui       =            ⟨ui , uj ⟩D =
+  i∈A+                i,j∈A+                   i∈A+                    i̸=j                                       d
+              D
+
+where in the last inequality we used the fact that ∥ui ∥2D = χ(fi , fi ) = 1 − 1/|Y|. Chaining
+the inequalities we get
+                                                                                                 !
+                                    +    2                    + |A+ |2
+                                (|A |τ ) ≤ |Y| |A |(1 − 1/|Y) +        .
+                                                                  d
+
+Dividing by |A+ | and rearranging yields:
+
+                                                              d(|Y| − 1)
+                                                 |A+ | ≤                 .
+                                                              dτ 2 − |Y|
+
+A similar procedure for A− shows that the number of eliminated concepts after the query
+is at most 2d(|Y|−1)
+            dτ 2 −|Y|
+                      if the adversary returns ⟨H, ē⟩D . Thus, the learner requires at least
+(d−1)(dτ 2 −|Y|)
+   2d(|Y|−1)
+                 queries to identify the ground-truth concept f ∗ .
+
+
+
+
+                                                                  42
+

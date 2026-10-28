@@ -1,0 +1,1029 @@
+                                                      DeepDFA: Automata Learning through Neural
+                                                               Probabilistic Relaxations
+                                                                                       Elena Umilia, * and Roberto Capobiancob
+                                                                                                 a Sapienza University of Rome
+                                                                                                            b Sony AI
+
+
+
+                                         Abstract. In this work, we introduce DeepDFA, a novel approach             suggesting ways to discretize or cluster the continuous RNN hidden
+                                         to identifying Deterministic Finite Automata (DFAs) from traces,           states in a finite structure. The purpose of these works is not DFA
+                                         harnessing a differentiable yet discrete model. Inspired by both the       induction but rather to enhance the explainability of black-box se-
+                                         probabilistic relaxation of DFAs and Recurrent Neural Networks             quence classifiers. However, they open the door to DFA induction
+                                         (RNNs), our model offers interpretability post-training, alongside         through neural networks, and join two fields that are classically kept
+
+
+
+
+arXiv:2408.08622v1 [cs.LG] 16 Aug 2024
+                                         reduced complexity and enhanced training efficiency compared to            separated.
+                                         traditional RNNs. Moreover, by leveraging gradient-based optimiza-         In order to take the benefits from both worlds, grammar induction on
+                                         tion, our method surpasses combinatorial approaches in both scala-         one side and recurrent neural networks on the other side, we present
+                                         bility and noise resilience. Validation experiments conducted on tar-      DeepDFA: a transparent neural network design specialized in learn-
+                                         get regular languages of varying size and complexity demonstrate           ing DFAs from traces with gradient-based optimization. The model
+                                         that our approach is accurate, fast, and robust to noise in both the       resembles a recurrent neural network, but, differently from RNNs, it
+                                         input symbols and the output labels of training data, integrating the      is completely transparent after training, as much as a DFA. Further-
+                                         strengths of both logical grammar induction and deep learning.             more, thanks to its specialized design, it uses fewer weights than the
+                                                                                                                    most commonly used recurrent architectures, such as LSTMs and
+                                                                                                                    GRUs, and it only has one hyperparameter. This results in faster
+                                         1   Introduction                                                           training and less memory consumption and a significantly reduced
+                                         The problem of identifying a deterministic finite state automaton          hyperparameter search. At the same time, since it is trained with
+                                         (DFA) from labeled traces is one of the best-studied problems in           back-propagation, it is able to learn DFAs in a significantly shorter
+                                         grammatical inference [11]. The latter sees applications in various        time than grammar induction methods, even for large automata; and
+                                         areas, including Business Process Management (BPM) [1], non-               it can tolerate errors in the training labels and the training symbols.
+                                         Markovian Reinforcement Learning [14, 26], automatic control [7],          Our method is based on defining a neural network that behaves as a
+                                         speech recognition [3], and computational biology [25]. Both pas-          probabilistic finite automaton. We control how much the probabilities
+                                         sive [17] and active [4] exact methods have been proposed for DFA          are close to categorical one-hot distribution through a temperature
+                                         identification. These methods are guaranteed to succeed in theory.         value. During training, we smoothly drive the network activations to
+                                         However, in practice, they require a notable amount of computation,        be close to discrete 0/1 values by changing the temperature. When
+                                         and they are unable to handle errors in the training dataset, making       the gap between the discrete and actual activations is small enough,
+                                         them of limited applicability, especially to real applications and large   the network behaves precisely as a DFA.
+                                         DFAs. Unlike exact approaches, Recurrent Neural Networks (RNN)             We evaluate our method on the popular Tomita languages benchmark
+                                         tolerate errors in the training data, and they have proven highly effec-   [28] and random DFAs of different sizes and different sets of sym-
+                                         tive at learning classifiers for sequential data [12]. DFAs and RNNs       bols. Results show that DeepDFA is fast and accurate. It outperforms
+                                         can both be used for language recognition, which is essentially bi-        an exact SAT-based method [34] when the target DFA has more than
+                                         nary classification over strings. Many works highlight the similarities    20 states, or the training set contains mislabeled examples, and it
+                                         between RNNs and finite-state machines [27]. The two differ in the         reaches competitive results in the other cases. We also compared
+                                         transition representation: RNNs learn a parametrized transition func-      DeepDFA to DFA extraction from a pre-trained RNN [32], finding
+                                         tion in a continuous hidden state space, while DFAs have a finite state    it reaches better accuracy and predicts DFA of size closer to the tar-
+                                         space and completely transparent transitions. Furthermore, designing       get DFA size. The remainder of this paper is organized as follows:
+                                         an RNN requires many choices: deciding the number of layers, the           in section 2 we report related works; in section 3 we give some pre-
+                                         number of features of each hidden layer, and all the activation func-      liminaries on Deterministic and Probabilistic Finite Automata and
+                                         tions. Each of these decisions can affect the final performance and        Recurrent Neural Networks; in section 4 we formulate our problem
+                                         must be taken carefully. By contrast, exact methods do not require         and illustrate in detail the framework used to solve it; we report the
+                                         nearly any hyperparameter fine-tuning. Many approaches have been           experiments evaluating our approach in section 5; and finally we con-
+                                         proposed to extract a DFA from a pre-trained RNN [24, 31, 32], gen-        clude and discuss directions for future work in section 6.
+                                         erally adapting techniques from the grammar induction literature and
+                                         ∗ Corresponding Author. Email: umili@diag.uniroma1.it
+2   Related works                                                          3     Background
+ Combinatorial methods for grammar induction Many ap-                      3.1    Deterministic Finite Automata
+proaches have been proposed to identify a target DFA from a set            A Deterministic Finite Automaton (DFA) A is a tuple
+of positive and negative traces. The L∗ algorithm [4], is an exact ac-     (P, Q, δ, q0 , F ), where P is a set of propositional symbols
+tive learning algorithm to learn a DFA from an oracle through mem-         called the alphabet, Q is a finite set of states, q0 ∈ Q is the initial
+bership and equivalence queries. Another approach is to apply the          state, δ : Q × P → Q is the transition function, and F ⊆ Q is
+evidence-driven state-merging algorithm [22, 8], which is a greedy         the set of final states. Let P ∗ be the set of all finite strings over
+algorithm that is not guaranteed to converge to the global optimum. A      P , and ϵ the empty string. The transition functions over strings
+more modern approach is to leverage highly-optimized SAT solvers           δ ∗ : Q × P ∗ → Q is defined recursively as
+[17]. This approach is guaranteed to find the minimal DFA consistent
+with all the training examples, but suffers from scalability problems.                           δ ∗ (q, ϵ) = q
+                                                                                                                                                 (1)
+In this regard, several symmetry-breaking predicates have been pro-                              δ ∗ (q, ax) = δ ∗ (δ(q, a), x)
+posed for the SAT encoding to reduce the search space [33, 34].
+                                                                           Where a ∈ P is a symbol and x ∈ P ∗ is a string, and ax is the con-
+DFA extraction from recurrent neural networks Prior works ex-              catenation of a and x. A accepts the string x (i.e., x is in the language
+tract a DFA from a pre-trained RNN, to explain the network behavior.       of A, L(A)) if and only if δ ∗ (q0 , x) ∈ F . Let x = x[1]x[2]...x[l]
+Weiss et al. [32] adapt the L∗ algorithm [4] to work with an RNN or-       be the input string, where x[t] is the t-th character in the string,
+acle. Other work uses k-means clustering on the RNN hidden states          we denote as q = q[0]q[1]...q[l] the sequence of states visited by
+to extract a graph of states [31]. Merrill et al. extract a DFA from an    the automaton while processing the string, namely q[0] = q0 and
+RNN by first building a prefix tree and then merging states with close     q[t] = δ(q[t − 1], x[t]) for all t > 0.
+state representation in the RNN hidden space [24]. These approaches
+train an RNN with the labeled strings and then extract an equiva-
+lent DFA from the trained model. Our approach differs from these
+                                                                           3.2    Probabilistic Finite Automata
+since we directly train an RNN equivalent to a Probabilistic Finite        A Probabilistic Finite Automaton (PFA) Ap is a tuple
+Automaton (PFA), and we force the probabilities to become close            (P, Q, ip , δp , fp ), where P is the alphabet, Q is the finite set
+to one-hot categorical distributions during training. In this way, our     of states, ip : Q → [0, 1] is the probability for a state to be an initial
+model becomes a DFA. In other words, there is no difference be-            state, δp : Q × P × Q → [0, 1] is the transition probability function,
+tween the trained neural model and the automaton, and there is no          and fp : QP  → [0, 1] is the probabilityPof a state to be final. We have
+risk that the abstraction does not represent the network, as for previ-    therefore         δp (q, p, q ′ ) = 1, and i(q) = 1 ∀q ∈ Q, ∀a ∈ P .
+ous works. For example, Wang et al. [31] cluster the RNN states, so                  q ′ ∈Q                       q∈Q
+
+the automaton depends on the clustering algorithm performance. Per-           We can represent the PFA in matrix form as a transition matrix T ,
+formances from [24] instead rely on a similarity threshold and, as the     an input vector vi and an output vector vo . Matrix T ∈ R|P |×|Q|×|Q|
+paper shows, also on the number of epochs the RNN is trained after         contains at index (p, q, q ′ ) the value of δp (q, p, q ′ ). We denote as
+convergence. Our work in this sense is more similar to [32], since it      T [p] ∈ R|Q|×|Q| the 2D transition matrix for symbol p.
+computes the abstraction automatically. The difference is in how the          The input vector vi ∈ R1×|Q| contains at index k the probability
+abstraction is computed: we use gradient descent optimization while        of state qk to be an initial state, while the output vector vo ∈ R|Q|×1
+[32] starts with a hand-crafted discretization that is automatically re-   has in position k the probability of state qk to be accepting. This
+fined during automata learning with L*.                                    matrix representation is shown in Figure 1(b).
+                                                                              Given a string x = x[0]x[1]...x[l−1], we denote as qp,0 , qp,1 ...qp,l
+Learning crispy logical models through gradient descent Clas-              the sequence of probabilities to visit a certain state, where qp,t ∈
+sically, the induction of logic models, including DFAs, is not ap-         R1×|Q| is a row vector containing at position k the probability to
+proached with gradient-descent optimization methods (as deep learn-        stay in state k at time t.
+ing methods) since their finite and ‘crispy’ nature prevents the gra-
+dient computation. However, recent works in neurosymbolic AI [15]                             qp,0 = vi
+                                                                                                                                                 (2)
+propose techniques to reduce the gap between the induction of crispy                          qp,t = qp,t−1 T [x[t]]      ∀t > 0
+models and that of continuous ones. Walke et al. [30] proposes a
+                                                                           The probability of being in a final state at time t is the inner product
+recurrent neural model with specialized filters to learn Linear Tem-
+                                                                           qp,t vo .
+poral Logic formulas over finite traces (LTLf) from labeled traces.
+                                                                              Therefore the probability of a string to be accepted is the proba-
+Collery et al. [9] discovers logical rules describing patterns in se-
+                                                                           bility to be in a final state in the last computed state qp,l , and it is
+quential data using a differentiable model. Aichernig et al. [2] learn
+                                                                           calculated as follows
+the DFA by constraining the outputs of a simple RNN to be close to
+one-hot vectors through a regularization term in the loss. Differently                        vi T [x[0]]T [x[1]]..T [x[l − 1]]vo                (3)
+from [2], we define a new recurrent model specialized in learning
+PFAs, which we discretize at training time with temperature anneal-        Figure 1 shows a comparison between a DFA and a PFA.
+ing and train with the classical cross-entropy between the predicted
+and the ground-truth label. Grachev et al. [16] proposes a neural net-
+work model similar to ours to learn DFA from traces. However, this
+                                                                           3.3    Recurrent Neural Networks
+model does not use activation functions with discrete outputs, and         A Recurrent Neural Network (RNN) is a parameterized function
+it is affected by the vanishing gradient problem for automata larger       ht = f (ht−1 , xt ; θh ), having trainable parameters θh , that takes
+than 5 states, while our method can effectively learn target automata      as input a state-vector at time t − 1, ht−1 , and the input vector at
+with up to 30 states.                                                      time t, xt , and returns the current state-vector at time t, ht . An RNN
+                              (a)                                                  (b)                                          (c)
+Figure 1: a) An example of PFA with three states and two symbols: graph describing the PFA, equivalent representation in matrix form, and
+produced states and acceptance probabilities while processing the string "ab". b) An example of DFA: graph describing the PFA, equivalent
+representation in matrix form, and produced states and acceptance probabilities while processing the string "ab". In particular, the DFA in (b)
+is obtained by the PFA in (a) approximating the matrix representation to the closest one-hot vectors. c) DeepDFA processing the string "ab".
+can be applied to a sequence x[0], ..., x[n] by recursive application              Following this idea, we define DeepDFA as a parametric PFA in
+of the function h to the vectors x[i]. An example of RNNs are the               which we can drive the representation to be close to one-hot dur-
+Elman and Jordan networks [13], also known as Simple Recurrent                  ing training. We obtain this effect using an activation function that
+Networks.                                                                       smoothly approximates discrete output. Many works use this tech-
+                   ht = σh (Wh xt + Uh ht−1 + bh )                              nique [20, 30, 21], especially in neurosymbolic AI [5], to learn
+                                                                            (4)
+                   yt = σy (Wy ht + by )                                        symbolic logic structures by using differentiable models such as
+Where x is the network input, h is the hidden state, y is the network           neural networks. In particular, we use a modified version of the
+output, Wh , Uh , Wy and bh are the network parameters, and σh and              classical softmax and sigmoid activation functions, which we call
+σy are activation functions.                                                    sof tmax_with_temp and sigmoid_with_temp. Given a function
+   RNNs are employed in a variety of tasks on sequential data, in-              f (x) we define f _with_temp(x, τ ) = f (x/τ ), with τ being a pos-
+cluding sequence classification. A binary RNN-acceptor, is an RNN               itive temperature value.
+where y classifies the RNN’s state vectors as accepting or reject-                 Our RNN comprises two trainable modules: a transition function
+ing. An RNN-acceptor is conceptually equal to a DFA, except that                and  an output function. The transition function ht (ht−1 , x[t−1]; θh )
+it processes a sequence by applying continuous state-transitions and            has  parameters   θh , takes as input the probabilities over the previous
+output evalutions, that are usually hard to inspect and explain. In our         state, ht−1 ∈ [0, 1]|Q̂|max , and the previous symbol, x[t − 1] ∈ P ,
+work we propose an alternative RNN model tailored on DFAs that                  and predicts the current state ht . The output function y(ht ; θy ) im-
+makes the model interpretable by design.                                        plements the classification module: given the current state estima-
+                                                                                tion, ht , predicts the probability of the current state to be an accept-
+                                                                                ing state using its parameters θy . In particular, fixed a temperature
+4 DeepDFA                                                                       value τ
+We consider the problem of inferring a DFA from a training set of                                 h0 = vi = [1, 0, ..., 0]
+labeled strings D = {(x1 , y¯1 ), (x2 , y¯2 ), ..., (xn , y¯n )}, where xi is a                   h t = ht−1 T [x[t − 1]]
+
+string of length l of symbols x[0], x[1], ..., x[l − 1], in the automaton                         yt = ht vo                                          (5)
+alphabet P , xi [t] ∈ P with 0 ≤ t < l, and y¯i ∈ {0, 1} is the                                   T = sof tmax_with_temp(θh , τ )
+associated label, denoting whether the string is accepted or not by                               vo = sigmoid_with_temp(θy , τ )
+the target automaton.                                                          Where T is the PFA transition matrix, T [x[t]] is the transition matrix
+   To infer the automaton, we define a recurrent neural network                for symbol x[t], and vo is the output vector, as defined in Section
+model that mimics the behavior of a PFA in a state space Q̂max                 3.2. They are obtained by applying discrete activation functions on
+and action space P , where P is the target automaton alphabet while
+                                                                               parameters θh ∈ R|P |×|Q̂max |×|Q̂max | and θy ∈ R|Q̂max |×1 . In par-
+Q̂max is our hypothesis on the state space, which will generally differ
+                                                                               ticular, the softmaxPactivation applied to the third dimension of the
+from the true Q. For this reason, the size of Q̂max is a hyperparam-
+                                                                               matrix θh ensures q′ δp (q, a, q ′ ) = 1, and the sigmoid activation
+eter of our model.
+                                                                               ensures values of vo stay in [0, 1].
+   We cannot use gradient-based optimization to learn the DFA di-
+                                                                                  In the forward pass, we calculate the probability of a string x in
+rectly because of its non-differentiable transitions and output vector.
+                                                                               the dataset to be accepted by the RNN by applying Equation 5 recur-
+The intuition behind our work is that PFAs are closely related to re-
+                                                                               sively to the input sequence of symbols x[0], x[1], ..., x[l − 1]. The
+current neural networks, since they calculate the next state and out-
+                                                                               final output yl is compared with the ground truth label ȳ. We update
+put using multiplications between continuous vectors and matrices,
+                                                                               the model weights with back-propagation by minimizing the binary
+in the same way RNNs do. However, DFAs can also be represented
+                                                                               cross-entropy between model predictions and the ground truth labels.
+in matrix form, with the difference that their matrix representation is
+composed of only one-hot row vectors. As example we show in Fig-               Temperature Annealing Cold temperatures force the PFA to be-
+ure 1 a simple PFA (subfigure (a)) and the DFA obtained by approx-             have as a DFA, since the activation values become closer to boolean
+imating all the PFA matrix representation row vectors to the closest           values as the temperature decreases. When the temperature is low
+one-hot (subfigure (b)).                                                       enough, the model transforms into a DFA. Let us notice that using
+the classical activation functions and discretizing the model at the        5 random DFAs as described in [33]. |Q| states are generated and
+end is not guaranteed to work because the discretized model differs         enumerated between 1 and |Q|, we set 1 as the initial state, and each
+from the trained one, and the two can have different performances.          state is equiprobable to be accepting. We connect each state i with a
+However, using a cold temperature from the start of training can pre-       random state in [i + 1, Q] with a random-labeled transition. In this
+vent the system from learning the model properly. For this reason,          way, we partially build an automaton where all states are reachable
+we initialize τ to 1. In this way, the system starts the training using     from the initial state. Finally, we complete the DFA with random
+the normal softmax and activation functions. After that, we anneal          transitions.
+the temperature to 0 by multiplying it by a positive constant λ < 1 at
+each epoch. In Figure 1(c), we show the network behavior in case of         Dataset For each target DFA, we create a train, a dev, and a test
+a perfectly discretized activation, namely when the temperature is 0.       dataset by sampling strings of various lengths and labeling them with
+In theory, this ideal behavior is obtained only with zero temperature,      the target DFA. The training dataset contains strings with a length
+but in practice, we observe the continuous and discretized models           between 1 and lentrain , the dev set is composed of strings of length
+start having the same accuracy already at temperatures around 0.8.          lendev , and the test set by sequences of length lentest . In order to
+                                                                            test the model’s capability to generalize to longer unseen sequences,
+Model Minimization Once the training is concluded, we read the              for each dataset, we set lentrain < lendev < lentest . To prevent
+DFA from the activations evaluated with the minimum temperature,            the models from learning degenerate solutions, all the train datasets
+and we use the Hopcroft algorithm [19] to minimize the number of            are nearly perfectly balanced. We set lentrain = 30, lendev =60, and
+states. We emphasize that automata minimization is a well-known             lentest =90 for all the Tomita datasets and the random DFAs datasets
+problem for which many algorithms are available, as opposed to neu-         with |Q| < 30. For the random DFAs with state size of 30, we set
+ral network compression, also known as knowledge distillation [18],         lentrain =50, lendev =100, and lentest =150. We report the size of
+which is still an open research problem. This represents another fea-       each dataset in the supplementary material. To test the resiliency of
+ture in which DeepDFA can take ‘the best of both worlds.’ We ob-            different methods to errors in the training data, we also create a cor-
+serve that, even if the state space size |Q̂max | is large, the number      rupted version of each training dataset by flipping 1% of the labels.
+of states after minimization |Q̂| tends to be close to the target DFA
+number of states, which suggests the model is robust to overfitting.        Baselines Our approach is a hybrid between a RNN and a DFA.
+Extension to Probabilistic Symbols DeepDFA allows us to rep-                These two types of sequence acceptors are trained with very differ-
+resent uncertainty over both the transition and the output function,        ent methods and present different strengths and weaknesses. In or-
+because it is based on representing the model as a probabilistic ma-        der to better understand the benefits of having a hybrid method, we
+chine. However, let us notice the current symbol x[i] is used to index      compare it with one state-of-the-art from the literature on grammar
+the transition matrix in Equations 5 and, as a consequence, symbols         induction, DFA inductor [34], one state-of-the-art method to extract
+must be integers. This contrasts with symbol grounding techniques           DFAs from RNNs, L* extraction [32], and one state-of-the-art neu-
+based on neural networks, which usually predict a probabilistic belief      rosymbolic method for automata learning, DFA Generator [16]. No-
+on symbol truth values. For this reason, we extend the framework to         tice we cannot compare with the other neurosymbolic methods cited
+be fully probabilistic, and consider probability values over symbols        in Section 2. Indeed, Walke et al. [30] learns an LTLf formula from
+in the calculations. Given a sequence of inputs x1 , x2 , ..., xl , where   data, LTLf formulas are less expressive than DFAs, since they can
+xi is a probability vector over |P | classes, we define the next state      capture only star-free regular languages [10], while DFAs can cap-
+and output of the network as follows                                        ture both star-free and non-star-free languages. Note that Tomita 3,5
+                                                                            and 6 are non-star-free grammars [6], and our schedule to produce
+                 h0 = vi = [1, 0, ..., 0]                                   random DFAs may generate non-star free regular languages. Collery
+                       P|
+                      p=|P                                                  et al. [9] learn a set of local and global rules that are ultimately com-
+                 ht =      xt−1,p (ht−1 T [p])                              bined, and the relationship between their formalism and that of DFAs
+                        p=0
+                                                                     (6)    is not clear. Regarding the chosen baselines, we remind that DFA-
+                 yt = ht vo
+                                                                            inductor is a SAT-based approach for exact DFA identification. In
+                 T = sof tmax_with_temp(θh , τ )
+                                                                            particular, we use the shared implementation code at 1 , and we test
+                 vo = sigmoid_with_temp(θy , τ )
+                                                                            with breadth-first search (BFS) symmetry breaking, shown to be the
+where we denote as xt,p the probability that xt is symbol p ∈ P .           most effective in the paper. Instead, L* extraction abstracts a finite
+                                                                            state automaton from a pretrained RNN, starting from a predefined
+                                                                            discretization of the hidden state space and applying the L* algo-
+5   Experimental Evaluation                                                 rithm and abstraction refinement when required. To test this method,
+In this section, we report the main results supporting our method. We       for each language: (i) we train many RNNs of different types, differ-
+provide our code at https://github.com/whitemech/DeepDFA.                   ent number of layers and different hidden-state size, (ii) we record
+                                                                            the performances on the dev set (iii) we apply L* extraction on the
+Target DFAs We test our approach on two different sets of DFAs.             RNN achieving the best dev accuracy. In particular, we use the code
+The first experiment is on the Tomita languages [28], which are a           in the public repository 2 with 10 as the initial split depth, and the
+standard benchmark for grammar induction and DFA extraction from            starting examples set composed of the shortest positive string and
+RNNs [32, 31]. The benchmark comprises seven formal languages               the shortest negative string in the train set, as suggested in the paper.
+of increasing difficulty defined on the binary alphabet P = {a, b}.         DFA Generator trains directly a neural network shaped as a DFA, as
+Despite Tomita languages being a popular benchmark, they are rep-           our method. The algorithm needs as hyperparameter the maximum
+resented by small DFAs with state size smaller than six. In order to        number of states Qmax  ˆ . We train with Qmax ˆ of different sizes (the
+test our approach on bigger DFAs, we conduct a second experiment
+on randomly generated DFAs with state size |Q| between 10 and 30,           1 https://github.com/ctlab/DFA-Inductor-py
+                                                                            2 https://github.com/tech-srl/lstar_extraction
+and alphabet size |P | between 2 and 3. For each setting, we generate
+Table 1: Comparison between DeepDFA, L* extraction, DFA-inductor and DFA-generator on the Tomita Languages. We report test accu-
+racy, mean number of states |Q̂|, and the number of parameters used #W .
+      Lang                           DeepDFA                               L* extraction                     DFA-inductor                      DFA-generator
+                          Accuracy      |Q̂|      #W         Accuracy             |Q̂|           #W         Accuracy      |Q̂|      Accuracy         |Q̂|           #W
+      T1 (|Q| = 2)        100 ± 0       2±0       220     100 ± 0                2±0              3030      100 ± 0          2       100 ± 0       1.8 ± 1.1         210
+      T2 (|Q| = 3)        100 ± 0       3±0       220     100 ± 0                3±0              3030      100 ± 0          3       100 ± 0         1±0             210
+      T3 (|Q| = 5)        100 ± 0       5±0       220     100 ± 0                5±0              3030      100 ± 0          5       91 ± 15        5 ± 1.6          210
+      T4 (|Q| = 4)        100 ± 0       4±0       220     100 ± 0                4±0              3030      100 ± 0          4       85 ± 33       4.8 ± 0.4         210
+      T5 (|Q| = 4)        100 ± 0       4±0       220     100 ± 0                4±0             62000      100 ± 0          4       100 ± 0       2.6 ± 0.9         210
+      T6 (|Q| = 3)        100 ± 0       3±0       220    91.1 ± 19.8         170.6 ± 374.7       41400      100 ± 0          3       100 ± 0         3±0             210
+      T7 (|Q| = 5)        100 ± 0       5±0       220     100 ± 0                5±0              3030      100 ± 0          5       100 ± 0       4.4 ± 0.9         210
+Table 2: Comparison between DeepDFA, L* extraction,DFA-inductor and DFA-generator on the noisy dataset constructed for the Tomita
+Languages. We report test accuracy, mean number of states |Q̂|, and the number of parameters used #W .
+        Lang                         DeepDFA                              L* extraction                   DFA-inductor                    DFA-generator
+                           Accuracy      |Q̂|     #W          Accuracy           |Q̂|           #W       Accuracy       |Q̂|       Accuracy         |Q̂|           #W
+        T1 (|Q| = 2)       100 ± 0      2±0       1860        100 ± 0           2±0              3030       95          12          100 ± 0       2.2 ± 1.1        210
+        T2 (|Q| = 3)       100 ± 0      3±0       220         100 ± 0           3±0              4020       94          10          100 ± 0         1±0            210
+        T3 (|Q| = 5)       100 ± 0      5±0       220         100 ± 0         7.4 ± 3.3          4020     o.o.m.        –           100 ± 0       4.8 ± 0.8        210
+        T4 (|Q| = 4)       100 ± 0      4±0        220        100 ± 0           4±0              4020     o.o.m.         –         90 ± 22.3      5.8 ± 1.3        1830
+        T5 (|Q| = 4)       100 ± 0      4±0       220         100 ± 0           4±0             62000     o.o.m.        –           100 ± 0       2.6 ± 0.8        210
+        T6 (|Q| = 3)       100 ± 0      3±0       220        99.9 ± 0.1      107 ± 170.6        41400     o.o.m.        –           100 ± 0         3±0             210
+        T7 (|Q| = 5)       100 ± 0      5±0       220         100 ± 0           5±0             31100     o.o.m.        –           100 ± 0       4.4 ± 1.1        210
+Table 3: Comparison between DeepDFA, L* extraction, DFA inductor and DFA-generator on random DFAs. We keep the best 5 experi-
+ments over 10 for for the stochastic methods.
+                         DeepDFA                                L* extraction                             DFA-inductor                               DFA-generator
+|Q| |P |
+            Test Acc.      |Q̂|      Exec. Time   Test Acc.         |Q̂|         Exec. Time Test Acc.          |Q̂|     Exec. Time Test Acc.               |Q̂|          Exec. Time
+10    2 100 ± 0     8.0 ± 0   52 ± 13 99.9 ± 0.1 16.2 ± 41.2    124 ± 21                         100 ± 0 7.8 ± 0.44 42 ± 5 87 ± 19.7 16 ± 17.5 2867.7 ± 230.5
+10    3 100 ± 0 10.6 ± 2.2 43 ± 15 97.4 ± 3.7 296.1 ± 223.3 208 ± 42                             100 ± 0 10 ± 0      129 ± 2  o.o.t.     –            –
+20    2 100 ± 0 14.0 ± 1.8 49 ± 14 99.9 ± 0.2 196.7 ± 281.8 167 ± 37                             100 ± 0 14 ± 2 245 ± 117     o.o.t.     –            –
+20    3 99.9 ± 0.2 18.7 ± 1.7 55 ± 12 69.5 ± 4.8 389.6 ± 203.4 334 ± 52                          100 ± 0 18.4 ± 1.1 857 ± 238 o.o.t.     –            –
+30    2 100 ± 0 22.6 ± 1.3 988 ± 525 99.9 ± 0 77.0 ± 124.9 1216 ± 122                             o.o.m.      –         –     o.o.t      –            –
+30    3 100 ± 0 28.0 ± 1.0 866 ± 447 61.7 ± 13.8 372.9 ± 171.0 2424 ± 684                         o.o.m.      –         –     o.o.t.     –            –
+Table 4: Comparison between DeepDFA, L* extraction, DFA inductor and DFA-generator on the noisy dataset created for the random
+DFAs.
+                                      DeepDFA                                  L* extraction                  DFA-inductor             DFA-generator
+           |Q|   |P |
+                         Test Acc.        |Q̂|          #W       Test Acc.               |Q̂|        #W       Test Acc. |Q̂|        Test Acc.       |Q̂|          #W
+           10     2     93.6 ± 10.7 11.5 ± 5.25     20200   98.4 ± 5.0          131.5 ± 225.4      62000       o.o.m.          –    84 ± 14.5     15 ± 18         5050
+           10     3     95.1 ± 3.6 37.2 ± 11.1       30200  92.0 ± 8.4          290.5 ± 193.2       82600      o.o.m.          –      o.o.t.         –             –
+           20     2     99.6 ± 1.7  14.7 ± 3.2       20200 98.9 ± 1.9           359.0 ± 251.2       62000      o.o.m.          –      o.o.t.         –             –
+           20     3     96.0 ± 4.1 34.9 ± 10.1       30200  66.2 ± 4.5          420.3 ± 220.3       82600      o.o.m.          –      o.o.t.         –             –
+           30     2     99.6 ± 1.5  22.6 ± 1.7       80400 98.2 ± 7.4           238.9 ± 252.2      122200      o.o.m.          –      o.o.t.         –             –
+           30     3     98.7 ± 2.0 55.1 ± 34.0      120400 60.4 ± 11.3          338.7 ± 173.4      326800      o.o.m.          –      o.o.t.         –             –
+
+
+
+same used for our method when it is possible), and we use the im-                         5.1    Results
+plementation at the public repository 3 . For each approach, we report
+the accuracy obtained by querying the final DFA on the test set, the                      Results on Tomita Languages For each Tomita language, we re-
+number of states of the predicted DFA |Q̂|, the execution time (in                        port the results averaged over 5 experiments with different random
+seconds), and, when applicable, the number of weights of the model.                       seeds for L* extraction, DFA-generator and DeepDFA, and the re-
+                                                                                          sults of one application of DFA-inductor, since the latter has a de-
+                                                                                          terministic behavior. To explore the influence of hyperparameter
+Training Details We train all the neural networks on an Nvidia                            choices on DeepDFA, DFA-generator and L* extraction, we test 3
+GPU GeForce GTX 1650 Ti, with a learning rate of 0.01 for                                 different architectures for DeepDFA and DFA-generator and 6 differ-
+DeepDFA and of 0.001 for the RNNs, until training loss conver-                            ent RNNs for L*. In particular, we test DeepDFA and DFA-generator
+gence, for a maximum of 200 epochs. In all the experiments we use                         with the maximum number of states equal to 10, 30, and 100 (denot-
+λ = 0.999 and minimum temperature = 10−5 . All the experiments                            ing the models as DeepDFA(|Q̂max |) and DFAGen((|Q̂max |)). We
+of DFA-inductor were performed on a Intel Core i7-10750H CPU,                             test L* extraction on both LSTMs and GRUs, for each type of RNN
+without any other process running at the same time.                                       we test three architectures (denoted here as RNN(#layers, #hidden
+                                                                                          neurons per layer) ), namely: RNN(1,30), RNN(1,100), RNN(2,100).
+                                                                                          For space reasons, we report in the supplementary material the results
+                                                                                          obtained for each model tested and here only the results of the best
+3 https://github.com/pgrachev/Automaton-Generator
+                                                                                          model for each approach. We select he best model per approach as the
+                (a)                                  (b)                                 (c)                                 (d)
+Figure 2: Ablation study 1: results on Tomita 5 with different error rates in the training dataset. a) Test accuracy. b) Number of states of
+predicted DFAs. Ablation study 2: results a random DFA of size 20 and alphabet size 3 varying the state size hyperparameter. c) Test
+accuracy. d) Predicted number of states. Each box represents 10 experiments performed with different random seeds. The box extends from
+the lower to upper quartile values of the data, with the line at the median. The whiskers extend from the box to show the range of the data.
+Flier points represent outliers.
+more accurate on the development set. In cases where two or more          tion and DFA-generator) and one test with DFA-inductor. For this
+models achieve the same highest accuracy on the development set,          benchmark we set a larger threshold time of two hours for each run.
+we prioritize selecting the model with the smallest number of weights     We configure DeepDFA with a state size |Q̂max| of 100 for ran-
+among them. Results for the Tomita benchmark are reported in Ta-          dom DFAs with state sizes of 10 and 20, and |Q̂max| of 200 when
+ble 1. For space reasons we do not report the execution time for the      the desired number of states is 30. When testing L* extraction, we
+Tomita languages. However each run last less than a minute across         train both LSTM and GRU RNNs of one and two layers, using the
+the all 7 languages for all the models tested for all the approaches,     same hidden state sizes used for DeepDFA. We initially tested DFA-
+except for DFA-generator. This proved to be the slowest of all the        generator with |Q̂max| set to 100, only to find that it always ex-
+methods tested. In particular we set a threshold time of one hour for     ceeded the time limit. Consequently, we experimented with a reduced
+a run and we denote with ‘o.o.t’ (out of time) when a method exceed       |Q̂max| value of 50. Despite this adjustment, the method continued
+the threshold time. DFAGen(10) takes less than a minute only for          to go out-of-time for the majority of languages. This happens for a
+Tomita 1, 2 and 3, and never exceed the timeout. DFAGen(30) execu-        difficulty in reducing the loss function, causing the method to remain
+tion time is less than a minute only for Tomita 1 and 2 and exceed the    stalled. However, this confirms the scalability challenges previously
+maximum time for Tomita 5 and 7, while DFAGen(100) always goes            acknowledged by the authors of the method in [16], highlighting the
+out of maximum time. Remarkably, both our approach and DFA-               method’s struggle to converge when dealing with automata larger
+inductor achieve perfect performances on all the the 7 languages,         than five states. Our comparison of the four methods is presented
+namely a test accuracy of 100% and a predicted number of states           in Table 3. For the stochastic methods, we provide the average per-
+equal to the target. The same is achieved by L* extraction, for all the   formance over the best 5 out of 10 runs. DFA-inductor is able to
+grammars except Tomita 6, for which it predicts extremely oversized       reach top test accuracy unless it crashes due to exceeding CPU ca-
+DFAs with a mean of 170 states. DFA-generator instead can pro-            pacity; this again happens for the biggest-size DFAs of size 30. Our
+duce optimal results only for Tomita 6 and has lower performances         approach competes favorably with DFA-inductor for target DFAs
+on all the other languages. To evaluate how noise in the training data    smaller than size 30, and it excels in cases where DFA-inductor falls
+affects the performance of the four methods, we replicate the exper-      short. Compared to L* extraction and DFA-generator, our method
+iment using training datasets with 1% label noise. The results are        consistently exhibits higher accuracy. Notably, L* extraction tends
+presented in Table 2. Results show that DFA-inductor is completely        to significantly overestimate the number of states, while DeepDFA
+unable to handle errors in the training data. In fact, with only 1% of    predicts DFAs with state counts comparable to the ground truth size.
+errors, the process is killed for exceeding the CPU capacity before       Moreover, our method proves to be the fastest among the four, ex-
+finding a DFA consistent with training examples. In the table, these      cept in a single case. We repeat the experiments on a corrupted ver-
+instances are marked with an ‘o.o.m’ (out of memory). The method          sion of the training datasets, where 1% of labels are erroneous. The
+crashes in all the Tomita languages except the first two, for which       results are presented in Table 4, showing the average performance
+it loses around 5% of accuracy and overestimates the state space.         over 10 trials. In this scenario, DFA-inductor is unable to provide a
+As expected, the other methods based on neural networks exhibits          solution even for the smallest size DFAs. DeepDFA, L* extraction
+greater robustness to training set errors. DFA-generator presents non     and DFA-generator (when it can converge) display only minor drops
+optimal performances similar to the case without noise. L* extraction     in performance, demonstrating resilience to noise. DeepDFA outper-
+overestimates the number of states for Tomita3 and 6. In contrast, our    forms both the other stochastic methods in terms of test accuracy
+approach remains unaffected by minor errors in the training dataset       and state count prediction, and almost always employs the fewest
+and consistently maintains the top performance levels achieved with       number of parameters. In summary, the main issues encountered in
+the error-free dataset. As an ablation study, we subjected DeepDFA        competitor methods are: (i) scalability problems with DFA-inductor
+to different error rates (ranging from 0 to 50%) on Tomita 5. Each        and DFA-generator, often resulting in out-of-memory or out-of-time
+noise configuration was tested across five experiments, with |Q̂max |     errors when handling large DFAs. (ii) very low resilience to errors ex-
+set to 200. The results in Figure 2(a-b) show that our model can tol-     hibited by DFA-inductor. (iii) tendency to significantly overestimate
+erate larger error rates of up to 15% achieving 100% test accuracy        the automaton state space, possibly due to overfitting, observed in L*
+and a state count similar to the target one.                              extraction. In contrast, our method consistently delivers the most pre-
+                                                                          cise results in terms of test accuracy and number of states. It achieves
+Results on randomly generated DFAs We generate random DFAs                this without encountering any out-of-time or out-of-memory issues,
+with varying state and alphabet sizes using the approach outlined in      while also demonstrating a competitive number of parameters and
+the ‘Target DFAs’ paragraph. For each randomly generated DFA, we          execution times across all experiments.
+conduct 10 tests for each stochastic methods (DeepDFA, L* extrac-
+               (a) Tomita1                       (b) Tomita2                        (c) Tomita3                       (d) Tomita4
+
+
+
+
+                                (e) Tomita5                        (f) Tomita6                       (g) Tomita7
+Figure 3: Learning DFA from traces composed of imperfectly grounded symbols: test accuracy on the 7 Tomita languages. In blue the results
+obtained with the extension of DeepDFA to probabilistic symbols, in orange results of DFA-inductor.
+ Learning DFAs from traces of imperfectly grounded symbols              show that our model demands a hidden state size surpassing the ac-
+Automata learning typically takes a set of symbolic traces as in-       tual number of states. The best performances for the random DFA
+put, which are sequences of propositional symbols grounded in a         of size 20, are achieved for Q̂max ≥ 70—exceeding its actual state
+perfectly binary manner. However, in many domains, such for ex-         count by 3.5 times. Remarkably, the model maintains its robust per-
+ample Reinforcement Learning [23, 29], the observable sequences         formance even when the state size is markedly overestimated. Even
+come with uncertainty in their grounding. Specifically, at each step    at the largest state size, test accuracy remains commendably high,
+of the trace, we have a set of probabilistic beliefs over the sym-      and the number of states inferred remains proximate to the actual
+bol set instead of a binary interpretation. To the best of our knowl-   count. This suggests that the model evades overfitting; despite being
+edge, this is the first approach to automata learning that can accom-   dimensioned to represent a substantially greater number of states, it
+modate such ‘probabilistic grounding’ of symbols in the traces. To      leverages only a subset of them.
+evaluate the capability of our framework in learning DFA specifica-
+tions from sequences of imperfectly grounded symbols, we utilized
+a modified version of the dataset for Tomita Languages, where the
+one-hot representation of input symbols in the training traces is cor-  6 Conclusions and Future Work
+rupted with Gaussian noise having a mean of zero and variable vari-
+ance. We compared the extension of DeepDFA to handle probabilis-
+tic symbols (Equation 6) with DFA-inductor. Notably, boolean logic
+induction methods, such as DFA-inductor, cannot handle probabilis-      In conclusion, we propose DeepDFA: a hybrid between a DFA and a
+tic truth values for the input symbols. Therefore, we discretized the   recurrent neural network, which can be trained from samples with
+corrupted inputs to the nearest one-hot vector before passing them      backpropagation as usual deep learning models, but that is com-
+to the method. Figure 3 shows that DeepDFA exhibits a greater re-       pletely interpretable, as a DFA, after training. Our approach takes
+silience to noise in the input symbols than its competitor and its per- the best from the two worlds: grammar induction on one side and re-
+formance decrease smother as we increase the noise intensity.           current neural networks on the other side. It uses fewer weights and
+                                                                        only requires setting one hyperparameter compared to recurrent neu-
+Ablation study: the effect of changing the state space size RNNs        ral nets. At the same time, it can tolerate errors in the training labels
+have many hyperparameters and design choices that can affect per-       and noise in the input symbols, and can be applied to large target
+formance: the model type, the number of layers, the number of fea-      DFAs, differently from exact methods. DeepDFA can find applica-
+tures per layer, and more. By contrast, our recurrent neural model is   tions in various scenarios. In this paper, we present the framework
+a simplified structure with only one hyperparameter: the hidden state   in a general context, without specifying any particular application.
+size. In this section, we discuss this hyperparameter choice. Figure    However, we are keen to apply it in the area of non-Markovian Deep
+2(c-d) shows the effect on the test accuracy and the predicted number   Reinforcement Learning [14, 26, 23]. Furthermore, we are develop-
+of states of tuning this hyperparameter. We conducted experiments       ing a multi-layered version of DeepDFA, having the potential to ex-
+using a random DFA with a size of 20 and an alphabet size of 3. The     pand its capabilities to even more intricate regular languages without
+hidden state size was varied within the range of 10 to 120. Results     compromising the explainability, which we leave for future research.
+Acknowledgements                                                                   [19] J. E. Hopcroft. An n log n algorithm for minimizing states in a finite
+                                                                                        automaton, 1971.
+                                                                                   [20] E. Jang, S. Gu, and B. Poole. Categorical reparameterization with
+This work has been partially supported by PNRR MUR project                              gumbel-softmax. In 5th International Conference on Learning Repre-
+PE0000013-FAIR.                                                                         sentations, ICLR 2017, Toulon, France, April 24-26, 2017, Conference
+                                                                                        Track Proceedings. OpenReview.net, 2017.
+                                                                                   [21] R. Kusters, Y. Kim, M. Collery, C. de Sainte Marie, and S. Gupta. Dif-
+References                                                                              ferentiable rule induction with learned relational features. In A. d’Avila
+                                                                                        Garcez and E. Jiménez-Ruiz, editors, Proceedings of the 16th Interna-
+ [1] S. Agostinelli, F. Chiariello, F. M. Maggi, A. Marrella, and F. Patrizi.           tional Workshop on Neural-Symbolic Learning and Reasoning as part
+     Process mining meets model learning: Discovering deterministic finite              of the 2nd International Joint Conference on Learning & Reasoning
+     state automata from event logs for business process analysis. Inf. Syst.,          (IJCLR 2022), Cumberland Lodge, Windsor Great Park, UK, Septem-
+     114:102180, 2023.                                                                  ber 28-30, 2022, volume 3212 of CEUR Workshop Proceedings, pages
+ [2] B. K. Aichernig, S. König, C. Mateis, A. Pferscher, D. Schmidt, and                30–44. CEUR-WS.org, 2022.
+     M. Tappler. Constrained training of recurrent neural networks for au-         [22] K. J. Lang, B. A. Pearlmutter, and R. Price. Results of the abbadingo
+     tomata learning. In Software Engineering and Formal Methods: 20th                  one dfa learning competition and a new evidence-driven state merg-
+     International Conference, SEFM 2022, Berlin, Germany, September                    ing algorithm. In ICGI 1998: Grammatical Inference, number 1433
+     26–30, 2022, Proceedings, page 155–172, Berlin, Heidelberg, 2022.                  in Lecture Notes in Computer Science book series (LNCS), pages 1–
+     Springer-Verlag. ISBN 978-3-031-17107-9.                                           12. Springer, 1998. Cite as: Lang K.J., Pearlmutter B.A., Price R.A.
+ [3] J.-C. Amengual, A. Sanchis, E. Vidal, and J.-M. Benedi. Language                   (1998) Results of the Abbadingo one DFA learning competition and
+     simplification through error-correcting and grammatical inference tech-            a new evidence-driven state merging algorithm. In: Honavar V., Slutzki
+     niques. Machine Learning, 44(1/2):143–159, 2001.                                   G. (eds) Grammatical Inference. ICGI 1998. Lecture Notes in Computer
+ [4] D. Angluin. Learning regular sets from queries and counterexamples.                Science, vol 1433. Springer, Berlin, Heidelberg.
+     Information and Computation, 75(2):87–106, 1987. ISSN 0890-5401.              [23] A. C. Li, Z. Chen, P. Vaezipoor, T. Q. Klassen, R. T. Icarte, and S. A.
+ [5] T. R. Besold, A. d’Avila Garcez, S. Bader, H. Bowman, P. Domingos,                 McIlraith. Noisy symbolic abstractions for deep RL: A case study with
+     P. Hitzler, K. Kühnberger, L. C. Lamb, P. M. V. Lima, L. de Penning,               reward machines. CoRR, abs/2211.10902, 2022. doi: 10.48550/arXiv.
+     G. Pinkas, H. Poon, and G. Zaverucha. Neural-symbolic learning and                 2211.10902. URL https://doi.org/10.48550/arXiv.2211.10902.
+     reasoning: A survey and interpretation. In P. Hitzler and M. K. Sarker,       [24] W. Merrill and N. Tsilivis. Extracting finite automata from rnns using
+     editors, Neuro-Symbolic Artificial Intelligence: The State of the Art, vol-        state merging, 2022.
+     ume 342 of Frontiers in Artificial Intelligence and Applications, pages       [25] I. Salvador and J. Benedí. RNA modeling by combining stochastic
+     1–51. IOS Press, 2021.                                                             context-free grammars and n-gram models. Int. J. Pattern Recognit.
+ [6] S. Bhattamishra, K. Ahuja, and N. Goyal. On the Ability and Limita-                Artif. Intell., 16(3):309–315, 2002.
+     tions of Transformers to Recognize Formal Languages. In B. Webber,            [26] T. Shahar and R. I. Brafman. Reinforcement learning in rdps by com-
+     T. Cohn, Y. He, and Y. Liu, editors, Proceedings of the 2020 Confer-               bining deep RL with automata learning. In ECAI 2023 - 26th European
+     ence on Empirical Methods in Natural Language Processing (EMNLP),                  Conference on Artificial Intelligence, September 30 - October 4, 2023,
+     pages 7096–7116, Online, Nov. 2020. Association for Computational                  Kraków, Poland - Including 12th Conference on Prestigious Applica-
+     Linguistics.                                                                       tions of Intelligent Systems (PAIS 2023), pages 2097–2104, 2023. doi:
+ [7] B. Bonet, H. Palacios, and H. Geffner. Automatic derivation of finite-             10.3233/FAIA230504. URL https://doi.org/10.3233/FAIA230504.
+     state machines for behavior control. In Proceedings of the Twenty-            [27] H. T. Siegelmann and E. D. Sontag. On the computational power of neu-
+     Fourth AAAI Conference on Artificial Intelligence, AAAI 2010, Atlanta,             ral nets. In Proceedings of the Fifth Annual Workshop on Computational
+     Georgia, USA, July 11-15, 2010, 2010.                                              Learning Theory, COLT ’92, page 440–449, New York, NY, USA,
+ [8] M. Bugalho and A. L. Oliveira. Inference of regular languages us-                  1992. Association for Computing Machinery. ISBN 089791497X.
+     ing state merging algorithms with search. Pattern Recogn., 38(9):             [28] M. Tomita. Dynamic construction of finite automata from examples
+     1457–1467, sep 2005. ISSN 0031-3203.                                               using hill-climbing. In Proceedings of the Fourth Annual Conference of
+ [9] M. Collery, P. Bonnard, F. Fages, and R. Kusters. Neural-based clas-               the Cognitive Science Society, pages 105–108, Ann Arbor, Michigan,
+     sification rule learning for sequential data. In The Eleventh Interna-             1982.
+     tional Conference on Learning Representations, ICLR 2023, Kigali,             [29] E. Umili, F. Argenziano, A. Barbin, and R. Capobianco. Visual re-
+     Rwanda, May 1-5, 2023, 2023. URL https://openreview.net/pdf?id=                    ward machines. In Proceedings of the 17th International Workshop on
+     7tJyBmu9iCj.                                                                       Neural-Symbolic Learning and Reasoning, La Certosa di Pontignano,
+[10] G. De Giacomo and M. Y. Vardi. Linear temporal logic and linear dy-                Siena, Italy, July 3-5, 2023, pages 255–267, 2023.
+     namic logic on finite traces. In Proceedings of the Twenty-Third In-          [30] H. Walke, D. Ritter, C. Trimbach, and M. Littman. Learning finite linear
+     ternational Joint Conference on Artificial Intelligence, IJCAI ’13, page           temporal logic specifications with a specialized neural operator, 2021.
+     854–860. AAAI Press, 2013. ISBN 9781577356332.                                     URL https://arxiv.org/abs/2111.04147.
+[11] C. de la Higuera. A bibliographical study of grammatical inference.           [31] Q. Wang, K. Zhang, A. Ororbia, X. Xing, X. Liu, and C. Giles.
+     Pattern Recognition, 38(9):1332–1348, 2005. ISSN 0031-3203. Gram-                  An empirical evaluation of rule extraction from recurrent neural net-
+     matical Inference.                                                                 works. Neural Computation, 30(9):2568–2591, Sept. 2018. ISSN 0899-
+[12] W. De Mulder, S. Bethard, and M.-F. Moens. A survey on the applica-                7667. doi: 10.1162/neco_a_01111. Publisher Copyright: © 2018 Mas-
+     tion of recurrent neural networks to statistical language modeling. Com-           sachusetts Institute of Technology.
+     puter Speech & Language, 30(1):61–98, 2015. ISSN 0885-2308.                   [32] G. Weiss, Y. Goldberg, and E. Yahav. Extracting automata from recur-
+[13] J. L. Elman. Finding structure in time. Cognitive Science, 14(2):179–              rent neural networks using queries and counterexamples. In J. Dy and
+     211, 1990.                                                                         A. Krause, editors, Proceedings of the 35th International Conference
+[14] M. Gaon and R. Brafman. Reinforcement learning with non-markovian                  on Machine Learning, volume 80 of Proceedings of Machine Learning
+     rewards. Proceedings of the AAAI Conference on Artificial Intelligence,            Research, pages 5247–5256. PMLR, 10–15 Jul 2018.
+     34(04):3980–3987, Apr. 2020. doi: 10.1609/aaai.v34i04.5814. URL               [33] I. Zakirzyanov, A. A. Shalyto, and V. I. Ulyantsev. Finding all
+     https://ojs.aaai.org/index.php/AAAI/article/view/5814.                             minimum-size dfa consistent with given examples: Sat-based approach.
+[15] A. d. Garcez and L. C. Lamb. Neurosymbolic ai: The 3rd wave, 2020.                 In SEFM Workshops, 2017.
+     URL https://arxiv.org/abs/2012.05876.                                         [34] I. Zakirzyanov, A. Morgado, A. Ignatiev, V. I. Ulyantsev, and
+[16] P. Grachev, I. S. Lobanov, I. Smetannikov, and A. Filchenkov. Neural               J. Marques-Silva. Efficient symmetry breaking for sat-based minimum
+     network for synthesizing deterministic finite automata. Procedia Com-              dfa inference. In LATA, 2019.
+     puter Science, 119:73–82, 2017.
+[17] M. J. H. Heule and S. Verwer. Exact dfa identification using sat
+     solvers. In Proceedings of the 10th International Colloquium Confer-
+     ence on Grammatical Inference: Theoretical Results and Applications,
+                                                                                   A     Experiments
+     ICGI’10, page 66–79, Berlin, Heidelberg, 2010. Springer-Verlag. ISBN
+     3642154875.
+                                                                                   A.1     Datasets
+[18] G. E. Hinton, O. Vinyals, and J. Dean. Distilling the knowledge in a
+     neural network. CoRR, abs/1503.02531, 2015. URL http://arxiv.org/             We report the statistics about the datasets used for our experiments on
+     abs/1503.02531.                                                               the Tomita languages and the random DFAs in the Tables 5 6 respec-
+   Table 5: Statistics on the datasets for the Tomita experiments.
+                                                                           the best dev accuracy. If two models share the same dev accuracy, we
+                       Train Set       Dev Set        Test Set
+            Tomita                                                         select the one with the number of states closest to the target. These
+                     Size Length Size Length Size Length                   highlighted models are the ones showcased in the main paper results.
+               1      325   1-30      20    60     20      90              In particular, in that results we selected the model with fewer param-
+               2      315   1-30      20    60     20      90              eters in the case of multiple models achieving perfect performance.
+               3     2701   1-30      20    60     20      90
+                                                                              In the tables, we denote RNN architectures as <RNN_type>(l,h),
+               4     3373   1-30      40    60     20      90
+               5     1991   1-30     300    60    300      90              where l is the number of layers, h is the hidden state size, and
+               6     3423   1-30     300    60    300      90              <RNN_type> represents the type of RNN tested. For DeepDFA ar-
+               7     1741   1-30      20    60     20      90              chitectures, we use DeepDFA(h), where h is the maximum number
+                                                                           of states (|Q̂max |).
+tively. The tables report the number of traces composing the train,
+dev, and test dataset and the lengths of the traces in each dataset. Let
+lentrain be the maximum length of train traces. Note that we always        A.3.1    L* Extraction on Tomita Datasets (Perfectly Labeled)
+choose the length of dev traces as 2 ∗ lentrain and the length of test     Table 7 presents the results for the experiments on Tomita Languages
+traces as 3 ∗ lentrain , to test the models’ capability to generalize to   without label noise.
+longer unseen traces. Each train dataset is nearly perfectly balanced
+between positive and negative examples.                                    T1 and T2: For the simplest Tomita languages (T1 and T2), we ob-
+                                                                           serve that 3 out of 6 models achieve perfect performance for T1, and
+                                                                           2 out of 6 for T2. Interestingly, the results demonstrate that adding
+A.2    Training details                                                    weights doesn’t consistently improve performance. For instance, T1
+                                                                           shows better results with a one-layer GRU with a hidden state size
+We train all the neural networks on an Nvidia GPU GeForce GTX
+                                                                           of 30 compared to a larger one-layer GRU with a hidden state size
+1650 Ti, with a learning rate of 0.01 for DeepDFA and of 0.001 for
+                                                                           of 100. Regarding T2, the best outcomes are obtained with shallow
+the RNNs, until training loss convergence, for a maximum of 200
+                                                                           one-layer RNN architectures, while two-layer architectures struggle
+epochs. In all the experiments we use λ = 0.999 and minimum tem-
+                                                                           to achieve perfection due to the predicted DFA having too few states,
+perature = 10−5 . All the experiments of DFA-inductor were per-
+                                                                           causing a slight accuracy reduction on the training set for both LSTM
+formed on a Intel Core i7-10750H CPU, without any other process
+                                                                           and GRU.
+running at the same time.
+Table 6: Statistics on the datasets used for the random DFA experi-        T2 and T3: Despite T2 and T3 being of medium difficulty, they
+ments.                                                                     are solved more easily compared to T1 and T2. In these cases, all ar-
+                      Train Set             Dev Set        Test Set        chitectures except one (GRU(1, 100)) achieve perfect performance.
+        S A                                                                However, the single exception yields a predicted DFA with an excep-
+                     Size          Length Size Length Size Length
+                                                                           tionally larger number of states (285 instead of 5) for T2, indicating
+       10 2 3341.4 ± 159.95         1-30   150    60     150      90       a significant deviation from the target DFA.
+       10 3 4196.6 ± 31.32          1-30   150    60     150     90
+       20 2 3434.6 ± 46.52          1-30   150    60     150     90        T5 and T6: T5 and T6 prove to be the most challenging languages
+       20 3 4213.0 ± 16.73          1-30   150    60     150     90        in the benchmark. For both languages, none of the RNNs achieve per-
+       30 2 12804.6 ± 11.67         1-50   150   100     150     150
+                                                                           fect performance when considering both the RNN and the extracted
+       30 3 13556.8 ± 29.01         1-50   150   100     150     150
+                                                                           DFA. Nonetheless, for T5, perfect results are attainable with the DFA
+                                                                           and nearly perfect accuracy with the RNN when using GRU(2, 100).
+                                                                           However, for T6, no tested models achieve 100% accuracy with ei-
+A.3    Complete DeepDFA and L* Extraction Results                          ther the RNN or the DFA. In this case, we select the best model
+                                                                           based on the highest dev RNN accuracy: LSTM(1, 100). It’s note-
+This section presents comprehensive results for the DeepDFA and            worthy that the extracted DFA for T6 consistently contains many
+L* extraction methods. We report the train and dev accuracies for all      more states than the target (minimum of 42 and hundreds of states
+RNNs and DeepDFA models used in this experiment. Additionally,             in other cases).
+we showcase the train, deve, and test accuracies of the DFA extracted
+                                                                           T7: Despite theoretically being the most challenging language in
+from the continuous model, alongside the number of states (|Q̂|) of
+                                                                           the benchmark, all RNNs achieve perfect performance on T7, leading
+the extracted DFA. For RNNs, the DFA is extracted using the L*
+                                                                           us to omit the results for space considerations.
+extraction algorithm. In the case of DeepDFA models, the crisp DFA
+is extracted by evaluating the parameters with minimum temperature
+activation. For each language and neural model, we conduct N runs          A.3.2    L* Extraction on Noisy Tomita Datasets
+with varying random seeds, reporting the mean ± standard deviation.
+Specifically, we set N = 5 for the Tomita Languages and N = 10             Tables 8 and 9 present results for the noisy versions of the Tomita
+for the random DFAs. The results are presented in Tables 7 to 15.          datasets, where 1% of training labels were flipped.
+   In these tables, we highlight in bold the performance metrics that      T1 and T2: For T1, 4 out of 6 models predicts the DFA perfectly,
+correspond to models achieving perfect results. A model is deemed          while for T2, 2 out of 6 models achieve perfect performance. It’s
+to achieve perfect performance when the continuous model attains           important to note that we consider models with the same number of
+100% accuracy on both the trai and dev sets, the extracted DFA             states as the target to be perfect, but this information isn’t available
+achieves 100% accuracy on the train, dev, and test sets, and the pre-      during testing. If we selected the model with the highest dev accuracy
+dicted DFA size matches the target size.                                   as the best, we would also choose LSTM(1, 30) for T1. However, this
+   If none of the RNNs or DeepDFA models can achieve perfect per-          model’s predicted number of states (124) significantly deviates from
+formance for a given language, we emphasize in bold the model with         the actual number. A similar situation arises for T2, where models
+Table 7: L* extraction on the Tomita Languages with different RNN architectures. We highlight in bold the models that have obtained perfect
+performances for T1-T4. Since no model can reach perfect results on T5 and T6, for these languages, we highlight in bold the model reaching
+the best RNN accuracy on the dev set. All the RNN models achieve perfect results on T7; for this and space reasons, we omit the results of this
+language from the table.
+                                                        T1 (|Q| = 2)                                               T2 (|Q| = 3)
+                      Model
+                                        Train          Dev             Test          |Q̂|           Train         Dev         Test          |Q̂|
+                   LSTM(1,30)          100 ± 0        100 ± 0        —                 —           100 ± 0      100 ± 0        —             —
+                  DFA extracted       99.3 ± 1.3      100 ± 0      100 ± 0         2.2 ± 0.4      99.4 ± 0.7    100 ± 0      100 ± 0     2.6 ± 0.5
+                  LSTM(1,100)          100 ± 0        100 ± 0        —                 —           100 ± 0      100 ± 0        —            —
+                  DFA extracted       99.8 ± 0.2      100 ± 0      100 ± 0         2.6 ± 1.3       100 ± 0      100 ± 0      100 ± 0       3±0
+                  LSTM(2,100)          100 ± 0        100 ± 0        —                —            100 ± 0      100 ± 0        —            —
+                  DFA extracted        100 ± 0        100 ± 0      100 ± 0           2±0          98.73 ± 0     100 ± 0      100 ± 0       2±0
+                   GRU(1,30)           100 ± 0        100 ± 0        —               —             100± 0       100 ± 0        —            —
+                  DFA extracted        100 ± 0        100 ± 0      100 ± 0          2±0            100 ± 0      100 ± 0      100 ± 0       3±0
+                   GRU(1,100)          100 ± 0        100 ± 0        —                 —           100 ± 0      100 ± 0        —             —
+                  DFA extracted       99.3 ± 1.3      100 ± 0      100 ± 0         2.2 ± 0.4       100 ± 0      100 ± 0      100 ± 0     4.4 ± 3.1
+                   GRU(2,100)          100 ± 0        100 ± 0        —               —             100 ± 0      100 ± 0        —            —
+                  DFA extracted        100 ± 0        100 ± 0      100 ± 0          2±0            98.7 ± 0     100 ± 0      100 ± 0       2±0
+                                                          T3 (|Q| = 5)                                             T4 (|Q| = 4)
+                       Model
+                                         Train          Dev            Test              |Q̂|         Train        Dev         Test        |Q̂|
+                     LSTM(1,30)         100 ± 0       100 ± 0        —                    —          100 ± 0     100 ± 0       —            —
+                    DFA extracted       100 ± 0       100 ± 0      100 ± 0               5±0         100 ± 0     100 ± 0     100 ± 0       4±0
+                    LSTM(1,100)         100 ± 0       100 ± 0        —                    —          100 ± 0     100 ± 0       —            —
+                    DFA extracted       100 ± 0       100 ± 0      100 ± 0               5±0         100 ± 0     100 ± 0     100 ± 0       4±0
+                    LSTM(2,100)         100 ± 0       100 ± 0        —                    —          100 ± 0     100 ± 0       —            —
+                    DFA extracted       100 ± 0       100 ± 0      100 ± 0               5±0         100 ± 0     100 ± 0     100 ± 0       4±0
+                     GRU(1,30)          100 ± 0       100 ± 0        —                    —          100 ± 0     100 ± 0       —            —
+                    DFA extracted       100 ± 0       100 ± 0      100 ± 0               5±0         100 ± 0     100 ± 0     100 ± 0       4±0
+                     GRU(1,100)         100 ± 0       100 ± 0        —                  —            100 ± 0     100 ± 0       —            —
+                    DFA extracted       99.9 ± 0      100 ± 0      100 ± 0         285.4 ± 384       100 ± 0     100 ± 0     100 ± 0       4±0
+                     GRU(2,100)         100 ± 0       100 ± 0        —                    —          100 ± 0     100 ± 0       —            —
+                    DFA extracted       100 ± 0       100 ± 0      100 ± 0               5±0         100 ± 0     100 ± 0     100 ± 0       4±0
+                                                   T5 (|Q| = 4)                                                       T6 (|Q| = 3)
+              Model
+                              Train             Dev             Test              |Q̂|             Train          Dev             Test             |Q̂|
+            LSTM(1,30) 76.4 ± 0.2         49.8 ± 0.7            —                 —              87.2 ± 0.7    56.6 ± 3.3         —               —
+           DFA extracted 53.7 ± 0           50 ± 0            50 ± 0             2±0             81.7 ± 0.6    56.4 ± 3.7     51.9 ± 2.5    621.8 ± 243.5
+           LSTM(1,100) 78.8 ± 1.3 51.87 ± 0.51                —                    —               99 ± 2      92.6 ± 16.4        —               —
+           DFA extracted 54.5 ± 0.8 50.6 ± 0.9            48.7 ± 1.7          77.6 ± 156.2       98.7 ± 2.8    92.8 ± 16.1   91.1 ± 19.8    170.6 ± 374.7
+           LSTM(2,100)      79 ± 1        50.6 ± 1.2          —                     —            95.9 ± 2.8    66.6 ± 8.3         —               —
+           DFA extracted   54.5 ± 0.8     50.4 ± 0.8      49.6 ± 1.6          110.4 ± 213.1      96.2 ± 1.5     70.3 ± 8      65.1 ± 6.6    233.8 ± 208.4
+            GRU(1,30)    78.4 ± 1.1        51 ± 1.3           —                     —            82.8 ± 3.7     54.7 ± 3.7        —               —
+           DFA extracted 54.5 ± 0.8       51.2 ± 1.7      47.9 ± 1.6          307.6 ± 295.5      79.9 ± 12     60.9 ± 21.9   60.9 ± 21.9    408.2 ± 245.1
+            GRU(1,100)      100 ± 0       98.9 ± 1.2           —                  —              98.7 ± 1.3    86.5 ± 13.1        —               —
+           DFA extracted    100 ± 0        100 ± 0           100 ± 0             4±0             98.6 ± 1.9    89.7 ± 14.1   85.7 ± 19.5    198.6 ± 371.4
+            GRU(2,100)      100 ± 0       99.9 ± 0.1           —                  —             97.3 ± 0.99     62 ± 4.2          —               —
+           DFA extracted    100 ± 0        100 ± 0           100 ± 0             4±0            95.9 ± 2.7     75.6 ± 14.8   67.8 ± 18.8      42.6 ± 73
+
+with non-target state numbers achieve perfect dev accuracy, making                       T7: Despite all 6 models achieving perfect performance without
+them indistinguishable from truly perfect models.                                        noise, only 2 models (GRU(1, 100) and GRU(2, 100)) maintain per-
+                                                                                         fect performance.
+T3 and T4: Introducing errors significantly decreases the number
+of models achieving perfect performance. None of the tested models
+                                                                                         A.3.3     DeepDFA on Tomita Datasets (Perfectly Labeled)
+achieve perfect results for T3, while only 2 out of 6 models suc-
+ceed for T4, in contrast to the perfect performances obtained without                    Table 12 presents DeepDFA results on Tomita Languages using dif-
+noise.                                                                                   ferent state sizes (10, 30, and 100).
+                                                                                            In the majority of experiments, DeepDFA achieves perfect results,
+T5 and T6: The best models from the noiseless scenario remain the                        exhibiting 100% accuracy on all three datasets (training, develop-
+best in the noisy setting as well (GRU(2, 100) for T5 and LSTM(1,                        ment, and test) for both the continuous model and the DFA extracted
+100) for T6).                                                                            at the minimum temperature activation, and a DFA size (|Q̂|) equal
+Table 8: L* extraction on the Tomita Languages with different RNN architectures on the noisy dataset. We highlight in bold the models that
+have obtained perfect performances for T1-T4. Since no model can reach perfect results on T5 and T6, for these languages we highlight in
+bold the model reaching the best RNN accuracy on the dev set. We omit the results for T7, since all the RNNs and the corresponding DFA
+achieve perfect performance on this language.
+                                                    T1 (|Q| = 2)                                             T2 (|Q| = 3)
+                 Model
+                                Train          Dev         Test            |Q̂|            Train         Dev          Test            |Q̂|
+               LSTM(1,30)      99.5 ± 0      100 ± 0        —               —           99.5 ± 0.4     100 ± 0        —              —
+              DFA extracted   99.9 ± 0.1     100 ± 0      100 ± 0     124.2 ± 273.2      100 ± 0       100 ± 0      100 ± 0         3±0
+              LSTM(1,100)      100 ± 0       100 ± 0        —              —            99.8 ± 0.3     100 ± 0        —              —
+              DFA extracted    100 ± 0       100 ± 0      100 ± 0         2±0            100 ± 0       100 ± 0      100 ± 0         3±0
+              LSTM(2,100)      100 ± 0       100 ± 0        —               —            100 ± 0       100 ± 0        —              —
+              DFA extracted   99.6 ± 0.4     100 ± 0      100 ± 0       5.2 ± 4.6        98.7 ± 0      100 ± 0      100 ± 0         2±0
+               GRU(1,30)      99.5 ± 0.2     100 ± 0        —              —            99.6 ± 0.2     100 ± 0        —               —
+              DFA extracted    100 ± 0       100 ± 0      100 ± 0         2±0            100 ± 0       100 ± 0      100 ± 0         4 ± 2.2
+               GRU(1,100)     99.8 ± 0.3     100 ± 0        —              —             100 ± 0       100 ± 0        —                —
+              DFA extracted    100 ± 0       100 ± 0      100 ± 0         2±0           99.6 ± 0.4     100 ± 0      100 ± 0       48.8 ± 78.6
+               GRU(2,100)      100 ± 0       100 ± 0        —              —             100 ± 0       100 ± 0        —                —
+              DFA extracted    100 ± 0       100 ± 0      100 ± 0         2±0           98.9 ± 0.5     100 ± 0      100 ± 0        2.2 ± 0.4
+                                                 T3 (|Q| = 5)                                           T4 (|Q| = 4)
+                   Model
+                                 Train        Dev         Test          |Q̂|           Train          Dev          Test           |Q̂|
+                LSTM(1,30) 99.2 ± 0.2       100 ± 0       —               —           99.2 ± 0      100 ± 0        —              —
+               DFA extracted 100 ± 0        100 ± 0     100 ± 0       7.4 ± 3.3       100 ± 0       100 ± 0      100 ± 0         4±0
+               LSTM(1,100) 99.1 ± 0.9       100 ± 0       —              —          99.2 ± 0.3      100 ± 0        —              —
+               DFA extracted 99.7 ± 0.2     100 ± 0     100 ± 0     161.8 ± 340      100 ± 0        100 ± 0      100 ± 0         4±0
+               LSTM(2,100) 99.2 ± 0.8 99 ± 2.2    —                     —             99.4 ± 0      100 ± 0        —               —
+               DFA extracted 99.5 ± 0.6 100 ± 0 100 ± 0             198 ± 254.8       99.9 ± 0      100 ± 0      100 ± 0       11.4 ± 5.7
+                GRU(1,30)    99.1 ± 0.6     100 ± 0       —               —           99.2 ± 0     99.5 ± 1.1      —              —
+               DFA extracted 100 ± 0.1      100 ± 0     100 ± 0     209.6 ± 282.1     100 ± 0       100 ± 0      100 ± 0         4±0
+                GRU(1,100) 99.5 ± 0.3       100 ± 0       —               —         99.4 ± 0.2      98 ± 2.1        —               —
+               DFA extracted 99.6 ± 0.3     100 ± 0     100 ± 0     199.6 ± 258.1    99.9 ± 0       100 ± 0      99 ± 2.2     191.4 ± 297.5
+                GRU(2,100) 99.8 ± 0.2       100 ± 0       —               —         99.7 ± 0.2      100 ± 0        —               —
+               DFA extracted 99.7 ± 0.2     100 ± 0     100 ± 0     415.2 ± 313.9    100 ± 0        100 ± 0      100 ± 0      132.8 ± 288
+                                                 T5 (|Q| = 4)                                               T6 (|Q| = 3)
+                  Model
+                               Train          Dev          Test           |Q̂|          Train         Dev           Test            |Q̂|
+               LSTM(1,30)      76 ± 0       50 ± 0          —             —           87.3 ± 6.9 63.2 ± 20.7      —           —
+              DFA extracted   53.7 ± 0      50 ± 0        50 ± 0         2±0          83.7 ± 9.4 64.2 ± 20.7 59.5 ± 23.1 456.8 ± 255
+              LSTM(1,100)     79 ± 0.7     49.8 ± 1.1       —             —       99.4 ± 0.1 99.4 ± 0.7              —              —
+              DFA extracted   55.3 ± 2     49.2 ± 1.4    50 ± 0.7     300 ± 403.6 99.9 ± 0.1 100 ± 0             99.9 ± 0.1     107 ± 170.6
+              LSTM(2,100) 84.7 ± 8.2 59.3 ± 22.7         —            —       96.9 ± 1.8 74.3 ± 14.8  —                              —
+              DFA extracted 63.3 ± 20.6 59.8 ± 22.5 61.1 ± 21.7 351.4 ± 328.4 97 ± 3.4 80.9 ± 12.4 75 ± 16.2                    479.4 ± 321
+               GRU(1,30) 78.9 ± 0.5 49.3 ± 2.5        —                    —          87.3 ± 1.5 60.7 ± 2.1          —               —
+              DFA extracted 54.7 ± 0.5 50.8 ± 2.5 48.2 ± 1.8           351 ± 344      84.8 ± 2.9 57.7 ± 3.7      52.2 ± 5.2     477.2 ± 170
+               GRU(1,100) 92.9 ± 8.3 75.9 ± 26.4             —             —       99.5 ± 0.1 99.2 ± 1.3             —            —
+              DFA extracted 84.8 ± 21.2 79.3 ± 28.3       81 ± 26    298.6 ± 408.8 99.9 ± 0.1 99.9 ± 0.1         99.9 ± 0.1 143.4 ± 234.2
+               GRU(2,100) 99.7 ± 0.1       99.6 ± 0.4       —             —           96.1 ± 2.2    58.8 ± 4         —               —
+              DFA extracted 100 ± 0         100 ± 0       100 ± 0        4±0          94.9 ± 1.1    67 ± 3.6      61 ± 4.4     288.8 ± 240.5
+                  Table 9: L* extraction on the Tomita 7 Language with different RNN architectures on the noisy dataset.
+                                                                                      T7 (|Q| = 5)
+                                                  Model
+                                                                    Train            Dev          Test            |Q̂|
+                                            LSTM(1,30) 99.4 ± 0.1                  99.0 ± 2.2 —                   —
+                                           DFA extracted 100 ± 0                    100 ± 0 100 ± 0              5±0
+                                           LSTM(1,100)           99.4 ± 0.1        95.0 ± 5.0 —                   —
+                                           DFA extracted          100 ± 0           100 ± 0 100 ± 0              5±0
+                                           LSTM(2,100) 99.6 ± 0.08 99.0 ± 2.2 —                                   —
+                                           DFA extracted 100 ± 0    100 ± 0 100 ± 0                              5±0
+                                            GRU(1,30)    99.3 ± 0.1                100 ± 0       —          —
+                                           DFA extracted  100 ± 0                  100 ± 0     100 ± 0 68.4 ± 141.7
+                                            GRU(1,100)           99.5 ± 0          100 ± 0       —                —
+                                           DFA extracted         100 ± 0           100 ± 0     100 ± 0           5±0
+                                            GRU(2,100)           99.6 ± 0.2        100 ± 0       —                —
+                                           DFA extracted          100 ± 0          100 ± 0     100 ± 0           5±0
+Table 10: DeepDFA experiments on the Tomita Languages with different sizes of the state space. We highlight in bold the models that have
+obtained perfect performances.
+                                                           T1 (|Q| = 2)                                            T2 (|Q| = 3)
+                            Model
+                                            Train          Dev              Test       |Q̂|        Train          Dev           Test       |Q̂|
+                        DeepDFA(10)       100 ± 0         100 ± 0        —             —          100 ± 0        100 ± 0         —          —
+                        DFA extracted     100 ± 0         100 ± 0      100 ± 0        2±0         100 ± 0        100 ± 0       100 ± 0     3±0
+                        DeepDFA(30)       100 ± 0         100 ± 0        —             —          100 ± 0        100 ± 0         —          —
+                        DFA extracted     100 ± 0         100 ± 0      100 ± 0        2±0         100 ± 0        100 ± 0       100 ± 0     3±0
+                        DeepDFA(100)      100 ± 0         100 ± 0        —             —          100 ± 0        100 ± 0         —          —
+                        DFA extracted     100 ± 0         100 ± 0      100 ± 0        2±0         100 ± 0        100 ± 0       100 ± 0     3±0
+
+                                                           T3 (|Q| = 5)                                                  T4 (|Q| = 4)
+                         Model
+                                          Train            Dev          Test            |Q̂|             Train           Dev       Test       |Q̂|
+                     DeepDFA(10)         100 ± 0      100 ± 0           —               —           100 ± 0         100 ± 0        —          —
+                     DFA extracted       100 ± 0      100 ± 0         100 ± 0          5±0          100 ± 0         100 ± 0      100 ± 0     4±0
+                     DeepDFA(30)         100 ± 0      100 ± 0           —                 —         100 ± 0         100 ± 0        —          —
+                     DFA extracted      98.8 ± 2.6    100 ± 0         100 ± 0         4.8 ± 0.4     100 ± 0         100 ± 0      100 ± 0     4±0
+                     DeepDFA(100)       99.3 ± 1.3    100 ± 0           —                 —         100 ± 0         100 ± 0        —          —
+                     DFA extracted      90.4 ± 13     100 ± 0         100 ± 0         4.2 ± 1.1     100 ± 0         100 ± 0      100 ± 0     4±0
+
+                                                           T5 (|Q| = 4)                                            T6 (|Q| = 3)
+                            Model
+                                            Train          Dev              Test       |Q̂|        Train          Dev           Test       |Q̂|
+                        DeepDFA(10)       100 ± 0         100 ± 0        —             —          100 ± 0        100 ± 0         —          —
+                        DFA extracted     100 ± 0         100 ± 0      100 ± 0        4±0         100 ± 0        100 ± 0       100 ± 0     3±0
+                        DeepDFA(30)       100 ± 0         100 ± 0        —             —          100 ± 0        100 ± 0         —          —
+                        DFA extracted     100 ± 0         100 ± 0      100 ± 0        4±0         100 ± 0        100 ± 0       100 ± 0     3±0
+                        DeepDFA(100)      100 ± 0         100 ± 0        —             —          100 ± 0        100 ± 0         —          —
+                        DFA extracted     100 ± 0         100 ± 0      100 ± 0        4±0         100 ± 0        100 ± 0       100 ± 0     3±0
+
+                                                                                       T7 (|Q| = 5)
+                                                  Model
+                                                                     Train            Dev           Test            |Q̂|
+                                           DeepDFA(10)              100 ± 0          100 ± 0        —               —
+                                           DFA extracted            100 ± 0          100 ± 0      100 ± 0          5±0
+                                           DeepDFA(30)             100 ± 0           100 ± 0        —                —
+                                           DFA extracted          96.4 ± 7.9         100 ± 0      100 ± 0        5.2 ± 0.4
+                                           DeepDFA(100)             100 ± 0          100 ± 0        —               —
+                                           DFA extracted            100 ± 0          100 ± 0      100 ± 0          5±0
+
+to the target size.                                                                    dicted DFA’s number of states deviates from the target by less than
+   Specifically, all tested models achieve perfection for languages T1,                one state, in contrast to L* extraction, which tends to significantly
+T2, T4, T5, and T6. For T3, one model out of three achieves perfect                    overestimate the number of states.
+performance, and for T7, 2 out of 3 models achieve perfection. Im-
+portantly, when the target DFA cannot be perfectly inferred, the pre-
+Table 11: DeepDFA experiments on the noisy dataset constructed for the Tomita Languages. We test the model with different sizes of the
+state space. We highlight in bold the models that have obtained perfect accuracy on the dev and test set with both the RNN and the DFA and
+with the number of states of the predicted DFA equal to the target one.
+                                                        T1 (|Q| = 2)                                                T2 (|Q| = 3)
+                   Model
+                                     Train             Dev            Test            |Q̂|        Train             Dev           Test             |Q̂|
+               DeepDFA(10)         99.2 ± 0.1        100 ± 0           —                —         99 ± 0        100 ± 0         —                 —
+               DFA extracted       98.3 ± 1.2        99 ± 2.2       99 ± 2.2        5.2 ± 1.7     99 ± 0        100 ± 0       100 ± 0            3±0
+               DeepDFA(30)         98.9 ± 0.2        100 ± 0          —               —         98.7 ± 0.9      100 ± 0         —                 —
+               DFA extracted        99 ± 00          100 ± 0        100 ± 0          2±0         100 ± 0        100 ± 0       100 ± 0            3±0
+               DeepDFA(100)      99 ± 0               100 ± 0          —                —       97.1 ± 3.2     96 ± 5.4         —                  —
+               DFA extracted   93.9 ± 11.4           94 ± 13.4      97 ± 6.7        2.8 ± 1.7    83.3 ± 8      86 ± 8.2      85 ± 9.3           10 ± 1.8
+
+                                                           T3 (|Q| = 5)                                         T4 (|Q| = 4)
+                       Model
+                                          Train              Dev             Test        |Q̂|     Train         Dev           Test          |Q̂|
+                    DeepDFA(10)          99 ± 0           100 ± 0         —              —       98.9 ± 0     100 ± 0         —            —
+                    DFA extracted        99 ± 0           100 ± 0       100 ± 0         5±0      98.9 ± 0     100 ± 0       100 ± 0       4±0
+                    DeepDFA(30)          99 ± 0           100 ± 0         —              —       98.9 ± 0     100 ± 0         —            —
+                    DFA extracted        99 ± 0           100 ± 0       100 ± 0         5±0      98.9 ± 0     100 ± 0       100 ± 0       4±0
+                    DeepDFA(100)       97.2 ± 2.8        100 ± 0           —             —       98.9 ± 0     100 ± 0         —            —
+                    DFA extracted       95.1 ± 5        95 ± 11.1       96 ± 8.9        8±3      98.9 ± 0     100 ± 0       100 ± 0       4±0
+
+                                                             T5 (|Q| = 4)                                     T6 (|Q| = 3)
+                           Model
+                                             Train         Dev            Test          |Q̂|    Train         Dev          Test          |Q̂|
+                      DeepDFA(10)         99 ± 0          100 ± 0        —              —       99 ± 0      100 ± 0         —             —
+                      DFA extracted       99 ± 0          100 ± 0      100 ± 0         3±0      99 ± 0      100 ± 0       100 ± 0        3±0
+                      DeepDFA(30)         99 ± 0          100 ± 0        —              —       99 ± 0      100 ± 0         —             —
+                      DFA extracted       99 ± 0          100 ± 0      100 ± 0         3±0      99 ± 0      100 ± 0       100 ± 0        3±0
+                      DeepDFA(100)        99 ± 0        99.9 ± 0.1       —              —       99 ± 0      100 ± 0         —             —
+                      DFA extracted       99 ± 0         100 ± 0       100 ± 0         3±0      99 ± 0      100 ± 0       100 ± 0        3±0
+
+                                                                                       T7 (|Q| = 5)
+                                                  Model
+                                                                     Train            Dev        Test          |Q̂|
+                                             DeepDFA(10)             99 ± 0         100 ± 0       —            —
+                                             DFA extracted          100 ± 0         100 ± 0     100 ± 0       5±0
+                                             DeepDFA(30)            99 ± 0          100 ± 0       —              —
+                                             DFA extracted         98.8 ± 0.4       100 ± 0     100 ± 0      6.2 ± 2.6
+                                             DeepDFA(100)            99 ± 0         100 ± 0       —            —
+                                             DFA extracted           99 ± 0         100 ± 0     100 ± 0       5±0
+
+A.3.4   DeepDFA on Noisy Tomita Datasets                                                 RNN’s training accuracy approaches 100%, the development ac-
+                                                                                         curacy is around 60-70%. Reducing RNN dimensions in these
+Table 13 showcases results for DeepDFA on the Tomita Languages
+                                                                                         cases to mitigate overfitting results in similar performance.
+with 1% label noise. DeepDFA maintains perfect results regardless
+                                                                                       • Significant performance loss due to abstraction is evident. This
+of the maximum number of states chosen for Tomita 4 and 6. For
+                                                                                         phenomenon also appears in Tomita language experiments (where
+Tomita 1, one model out of three predicts the DFA perfectly. For
+                                                                                         the DFA’s accuracy on the training set is slightly lower than that
+other languages (Tomita 2, 3, 5, and 7), the majority of models (2
+                                                                                         of the RNN). However, the difference is more pronounced here,
+out of 3 tested) achieve perfect performance. Notably, even when
+                                                                                         especially for target DFAs with |Q| > 10 and |P | > 2.
+comparing the worst performance of DeepDFA on these datasets, it
+                                                                                       • Predicted DFA sizes are consistently much larger than the target,
+is much closer to the optimal outcome than the worst performance of
+                                                                                         even for the best-performing tested model.
+L* extraction, especially regarding state estimation.
+
+
+A.3.5   L* Extraction and DeepDFA on Random DFA
+        Datasets (Perfectly Labeled)                                                      The first two observations are likely connected, since they occur
+Table 14 presents results for L* extraction and DeepDFA on random                      on the same DFAs.
+DFA datasets without noise.                                                               Regarding DeepDFA (last row of the table), even with only
+  Regarding L* extraction, several observations are noteworthy:                        one model architecture tested, DeepDFA outperforms all 4 tested
+                                                                                       RNNs across all random DFAs. Notably, there is no overfitting, and
+• Overfitting is prominent in some cases, particularly for target                      discretization-related accuracy loss is nearly negligible in most cases,
+  DFAs with sizes > 10 and symbol counts > 2. Although the                             with a loss of 2 accuracy points in the worst case scenario.
+Table 12: DFA Generator experiments on the Tomita Languages with different sizes of the state space. We highlight in bold the models that
+have obtained perfect performances.
+                                                             T1 (|Q| = 2)                                                     T2 (|Q| = 3)
+                      Model
+                                           Train              Dev               Test             |Q̂|          Train          Dev            Test           |Q̂|
+                   DFAGen(10)          100 ± 0             98.5 ± 1.8         —                —            98.7 ± 0       100 ± 0         —                 —
+                   DFA extracted       97 ± 0.8             100 ± 0         100 ± 0        1.8 ± 1.1        98.7 ± 0       100 ± 0       100 ± 0            1±0
+                   DFAGen(30)         98.8 ± 1.5            100 ± 0           —                —            98.7 ± 0       100 ± 0         —                 —
+                   DFA extracted      96.9 ± 0.8            100 ± 0         100 ± 0        1.4 ± 0.8        98.7 ± 0       100 ± 0       100 ± 0            1±0
+                  DeepDFA(100)       Out Of time                —               —                —                —              —           —              —
+
+                                                      T3 (|Q| = 5)                                                            T4 (|Q| = 4)
+                Model
+                                   Train              Dev               Test             |Q̂|              Train             Dev              Test                 |Q̂|
+             DFAGen(10)           99.9 ± 0           100 ± 0           —                 —                100 ± 0        97.5 ± 0           —                    —
+             DFA extracted       89.1 ± 7.8         90 ± 17.3       91 ± 15.1          5 ± 1.5          87.7 ± 18.3      82 ± 28.4       85 ± 33.5           4.8 ± 0.4
+             DFAGen(30)          99.8 ± 0.2         99 ± 2.2            —                  —             99.9 ± 0        97.5 ± 0           —                    —
+             DFA extracted        96 ± 8.8          97 ± 6.7         87 ± 29           5.2 ± 0.4        84.4 ± 21.3      83 ± 26.3       82 ± 40.2           4.8 ± 0.4
+             DFAGen(100)      Out Of Time              —                —                 —                 —                 —                —
+
+                                                           T5 (|Q| = 4)                                                 T6 (|Q| = 3)
+                    Model
+                                       Train               Dev           Test             |Q̂|           Train          Dev           Test           |Q̂|
+                 DFAGen(10)          96.2 ± 0          100 ± 0          —                  —            100 ± 0        100 ± 0         —             —
+                 DFA extracted       96.2 ± 0          100 ± 0        100 ± 0          2.6 ± 0.8        100 ± 0        100 ± 0       100 ± 0        3±0
+                 DFAGen(30)        Out Of Time              —             —               —             100 ± 0        100 ± 0       100 ± 0         —             —
+                 DFA extracted         —                    —             —               —             100 ± 0        100 ± 0       100 ± 0        3±0
+                 DFAGen(100)       Out Of Time              —             —               —                —             —             —             —
+
+                                                                                          T7 (|Q| = 5)
+                                                   Model
+                                                                        Train              Dev             Test           |Q̂|
+                                            DFAGen(10)               98 ± 2.3            100 ± 0           —               —
+                                            DFA extracted           83.1 ± 22.8          100 ± 0         100 ± 0       4.4 ± 0.8
+                                              DFAGen(30)            Out Of Time             —              —              —
+                                            DFAGen(100)             Out Of Time             —              —              —
+
+A.3.6   L* Extraction and DeepDFA on Noisy Random DFA
+        Datasets
+Table 14 presents results for L* extraction and DeepDFA on random
+DFA datasets with 1% label noise.
+   Across most configurations of random DFAs, DeepDFA achieves
+better performance than the best RNN. In one instance (|Q| = 10,
+|P | = 2), L* extraction achieves higher accuracy but overestimates
+the number of states by over ten times compared to the target. In con-
+trast, DeepDFA’s accuracy is slightly lower but its predicted num-
+ber of states (11.5) closely aligns with the target (10). Both meth-
+ods achieve performance similar to the noiseless scenario. Notably,
+DeepDFA overestimates the number of states to a greater extent when
+|P | = 3 compared to the noiseless scenario, but this overestimation
+is still much lower than that of L* extraction.
+Table 13: DFA Generator experiments on the noisy dataset constructed for the Tomita Languages. We test the model with different sizes of
+the state space. We highlight in bold the models that have obtained perfect accuracy on the dev and test set with both the RNN and the DFA
+and with the number of states of the predicted DFA equal to the target one.
+                                                       T1 (|Q| = 2)                                                     T2 (|Q| = 3)
+                    Model
+                                      Train            Dev           Test            |Q̂|               Train           Dev        Test        |Q̂|
+                DFAGen(10)         98.4 ± 1.38      100 ± 0          —                 —              97.7 ± 0        100 ± 0      —           —
+                DFA extracted      96.7 ± 1.4       100 ± 0        100 ± 0         2.2 ± 1.1          97.7 ± 0        100 ± 0    100 ± 0      1±0
+                DFAGen(30)          97.1 ± 1.7      100 ± 0          —                 —              98 ± 0.4        100 ± 0      —             —
+                DFA extracted       96.4 ± 1.0      100 ± 0        100 ± 0         1.8 ± 1.1         97.6 ± 0.4       100 ± 0    100 ± 0     2.4 ± 1.9
+                DeepDFA(100)       Out Of time          —             —               —                  —               —         —            —
+
+                                                    T3 (|Q| = 5)                                                        T4 (|Q| = 4)
+                 Model
+                                    Train           Dev            Test            |Q̂|               Train            Dev          Test          |Q̂|
+              DFAGen(10)          98.9 ± 0         100 ± 0         —               —                 100 ± 0        98.9 ± 0.1      —             —
+              DFA extracted     95.4 ± 4.1.8       100 ± 0       100 ± 0       4.8 ± 0.8             94 ± 11        95 ± 11.1     100 ± 0     4.8 ± 0.4
+              DFAGen(30)           98.9 ± 0        100 ± 0         —               —               98.9 ± 0         99 ± 1.3        —             —
+              DFA extracted       95.4 ± 3.2       100 ± 0       100 ± 0       4.6 ± 0.5          92.5 ± 6.9        95 ± 8.6     90 ± 22.3    5.8 ± 1.3
+              DFAGen(100)       Out Of Time          —              —               —                  —               —            —
+
+                                                            T5 (|Q| = 4)                                                  T6 (|Q| = 3)
+                      Model
+                                        Train               Dev             Test              |Q̂|         Train         Dev        Test       |Q̂|
+                  DFAGen(10)           95.3 ± 0        99.9 ± 0.1           —                 —            99 ± 0      100 ± 0      —          —
+                  DFA extracted       95.3 ± 0.1        100 ± 0           100 ± 0         2.6 ± 0.8        99 ± 0      100 ± 0    100 ± 0     3±0
+                  DFAGen(30)        Out Of Time              —              —                 —            99 ± 0      100 ± 0    100 ± 0
+                  DFA extracted         —                    —              —                 —            99 ± 0      100 ± 0    100 ± 0     3±0
+                  DFAGen(100)       Out Of Time              —              —                 —                —           —        —          —
+
+                                                                                     T7 (|Q| = 5)
+                                               Model
+                                                                    Train               Dev             Test           |Q̂|
+                                            DFAGen(10)            96.1 ± 2.7        100 ± 0             —               —
+                                            DFA extracted        74.1 ± 22.4        100 ± 0           100 ± 0       4.4 ± 1.4
+                                            DFAGen(30)         Out Of Time                —             —              —
+                                            DFAGen(100)        Out Of Time                —             —              —
+Table 14: L* extraction, DeepDFA and DFA-generator on the random DFAs benchmark, with different RNN architectures. We highlight in
+bold the model obtaining the best accuracy on the dev set for each approach.
+                                         Random DFA |Q| = 10, |P | = 2                                 Random DFA |Q| = 10, |P | = 3
+               Model
+                               Train           Dev            Test            |Q̂|          Train           Dev           Test            |Q̂|
+           LSTM(1,100)        100 ± 0       99.9 ± 0.2         —              —           100 ± 0        90.5 ± 7.7        —               —
+           DFA extracted     96.2 ± 7.7     96.2 ± 7.5     96.2 ± 7.9    89.3 ± 221.3    96.1 ± 4.1      92.6 ± 7.3    91.6 ± 8.9      304 ± 233
+           LSTM(2,100)        100 ± 0       99.9 ± 0.2         —              —           100 ± 0        95.4 ± 4.8        —               —
+           DFA extracted     95.2 ± 8.6     94.9 ± 8.7     95.8 ± 7.6     120 ± 231.2    98.5 ± 2.4      96.5 ± 4.8    96.3 ± 5.6    282.1 ± 215.1
+            GRU(1,100)        100 ± 0       99.9 ± 0.3         —              —           100± 0         91.6 ± 8.5        —               —
+           DFA extracted     99.9 ± 0.2     99.7 ± 0.6     99.8 ± 0.4    34.9 ± 116.1    97.9 ± 3.4        95 ± 7      94.7 ± 6.9    309.1 ± 178.7
+            GRU(2,100)        100 ± 0       99.9 ± 0.1         —              —           100 ± 0       90.9 ± 11.8      —                 —
+           DFA extracted      96.4 ± 7      95.9 ± 7.6     96.8 ± 6.7    58.6 ± 176.2    96.4 ± 5.9     91.5 ± 11.6 91.9 ± 11.6      278.7 ± 221.6
+
+           deepDFA(100)      99.7 ± 1.1     99.6 ± 1.6         —               —         99.9 ± 0.0      99.9 ± 0.1        —               —
+           DFA extracted     97.8 ± 6.3     97.8 ± 6.5     97.7 ± 6.8      8.8 ± 2.9     99.5 ± 1.3      99.3 ± 2.0    99.4 ± 1.7      11.9 ± 4.6
+
+           DFAGen(50)        89.4 ± 20.1 89.4 ± 20.1          —               —             o.o.t.           —             —               —
+           DFA extracted     87.1 ± 19.3 86.8 ± 19.6       87 ± 19.7       16 ± 17.5         —               —             —               —
+           DFAGen(100)         o.o.t.           —             —               —              —               —             —               —
+
+
+                                          Random DFA |Q| = 20, |P | = 2                                Random DFA |Q| = 20, |P | = 3
+                Model
+                                Train          Dev           Test             |Q̂|          Train           Dev           Test           |Q̂|
+             LSTM(1,100)       100 ± 0      99.7 ± 0.4        —                —          98.9 ± 3.3      64 ± 3.6         —               —
+             DFA extracted     99.9 ± 0     99.8 ± 0.2    99.8 ± 0.3     258.7 ± 321.3    72.1 ± 4.1     63.2 ± 3.4    64.9 ± 3.9    396.2 ± 213.5
+             LSTM(2,100)       100 ± 0      99.6 ± 0.5        —                —        100 ± 0          69.3 ± 3.7        —               —
+             DFA extracted    98.1 ± 8.7     97.8 ± 9      97.7 ± 9      315.7 ± 305.5 75.5 ± 4.4        65.3 ± 4.3    68.4 ± 4.7    405.3 ± 207.9
+              GRU(1,100)      99.8 ± 0.8     99 ± 3.4         —                —          99.7 ± 1.6     65.7 ± 3.7        —              —
+             DFA extracted    99.4 ± 2.6    98.8 ± 4.6    98.8 ± 4.6     157.9 ± 254.4    72.1 ± 3.2     62.9 ± 4.3    65.9 ± 3.2    400.2 ± 208
+              GRU(2,100)       100 ± 0      99.8 ± 0.3     —                   —        100 ± 0           69 ± 4           —              —
+             DFA extracted    99.8 ± 0.9    99.5 ± 2.4 99.5 ± 2.2        168.1 ± 261.6 76.6 ± 3.8        66.8 ± 4.3    67.8 ± 4.3    389.3 ± 209
+
+            deepDFA(100)       100 ± 0      99.9 ± 0.1       —                —           100 ± 0         99.9 ± 0.2       —              —
+            DFA extracted      100 ± 0       100 ± 0       100 ± 0        14.0 ± 1.8      99.9 ± 0       99.9 ± 0.29   99.9 ± 0.2     19.2 ± 3.0
+
+             DFAGen(50)         o.o.t.          —            —                —              —               —            —               —
+             DFAGen(100)        o.o.t.          —            —                —              —               —            —               —
+
+
+                                         Random DFA |Q| = 30, |P | = 2                                 Random DFA |Q| = 30, |P | = 3
+               Model
+                               Train          Dev           Test            |Q̂|            Train           Dev           Test             |Q̂|
+           LSTM(1,200)       99.8 ± 1.4 99.8 ± 1.2           —                —           100 ± 0        64.7 ± 10.4       —                —
+           DFA extracted     99.6 ± 2.6 99.4 ± 3.6       99.2 ± 5.2     200.3 ± 287.9    61.2 ± 7.1      59.7 ± 7.9    58.3 ± 7.4     411.7 ± 192.7
+           LSTM(2,200)       99.9 ± 0.2    98.4 ± 6.9        —                —         100 ± 0   67.9 ± 13.1               —               —
+           DFA extracted     98.7 ± 6.2    98.3 ± 7.9    98.4 ± 7.6     131.9 ± 171.9 64.8 ± 12.7 61.6 ± 13.6          61.6 ± 13.2    350.9 ± 161.5
+            GRU(1,200)       99.9 ± 0.2 99.9 ± 0.4          —                 —           99.7 ± 2       66.4 ± 11.9        —               —
+           DFA extracted     99.8 ± 0.5 99.8 ± 0.7       99.7 ± 1       183.1 ± 266.4    62.8 ± 9.7      61.2 ± 10.6   59.6 ± 10.1    420.7 ± 172.2
+            GRU(2,200)       99.1 ± 4.7    97.9 ± 7.8       —                 —            100 ± 0        67.6 ± 12         —               —
+           DFA extracted      98 ± 7.6     97.8 ± 8.4    97.6 ± 9       178.5 ± 244.6    63.9 ± 11.3     61.2 ± 12.3   60.1 ± 11.8    383.1 ± 173.8
+
+           deepDFA(200) 99.9 ± 0.4         99.8 ± 0.8        —               —           100.0 ± 0.0 100.0 ± 0.0           —               —
+           DFA extracted 99.8 ± 0.8        99.8 ± 1.1    99.8 ± 1.1      22.6 ± 1.4      100.0 ± 0.0 100.0 ± 0.1       100.0 ± 0.1     28.1 ± 1.2
+
+            DFAGen(50)         o.o.t.          —            —                —               —               —             —               —
+            DFAGen(100)        o.o.t.          —            —                —               —               —             —               —
+Table 15: L* extraction,DeepDFA and DFA-generator on the noisy dataset constructed for the random DFAs experiment, with different
+RNN architectures. We highlight in bold the model obtaining the best accuracy on the dev set for each approach.
+                                         Random DFA |Q| = 10, |P | = 2                                 Random DFA |Q| = 10, |P | = 3
+              Model
+                              Train           Dev             Test            |Q̂|          Train           Dev           Test             |Q̂|
+          LSTM(1,100)       99.4 ± 0.2     99.6 ± 0.5          —               —          99.0 ± 2.4     86.0 ± 7.4         —               —
+          DFA extracted     98.3 ± 5.0     98.1 ± 5.1      98.4 ± 5.0    145.9 ± 239.1    94.2 ± 5.7     90.5 ± 8.2    89.3 ± 10.5    286.8 ± 219.7
+          LSTM(2,100)       99.4 ± 0.4     99.6 ± 0.5          —               —          98.2 ± 5.5     98.1 ± 5.6        —                —
+          DFA extracted     98.2 ± 5.5     98.1 ± 5.6      98.4 ± 5.0    131.5 ± 225.4    95.8 ± 4.8     92.0 ± 7.6    92.0 ± 8.4     290.5 ± 193.2
+           GRU(1,100)       99.0 ± 1.0     99.5 ± 0.7          —               —          99.3 ± 1.9    84.6 ± 9.8          —               —
+          DFA extracted     99.5 ± 0.7     99.5 ± 0.9      99.6 ± 0.6    212.1 ± 288.4    93.0 ± 6.4    87.1 ± 10.3    86.2 ± 10.9    334.2 ± 163.9
+           GRU(2,100)       99.1 ± 1.8     99.4 ± 2.1          —               —          99.1 ± 2.4 86.5 ± 12.0            —               —
+          DFA extracted     97.3 ± 8.4     97.1 ± 8.5      97.5 ± 8.1    138.2 ± 247.9    92.9 ± 8.5 86.8 ± 13.3       86.9 ± 12.7    342.4 ± 194.5
+
+          deepDFA(100)      98.7 ± 1.1      99.5 ± 1.7         —              —           99.0 ± 0.1     98.3 ± 1.0        —                —
+          DFA extracted     93.3 ± 9.8     93.5 ± 10.7    93.6 ± 10.7     11.5 ± 5.2      96.4 ± 2.1     95.2 ± 3.7    95.1 ± 3.6      37.2 ± 11.1
+
+          DFAGen(50)       89.3 ± 20.2 88.6 ± 20.1            —                —            o.o.t.          —              —                —
+          DFA extracted     87 ± 18.3 86.6 ± 18.3          84 ± 14.5        15 ± 18          —              —              —                —
+          DFAGen(100)         o.o.t.           —              —               —              —              —              —                —
+
+
+                                          Random DFA |Q| = 20, |P | = 2                                Random DFA |Q| = 20, |P | = 3
+               Model
+                                Train           Dev            Test            |Q̂|          Train          Dev           Test            |Q̂|
+           LSTM(1,100)       99.2 ± 1.6      97.6 ± 4.1         —               —          99.2 ± 2.5 64.5 ± 3.3           —                —
+           DFA extracted     98.3 ± 6.2      97.3 ± 7.7     97.1 ± 7.7    296.0 ± 244.9    71.8 ± 3.9 62.8 ± 3.5       64.5 ± 4.2     389.1 ± 185.4
+           LSTM(2,100)      99.3 ± 1.3      98.5 ± 1.9          —               —          99.7 ± 1.2 68.1 ± 3.8           —                —
+           DFA extracted    94.4 ± 14.3     93.6 ± 15.4    93.6 ± 15.3    247.2 ± 263.8    74.4 ± 3.7 64.2 ± 4.6       67.4 ± 5.1     389.2 ± 216.0
+            GRU(1,100)       99.1 ± 1.7      97.1 ± 5.1         —               —          98.5 ± 3.5 64.5 ± 4.0           —                —
+           DFA extracted     98.9 ± 2.9      97.6 ± 5.7     97.6 ± 5.7    334.7 ± 273.9    71.0 ± 2.8 62.5 ± 3.6       64.5 ± 3.0     386.6 ± 193.1
+            GRU(2,100)       99.6 ± 0.2      98.9 ± 1.1         —               —          99.3 ± 2.2 68.4 ± 3.9           —                —
+           DFA extracted     99.5 ± 1.0      98.8 ± 2.2     98.9 ± 1.9    359.0 ± 251.2    73.5 ± 4.3 64.2 ± 4.4       66.2 ± 4.5     420.3 ± 220.3
+
+           deepDFA(100)       99.0 ± 0       99.8 ± 0.2         —               —          99.0 ± 0.1 96.6 ± 1.2           —                —
+           DFA extracted     98.8 ± 0.6      99.6 ± 1.6     99.6 ± 1.7      14.7 ± 3.2     97.7 ± 1.1 96.4 ± 3.4       96.0 ± 4.1      34.9 ± 10.1
+
+            DFAGen(50)          o.o.t.          —               —               —              —             —             —               —
+           DFAGen(100)          o.o.t.          —               —               —              —             —             —               —
+
+
+                                         Random DFA |Q| = 30, |P | = 2                                 Random DFA |Q| = 30, |P | = 3
+             Model
+                             Train            Dev            Test            |Q̂|            Train           Dev           Test             |Q̂|
+         LSTM(1,100)       98.9 ± 3.8      98.0 ± 6.8         —               —           99.2 ± 1.9      64.0 ± 9.4        —                —
+         DFA extracted     98.3 ± 7.1      98.4 ± 6.8     98.2 ± 7.4     238.9 ± 252.2    62.1 ± 8.6      60.2 ± 9.3    58.4 ± 8.7     397.4 ± 166.0
+         LSTM(2,100)        98.6 ± 3.0 93.7 ± 11.9             —               —           99.8 ± 0.9 67.1 ± 11.6            —               —
+         DFA extracted     94.7 ± 11.0 93.9 ± 12.0        93.4 ± 13.1    211.2 ± 189.9    63.6 ± 10.9 61.6 ± 11.5       60.4 ± 11.3    338.7 ± 173.4
+          GRU(1,100)       98.3 ± 5.2     95.9 ± 10.8          —               —          98.6 ± 2.8     65.1 ± 10.4        —                —
+         DFA extracted     96.4 ± 9.8     95.9 ± 10.9     95.7 ± 11.2    248.4 ± 238.3    61.3 ± 8.1      60.2 ± 9.5    59.2 ± 8.1     391.0 ± 182.3
+          GRU(2,100)        99.1 ± 1.3 94.1 ± 11.6             —               —          99.8 ± 0.8     66.0 ± 11.4        —                —
+         DFA extracted     95.1 ± 10.6 94.3 ± 12.2        94.0 ± 12.8    253.1 ± 235.4    62.9 ± 9.4     60.1 ± 10.9    59.5 ± 9.6     378.5 ± 167.6
+
+         deepDFA(200)      98.9 ± 0.4      99.8 ± 0.7         —               —           98.9 ± 0.1      99.2 ± 1.2        —                 —
+         DFA extracted     98.8 ± 0.9      99.7 ± 1.0     99.6 ± 1.5      22.6 ± 1.7      98.2 ± 1.2      98.7 ± 2.0    98.7 ± 2.0       55.1 ± 34.0
+
+          DFAGen(50)          o.o.t.          —               —               —               —               —             —                —
+          DFAGen(100)         o.o.t.          —               —               —               —               —             —                —
+

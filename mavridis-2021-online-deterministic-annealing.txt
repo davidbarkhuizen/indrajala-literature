@@ -1,0 +1,766 @@
+                                             Online Deterministic Annealing for Classification
+                                                             and Clustering
+                                                                  Christos N. Mavridis, Member, IEEE, and John S. Baras, Life Fellow, IEEE
+
+
+
+
+                                            Abstract—Inherent in virtually every iterative machine learn-              of time, energy, data, memory, and computational resources
+                                         ing algorithm is the problem of hyper-parameter tuning which                  [4], [5]. Moreover, they are, by design, hard to interpret
+                                         includes three major design parameters: (a) the complexity of                 and vulnerable to small perturbations and adversarial attacks
+                                         the model, e.g., the number of neurons in a neural network,
+                                                                                                                       [6], [7]. The latter, has led to an emerging hesitation in
+
+
+
+
+arXiv:2102.05836v4 [cs.LG] 10 Jan 2022
+                                         (b) the initial conditions, which heavily affect the behavior
+                                         of the algorithm, and (c) the dissimilarity measure used to                   their implementation outside common benchmark datasets
+                                         quantify its performance. We introduce an online prototype-                   [8], and, especially, in security critical applications. On the
+                                         based learning algorithm that can be viewed as a progressively                other hand, it is understood that the trade-off between model
+                                         growing competitive-learning neural network architecture for                  complexity and performance is closely related to over-fitting,
+                                         classification and clustering. The learning rule of the proposed
+                                         approach is formulated as an online gradient-free stochastic                  generalization, and robustness to input noise and attacks [9].
+                                         approximation algorithm that solves a sequence of appropriately               In this work, we introduce a learning model that progressively
+                                         defined optimization problems, simulating an annealing process.               adjusts its complexity, offering online control over this trade-
+                                         The annealing nature of the algorithm contributes to avoiding                 off. The need for such approaches is reinforced by recent
+                                         poor local minima, offers robustness with respect to the initial              studies revealing that existing flaws in the current benchmark
+                                         conditions, and provides a means to progressively increase the
+                                         complexity of the learning model, through an intuitive bifurcation            datasets may have inflated the need for overly complex models
+                                         phenomenon. The proposed approach is interpretable, requires                  [10], and that over-fitting to adversarial training examples may
+                                         minimal hyper-parameter tuning, and allows online control over                actually hurt generalization [11].
+                                         the performance-complexity trade-off. Finally, we show that                      We focus on prototype-based models, mainly represented by
+                                         Bregman divergences appear naturally as a family of dissimilarity
+                                                                                                                       vector quantization methods, [12]–[14]. In vector quantization,
+                                         measures that play a central role in both the performance and
+                                         the computational complexity of the learning algorithm.                       originally introduced as a signal processing method for com-
+                                                                                                                       pression, a set of codevectors (or prototypes) M := {µi }, is
+                                            Index Terms—Machine learning algorithms, progressive learn-
+                                                                                                                       used to represent the data space in an optimal way according
+                                         ing, annealing optimization, classification, clustering, Bregman
+                                         divergences.                                                                  to an average distortion measure:
+                                                                                                                                                         h               i
+                                                                                                                                      min J(M ) := E min d(X, µi ) ,
+                                                                                                                                       M                    i
+                                                                  I. I NTRODUCTION
+                                                                                                                       where the proximity measure d defines the similarity between
+                                         L     EARNING from data samples has become an important
+                                               component of artificial intelligence. While virtually all
+                                         learning problems can be formulated as constrained stochas-
+                                                                                                                       the random input X and a codevector µi . The codevectors can
+                                                                                                                       be viewed as a set of neurons, the weights of which live in
+                                         tic optimization problems, the optimization methods can be                    the data space itself, and constitute the model parameters. In
+                                         intractable, typically dealing with mixed constraints and very                this regard, vector quantization algorithms can be viewed as
+                                         large, or even infinite-dimensional spaces [1]. For this reason,              competitive-learning neural network architectures with a num-
+                                         feature extraction, model selection and design, and analysis of               ber of appealing properties: they are consistent, data-driven,
+                                         optimization methods, have been the cornerstone of machine                    interpretable, robust, topology-preserving [15], sparse in the
+                                         learning algorithms from their genesis until today.                           sense of memory complexity, and fast to train and evaluate.
+                                            Deep learning methods, currently dominating the field of                   In addition, they have recently shown impressive robustness
+                                         machine learning due to their performance in multiple ap-                     against adversarial attacks, suggesting suitability in security
+                                         plications, attempt to learn feature representations from data,               critical applications [16], while their representation of the input
+                                         using biologically-inspired models in artificial neural networks              in terms of memorized exemplars is an intuitive approach
+                                         [2], [3]. However, they typically use overly complex models                   which parallels similar concepts from cognitive psychology
+                                         of a great many parameters, which comes in the expense                        and neuroscience. As iterative learning algorithms, however,
+                                                                                                                       their behavior heavily depends on three major design parame-
+                                           Manuscript published in the IEEE Transactions on Neural Networks and        ters: (a) the number of neurons/prototypes, which, defines the
+                                         Learning Systems (TNNLS).                                                     complexity of the model, (b) the initial conditions, that affect
+                                           Research partially supported by the Defense Advanced Research Projects
+                                         Agency (DARPA) under Agreement No. HR00111990027, by the Office               the transient and steady-state behavior of the algorithm, and
+                                         of Naval Research (ONR) grant N00014-17-1-2622, and by a grant from           (c) the proximity measure d used to quantify the similarity
+                                         Northrop Grumman Corporation.                                                 between two vectors in the data space.
+                                           The authors are with the Department of Electrical and Computer Engineer-
+                                         ing and the Institute for Systems Research, University of Maryland, College      Inspired by the deterministic annealing approach [17], we
+                                         Park, USA. emails:{mavridis, baras}@umd.edu.                                  propose a learning approach that resembles an annealing
+process, tending to avoid poor local minima, offering ro-          A. Vector Quantization for Clustering
+bustness with respect to the initial conditions, and providing        Unsupervised analysis can provide valuable insights into the
+a means to progressively increase the complexity of the            nature of the dataset at hand, and it plays an important role in
+learning model, allowing online control over the performance-      the context of visualization. Central to unsupervised learning
+complexity trade-off. We relax the original problem to a soft-     is the representation of data in a vector space by typical
+clustering problem, introducing the association probabilities      representatives, which is formally defined in the following
+p(µPi |X), and replacing the cost function J by D(M ) :=           optimization problem:
+E [ i p(µi |X)d(X, µi )]. This probabilistic framework (to be
+formally defined in Section III) allows us to define the           Problem 1. Let X : Ω → S ⊆ Rd be a random variable
+Shannon entropy H(M ) that characterizes the “purity” of           defined in a probability space (Ω, F, P), and d : S × ri(S) →
+the clusters induced by the codevectors. We then replace the       [0, ∞) be a divergence measure, where ri(S) represents the
+                                                                                                            K
+original problem by a sequence of optimization problems:           relative interior of S. Let V := {Sh }h=1 be a partition of
+                                                                                       K
+                                                                   S and M := {µh }h=1 a set of codevectors, such that µh ∈
+             min FT (M ) := D(M ) − T H(M ),                                                                     Q : S → M is
+                                                                   ri(Sh ), for all h = 1, . . . , K. A quantizerP
+              M                                                                                                   K
+                                                                   defined as the random variable Q(X) =          h=1 µh 1[X∈Sh ]
+parameterized by a temperature coefficient T , which acts as       and the vector quantization problem is formulated as
+a Lagrange multiplier controlling the trade-off between min-
+imizing the distortion D and maximizing the entropy H. By                           min J(Q) := E [d (X, Q)] .
+                                                                                    M,V
+successively solving the optimization problems minM FT (M )        Vector quantization is a hard-clustering algorithm, and, as
+for decreasing values of T , the model undergoes a series of       such, assumes that the quantizer Q assigns an input vector
+phase transitions that resemble an annealing process. Because      X to a unique codevector µh ∈ M with probability one. As
+of the nature of the entropy term, in high temperatures T , the    a result, Problem 1 becomes equivalent to
+effect of the initial conditions is greatly mitigated, while, as
+                                                                                            K
+T decreases, the optimal codevectors of the last optimization                               X                          
+problem are used as initial conditions to the next, which helps                    min            E d (X, µh ) 1[X∈Sh ]                 (1)
+                                                                                 {µh }K
+                                                                                      h=1   h=1
+in avoiding poor local minima. Furthermore, as T decreases,
+the cardinality of the set of codevectors M increases, accord-     for V being a Voronoi partition, i.e., for
+ing to an intuitive bifurcation phenomenon.
+                                                                                                             
+   Adopting the above optimization framework, we introduce           Sh = x ∈ S : h = arg min d(x, µτ ) , h = 1, . . . , K.
+                                                                                             τ =1,...,K
+an online training rule based on stochastic approximation [18].
+While stochastic approximation offers an online, adaptive, and     It is typically the case that the actual distribution of X ∈ S
+                                                                                                                            n
+computationally inexpensive optimization algorithm, it is also     is unknown, and a set of independent realizations {Xi }i=1 :=
+                                                                             n
+strongly connected to dynamical systems. This enables the          {X(ωi )}i=1 , for ωi ∈ Ω, are available. In case the observa-
+                                                                               n
+study of the convergence of the learning algorithm through         tions {Xi }i=1 are available a priori, the solution of the VQ
+mathematical tools from dynamical systems and control [18].        problem is traditionally approached with variants of the LBG
+We take advantage of this property to prove the convergence        algorithm [25], a generalization of the Lloyd algorithm [26]
+of the proposed learning algorithm as a consistent density         which includes the widely used k-means algorithm [27].
+estimator (unsupervised learning), and a Bayes risk consistent        When the training data are not available a priori but are
+classification rule (supervised learning). Finally, we show        being observed online, or when the processing of the en-
+that the proposed stochastic approximation learning algorithm      tire dataset in every optimization iteration is computationally
+introduces inherent regularization mechanisms and is also          infeasible, a stochastic vector quantization algorithm can be
+gradient-free, provided that the proximity measure d belongs       defined as a recursive asynchronous stochastic approximation
+to the family of Bregman divergences. Bregman divergences          algorithm based on gradient descent [14]:
+are information-theoretic dissimilarity measures that have been    Definition 1 (Stochastic Vector Quantization (sVQ) Algo-
+shown to play an important role in learning applications [19],     rithm). Repeat:
+                                                                      
+[20], including measures such as the widely used Euclidean               t+1
+                                                                               = µth − α(v(h, t))1[Xt+1 ∈S t+1 ] ∇µh d Xt+1 , µth
+                                                                                                                                    
+                                                                       µh
+                                                                      
+                                                                                                          h
+distance and the Kullback-Leibler divergence. We believe that                                                      
+                                                                        t+1
+these results can potentially lead to new developments in             Sh
+                                                                              = X ∈ S : h = arg min d(X, µtτ ) , h ∈ K
+                                                                                                     τ =1,...,k
+learning with progressively growing models, including, but not
+limited to, communication, control, and reinforcement learning     for t ≥ 0 until convergence, where µ0h is given during
+applications [21]–[23].                                            initialization, and v(h, t) represents the number of times the
+                                                                   component µh has been updated up until time t.
+
+             II. P ROTOTYPE - BASED L EARNING                      B. Learning Vector Quantization for Classification
+  In this section, the mathematics and notation of prototype-         The supervised counterpart of vector quantization is the par-
+based machine learning algorithms, which will be used as a         ticularly attractive and intuitive approach of the competitive-
+base for our analysis, are briefly introduced. For more details    learning Learning Vector Quantization (LVQ) algorithm, ini-
+see [14], [19], [20], [24].                                        tially proposed by Kohonen [12]. LVQ for binary classification
+is formulated in the following optimization problem (and                     Example 1. As a first example, φ(x) = hx, xi , x ∈ Rd , gives
+generalized to any type of classification task, see, e.g. [28]):             the squared Euclidean distance
+Problem 2. Let the pair of random variables {X, c} ∈                                              dφ (x, µ) = kx − µk2
+S × {0, 1} defined in a probability space (Ω, F, P), with c
+                                                        K                               ∂d
+representing the class of X and S ⊆ Rd . Let M := {µh }h=1 ,                 for which ∂µφ (x, µ) = −2(x − µ).
+where µh ∈ ri(Sh ) represent codevectors, and define the set
+              K
+Cµ := {cµh }h=1 , such that cµh ∈ {0, 1} represents the class                Example 2. A second interesting Bregman divergence that
+of µh for all h ∈ {1, . . . , K}. The           c                            shows the connection to information theory, is the generalized
+                         c
+                                   Pkquantizer Q : S → {0, 1}                I-divergence which results from φ(x) = hx, log xi , x ∈ Rd++
+is defined such that Q (X) = h=1 cµh 1[X∈Sh ] . Then, the
+minimum-error classification problem is formulated as                        such that
+                                X                        X
+    min        JB (Qc ) := π1        P1 [X ∈ Sh ] + π0        P0 [X ∈ Sh ]             dφ (x, y) = hx, log x − log µi − h1, x − µi
+{µh ,Sh }K
+         h=1                    H0                       H1
+                                                                                        ∂d
+                                                                             for which ∂µφ (x, µ) = −diag −1 (µ)(x − µ), where 1 ∈ Rd is
+where πi := P [c = i] , Pi {·} := P {·|c = i}, and Hi is defined
+                                                                             the vector of ones, and diag −1 (µ) ∈ Rd×d
+                                                                                                                     ++ is the diagonal
+as Hi := {h ∈ {1, . . . , K} : Qc = i}, i ∈ {0, 1}.
+                                                                             matrix with diagonal elements the inverse elements of µ.
+LVQ algorithms that solve Problem 2 are similar in structure                 It is easy to see that φ(x) reduces to the Kullback-Leibler
+with the stochastic vector quantization algorithm of Def. 1,                 divergence if h1, xi = 1.
+and make use of a modified distortion measure, which in the
+                                                                                The family of Bregman divergences provides proximity
+case of the original LVQ1 algorithm [12] takes the form:
+                                (                                            measures that have been shown to enhance the performance of
+                                  d(x, µ), cx = cµ                           a learning algorithm [31]. In addition, the following theorem
+          dl (x, cx , µ, cµ ) =                                              shows that the use of Bregman divergences is both necessary
+                                  −d(x, µ), cx 6= cµ
+                                                                             and sufficient for the optimizer µh of (1) to be analytically
+Generalizations of this definition based on similar principles               computed as the expected value of the data inside Sh , which
+have also been proposed [29], [30].                                          is implicitly used by many “centroid” algorithms, such as k-
+                                                                             means [27]:
+C. Bregman Divergences as Dissimilarity Measures                             Theorem 1. Let X : Ω → S be a random variable defined
+   Prototype-based algorithms rely on measuring the proximity                in the probability space (Ω, F, P) such that E [X] ∈ ri(S),
+between different vector representations. In most cases the                  and let a distortion measure d : S × ri(S) → [0, ∞), where
+Euclidean distance or another convex metric is used, but                     ri(S) denotes the relative interior of S. Then µ := E [X] is
+this can be generalized to alternative dissimilarity measures                the unique minimizer of E [d (X, s)] in ri(S), if and only if d
+inspired by information theory and statistical analysis, such as             is a Bregman divergence for any function φ that satisfies the
+the Bregman divergences:                                                     definition.
+Definition 2 (Bregman Divergence). Let φ : H → R, be a                       Proof. For necessity, identical arguments as in Appendix B of
+strictly convex function defined on a vector space H such that               [19] are followed. For sufficiency,
+φ is twice F-differentiable on H. The Bregman divergence                        E [dφ (X, s)] − E [dφ (X, µ)] =
+dφ : H × H → [0, ∞) is defined as:                                                          ∂φ                            ∂φ
+                                                                                = φ(µ) +       (µ) (E [X] − µ) − φ(s) −      (s) (E [X] − s)
+                                                ∂φ                                          ∂µ                            ∂s
+          dφ (x, µ) = φ (x) − φ (µ) −              (µ) (x − µ) ,                                    ∂φ
+                                                ∂µ                              = φ(µ) − φ(s) −        (s) (µ − s) = dφ (µ, s) ≥ 0, ∀s ∈ S
+                                                                                                    ∂s
+                                              ∂φ
+where x, µ ∈ H, and the continuous linear map ∂µ (µ) : H →                   with equality holding only when s = µ by the strict convexity
+R is the Fréchet derivative of φ at µ.                                      of φ, which completes the proof.
+   Notice that, as a divergence measure, Bregman divergence                  In Section III, we will show a similar result for the proposed
+can be used to measure the dissimilarity of one probability
+distribution to another on a statistical manifold, and is a notion           algorithm that uses a soft-partition approach.
+weaker than that of the distance. In particular, it does not
+need to be symmetric or satisfy the triangle inequality. In this                   III. O NLINE D ETERMINISTIC A NNEALING FOR
+work, we will concentrate on nonempty, compact convex sets                          U NSUPERVISED AND S UPERVISED L EARNING
+S ⊆ Rd so that the derivative of dφ with respect to the second
+argument can be written as                                                      Online vector quantization algorithms, are proven to con-
+                                            2                                verge to locally optimal configurations [14]. However, as
+    ∂dφ          ∂φ(x)     ∂φ(µ)    ∂ φ(µ)           ∂φ(µ)
+        (x, µ) =        −         −        (x − µ) +                         iterative machine learning algorithms, their convergence prop-
+    ∂µ            ∂µ         ∂µ      ∂µ2              ∂µ
+                                                                             erties and final configuration depend heavily on two design
+                  ∂ 2 φ(µ)
+               =−          (x − µ) = − ∇2 φ(µ), (x − µ)                      parameters: the number of neurons/clusters K, and their initial
+                    ∂µ2
+                                                                             configuration. Inspired by the deterministic annealing frame-
+                  ∂
+ where x, µ ∈ S, ∂µ  represents differentiation with respect to              work [17], we relax the the original optimization problem (1)
+the second argument of dφ , and ∇2 φ(µ) represents the Hessian               to a soft-clustering problem, and replace it by a sequence
+matrix of φ at µ.                                                            of deterministic optimization problems, parameterized by a
+temperature coefficient, that are progressively solved at suc-                         point to another, and the sequence of the solutions will corre-
+cessively reducing temperature levels. As will be shown, the                           spond to a Pareto curve of the multi-objective optimization (2)
+annealing nature of this algorithm will contribute to avoiding                         that resembles annealing processes in chemical engineering.
+poor local minima, provide robustness with respect to the                              In this regard, the entropy H, which is closely related to the
+initial conditions, and induce a progressive increase in the                           “purity” of the clusters, acts as a regularization term which is
+cardinality of the set of clusters needed to be used, via a                            given progressively less weight as T decreases.
+intuitive bifurcation phenomenon.                                                         As in the case of vector quantization, we form a coordinate
+                                                                                       block optimization algorithm to minimize F , by successively
+A. Soft-Clustering and Annealing Optimization                                          minimizing it with respect to the association probabilities
+                                                                                       p(µ|x) and the codevector locations µ. Minimizing F with
+   In the clustering problem (Problem 1), the distortion func-
+                                                                                       respect to the association probabilities p(µ|x) is straightfor-
+tion J is typically non convex and riddled with poor local min-
+                                                                                       ward and yields the Gibbs distribution
+ima. To partially deal with this phenomenon, soft-clustering
+                                                                                                                      d(x,µ)
+approaches have been proposed as a probabilistic framework                                                      e− T
+for clustering. In this case, an input vector X is assigned,                                          p(µ|x) = P     d(x,µ)
+                                                                                                                            , ∀x ∈ S                  (3)
+                                                                                                                    − T
+through the quantizer Q, to allPcodevectors µh ∈ M with                                                          µe
+                                    K
+probabilities p(µh |X) , where      h=1 p(µh |X) = 1. In this                          while, in order to minimize F with respect to the codevector
+regard, the quantizer Q : S → M becomes a discrete random                              locations µ we set the gradients to zero
+variable, with the set M being its image, and can be fully                                    d           d
+                                       K
+described by the values of M = {µh }h=1 and the probability                                     D = 0 =⇒    E [E [d(X, µ)|X]] = 0
+                      K                                                                      dµ          dµ
+functions {p(µh |x)}h=1 . In contrast, hard clustering assumes                                           Z                                            (4)
+                                                                                                                        d
+that Q is a simple random variable that can be described fully                                        =⇒    p(x)p(µ|x) d(x, µ) dx = 0
+                         K                                                                                             dµ
+by M and V = {Sh }h=1 , since p(µh |X) = 1[X∈Sh ] (see
+Problem 1).                                                                               In the following theorem, we show that we can have analyt-
+   For the randomized partition we can rewrite the expected                            ical solution to the last optimization step (4) in a convenient
+distortion as                                                                          centroid form, if d is a Bregman divergence. This is a similar
+                                                                                       result to Theorem 1 for vector quantization.
+                 D = E [dφ (X, Q)]
+                     = E [E [dφ (X, Q)|X]]                                             Theorem 2. Assuming the conditional probabilities p(µ|x)
+                       Z       X                                                       are fixed, the Langragian F in (2) is minimized with respect
+                     = p(x)        p(µ|x)dφ (x, µ) dx                                  to the codevector locations µ by
+                                     µ                                                                               R
+                                                                                                      ∗                xp(x)p(µ|x) dx
+where p(µ|x) is the association probability relating the input                                       µ = E [X|µ] =                              (5)
+                                                                                                                           p(µ)
+vector x with the codevector µ. We note that, at the limit,
+                                                                                       if d := dφ is a Bregman divergence for some function φ that
+where each input vector is assigned to a unique codevector
+                                                                                       satisfies Definition 2.
+with probability one, this reduces to the hard clustering
+distortion. The main idea in deterministic annealing, is to seek                       Proof. If d := dφ is a Bregman divergence, then, by Definition
+the distribution that minimizes D subject to a specified level                         2, it follows that
+of randomness, measured by the Shannon entropy
+                                                                                                       d               ∂ 2 φ(µ)
+                                                                                                         dφ (x, µ) = −          (x − µ)
+    H(X, M ) = E [− log p(X, Q)]                                                                      dµ                 ∂µ2
+                  = H(X) + H(Q|X)                                                      Therefore, (4) becomes
+                           Z    X                                                                      Z
+                  = H(X) − p(x)   p(µ|x) log p(µ|x) dx                                                   (x − µ)p(x)p(µ|x) dx = 0                     (6)
+                                               µ
+                                                                                                                          R
+by appealing to Jaynes’ maximum entropy principle1 [32].                               which is equivalent to (5) since       p(x)p(µ|x) dx = p(µ).
+This multi-objective optimization is conveniently formulated
+as the minimization of the Lagrangian                                                  B. Bifurcation Phenomena
+                                F = D − TH                                      (2)       This optimization procedure takes place for decreasing
+                                                                                       values of the temperature coefficient T such that the solution
+where T is the temperature parameter that acts as a Lagrange
+                                                                                       maintains minimum free energy (thermal equilibrium) while
+multiplier. Clearly, for large values of T we maximize the
+                                                                                       gradually lowering the temperature. Adding to the physical
+entropy, and, as T is lowered, we trade entropy for reduction
+                                                                                       analogy, it is significant that, as the temperature is lowered,
+in distortion. Equation (2) also represents the scalarization
+                                                                                       the system undergoes a sequence of “phase transitions”, which
+method for trade-off analysis between two performance met-
+                                                                                       consists of natural cluster splits where the cardinality of the
+rics [33]. As T varies we essentially transition from one Pareto
+                                                                                       codebook (number of clusters) increases. This is a bifurcation
+   1 Informally, Jaynes’ principle states: of all the probability distributions that   phenomenon and provides a useful tool for controlling the size
+satisfy a given set of constraints, choose the one that maximizes the entropy.         of the clustering model relating it to the scale of the solution.
+  At very high temperature (T → ∞) the optimization yields            to recursively estimate E [X|µ] directly. Stochastic approxi-
+uniform association probabilities                                     mation, first introduced in [34], was originally conceived as a
+                                     d(x,µ)                           tool for statistical computation, and, since then, has become a
+                            e− T          1                           central tool in a number of different disciplines, often times
+              p(µ|x) = lim P     d(x,µ)
+                                        =
+                      T →∞     −          K                           unbeknownst to the users, researchers and practitioners. It
+                            µe
+                                   T
+
+                                                                      offers an online, adaptive, and computationally inexpensive
+and, provided d := dφ is a Bregman divergence, all the                optimization framework, properties that make it an ideal opti-
+codevectors are located at the same point:                            mization method for machine learning algorithms. In addition
+                            µ = E [X]                                 to its connection with optimization and learning algorithms,
+                                                                      however, stochastic approximation is strongly connected to
+which is the expected value of X (Theorem 1). This is true            dynamical systems, as well, a property that allows the study of
+regardless of the number of codevectors available. We refer           its convergence through the analysis of an ordinary differential
+to the number of different codevectors resulting from the             equation, as illustrated in the following theorem:
+optimization process as effective codevectors. These define the
+                                                                     Theorem 3 ( [18], Ch.2). Almost surely, the sequence {xn } ∈
+cardinality of the codebook, which changes as we lower the
+                                                                     S ⊆ Rd generated by the following stochastic approximation
+temperature. The bifurcation occurs when the solution above
+                                                                     scheme:
+a critical temperature Tc is no longer the minimum of the
+free energy F for T < Tc . A set of coincident codevectors                      xn+1 = xn + α(n) [h(xn ) + Mn+1 ] , n ≥ 0              (7)
+then splits into separate subsets. These critical temperatures
+Tc can be traced when the Hessian of F loses its positive with prescribed x0 , converges to a (possibly sample path
+definite property, and are, in some cases, computable (see dependent) compact, connected, internally chain transitive,
+Theorem 1 in [17]). In other words, an algorithmic imple- invariant set of the o.d.e:
+mentation needs only as many codevectors as the number of                                  ẋ(t) = h (x(t)) , t ≥ 0,                   (8)
+effective codevectors, which depends only on the temperature
+parameter, i.e. the Lagrange multiplier of the multi-objective where x : R+ → Rd and x(0) = x0 , provided the following
+minimization problem in (2). As will be shown in Section assumptions hold:
+III-E, we can detect the bifurcation points by maintaining and (A1) The map h : Rd → Rd is Lipschitz in S, i.e., ∃L with 0 <
+perturbing pairs of codevectors at each effective cluster so that          L < ∞ such that kh(x) − h(y)k ≤ L kx − ykP          , x, y ∈ S,
+they separate only when a critical temperature is reached.          (A2) The stepsizes     {α(n)  ∈  R ++ , n  ≥ 0}  satisfy     n α(n) =
+                                                                           ∞, and n α2 (n) < ∞ ,
+                                                                                     P
+
+C. Online Deterministic Annealing for Clustering                    (A3) {Mn }        is     a    martingale     difference      sequence
+                                                                           with respect to the increasing family of σ-
+   The conditional expectation E [X|µ] in eq. (5) can be                   fields Fn := σ (xm , Mm , m ≤ n), n ≥ 0, i.e.,
+approximated by the sample mean of the data points weighted                E [Mn+1 |Fn ] = 0 a.s., for all n ≥ 0, and,
+by their association probabilities p(µ|x), i.e.,                           furthermore,      {Mn } are       square-integrable with
+                                                                              h                i                        
+                                                                                         2                            2
+                                                                           E kMn+1 k |Fn          ≤ K 1 + kxn k , a.s., where
+                                 P
+                                    xp(µ|x)
+                     Ê [X|µ] =              .
+                                    p(µ)                                   n ≥ 0 for some K > 0,
+                                                                    (A4) The iterates {xn } remain bounded a.s., i.e.,
+This approach, however, defines an offline (batch) optimization
+                                                                           supn kxn k < ∞ a.s.
+algorithm and requires the entire dataset to be available a
+priori, subtly assuming that it is possible to store and also           As an immediate result, the following corollary also holds:
+quickly access the entire dataset at each iteration. This is rarely
+                                                                     Corollary 3.1. If the only internally chain transitive invariant
+the case in practical applications and results to computationally
+                                                                     sets for (8) are isolated equilibrium points, then, almost surely,
+costly iterations that are slow to converge. We propose an
+                                                                     {xn } converges to a, possibly sample dependent, equilibrium
+Online Deterministic Annealing (ODA) algorithm, that dynam-
+                                                                     point of (8).
+ically updates its estimate of the effective codevectors with
+every observation. This results in a significant reduction in           Now we are in place to prove the following theorem:
+complexity, that comes in two levels. The first refers to huge
+                                                                     Theorem 4. Let S a vector space, µ ∈ S, and X : Ω → S
+reduction in memory complexity, since we bypass the need to
+                                                                     be a random variable defined in a probability space (Ω, F, P).
+store the entire dataset, as well as the association probabilities
+                                                                     Let {xn } be a sequence of independent realizations P of X, and
+{p(µ|x), ∀x} that map each data point in the dataset to
+                                                                     {α(n)    >  0} a sequence   of stepsizes such that      n α(n) = ∞,
+each cluster. The second level refers to the nature of the
+                                                                     and n α2 (n) < ∞. Then the random variable mn = σn/ρn ,
+                                                                          P
+optimization iterations. In the online approach the optimization
+                                                                     where (ρn , σn ) are sequences defined by
+iterations increase in number but become much faster, and
+practical convergence is often after a smaller number of                           ρn+1 = ρn + α(n) [p(µ|xn ) − ρn ]
+observations.                                                                                                                          (9)
+                                                                                   σn+1 = σn + α(n) [xn p(µ|xn ) − σn ] ,
+   To define an online training rule for the above optimization
+                                                                                                                        a.s.
+framework, we formulate a stochastic approximation algorithm converges to E [X|µ] almost surely, i.e. mn −−→ E [X|µ].
+Proof.
+      We  will use the facts that p(µ) = E [p(µ|x)] and               approximate the optimal solution by solving the minimization
+E 1[µ] X = E [xp(µ|x)]. The recursive equations (9) are                 problem for the following distortion measure
+stochastic approximation algorithms of the form:                                                       (
+                                                                                   c                    d(x, µ), cx = cµ
+    ρn+1 = ρn + α(n)[(p(µ) − ρn )+                                                d (x, cx , µ, cµ ) =                          (14)
+                                                                                                        0, cx 6= cµ
+                         (p(µ|xn ) − E [p(µ|X)])]
+                                                              (10)    This particular choice for the distortion measure dc will lead
+    σn+1 = σn + α(n)[(E 1[µ] X − σn )+
+                                                                        to some interesting regularization properties of the proposed
+                           (xn p(µ|xn ) − E [xn p(µ|X)])]               online approach (see Section III-E).
+It is obvious that both stochastic approximation algorithms                It is easy to show that the coordinate block optimization
+satisfy the conditions of Theorem 3 and Corollary 3.1. As               steps (3) and (5), in this case become:
+a result, they converge to the asymptotic solution of the                                                          dc (x,cx ,µ,cµ )
+
+differential equations                                                                                        e−          T
+                                                                                   p(µ, cµ |x, cx ) = P                 dc (x,cx ,µ,cµ )
+                                                                                                                                           , and
+                                                                                                                   −
+                                                                                                             µ,cµ e
+                                                                                                                               T
+                        ρ̇ = p(µ) − ρ                                                               P
+                                                                                                      c =cµ xp(x, cx )p(µ, cµ |x, cx )
+                                     
+                        σ̇ = E 1[µ] X − σ                                                   ∗
+                                                                                          µ = Px
+which can be 
+             trivially 
+                        derived through standard ODE analysis                                           cx =cµ p(x, cx )p(µ, cµ |x, cx )
+
+to be p(µ), E 1[µ] X . In other words, we have shown that               respectively. In the last step, we have assumed that the class cµ
+                          a.s.                                       of each centroid µ is given and cannot be changed dynamically
+              (ρn , σn ) −−→ p(µ), E 1[µ] X              (11)
+                                                                        by the algorithm, which results to the minimization with
+The convergence of mn follows from the fact that E [X|µ] =              respect to µ only. In a similar fashion, it can be shown that
+E[1[µ] X ]/p(µ), and standard results on the convergence of the         the online learning rule that solves the optimization problem of
+product of two random variables.                                        the deterministic annealing algorithm for classification, based
+                                                                        on the distortion measure (14), is given by:
+  As a direct consequence of this theorem, the following
+corollary provides an online learning rule that solves the                         ρi (n + 1) =ρi (n) + α(n)1[cx =cµ ]
+                                                                                                                            j         i
+optimization problem of the deterministic annealing algorithm.
+                                                                                                    [p̂(µi , cµi |xn , cxn ) − ρi (n)]
+Corollary 4.1. The online training rule                                                                                                            (15)
+                                                                                   σi (n + 1) =σi (n) + α(n)1[cx =cµ ]
+  (                                                                                                                          j        i
+    ρi (n + 1) = ρi (n) + α(n) [p̂(µi |xn ) − ρi (n)]                                               [xn p̂(µi , cµi |xn , cxn ) − σi (n)]
+                                                                (12)
+    σi (n + 1) = σi (n) + α(n) [xn p̂(µi |xn ) − σi (n)]
+                                                                        where
+where the quantities p̂(µi |xn ) and µi (n) are recursively up-                                                     dc (xn ,cxn ,µi (n),cµ (n) )
+                                                                                                                                          i
+dated as follows:                                                                                     ρi (n)e−               T
+                                                                          p̂(µi , cµi |xn , cxn ) = P              dc (xn ,cxn ,µi (n),cµ (n) )
+                                           d(xn ,µi (n))                                                         −                       i
+                               ρi (n)e−                                                                i ρi (n)e                                   (16)
+                                                                                                                                T
+                                               T
+               p̂(µi |xn ) = P              d(xn ,µi (n))                                           σi (n)
+                                          −                                              µi (n) =
+                                i ρi (n)e
+                                                 T
+                                                                (13)                                ρi (n)
+                             σi (n)
+                   µi (n) =          ,                                  At the limit T → 0, the quantization scheme described above
+                             ρi (n)
+                                                                        equipped with a majority-vote classification rule is strongly
+converges almost surely to a possibly sample path dependent             Bayes risk consistent, i.e., converges to the optimal (Bayes)
+solution of the block optimization (3), (5).                            probability of error (see Ch. 21 in [13]). However, due to the
+   Finally, the learning rule (12), (13) can be used to define a        choice of the distortion measure dc in (14) used in ODA for
+consistent (histogram) density estimator at the limit T → 0.            classification, the algorithm can be used to estimate consistent
+This follows from the fact that as T → 0, the number of                 class-conditional density estimators, which define the natural
+clusters K goes to infinity, p(µh |X) → 1[X∈Sh ] , and, as              classification rule:
+a result, F → J, i.e., the consistency of Alg. 1 can be                                            ĉ(x) = cµh∗                     (17)
+studied with similar arguments to the stochastic divergence-
+                                                                        where h∗ = arg max p(µτ |x), h ∈ {1, . . . , K}.
+based vector quantization algorithm (1) (see [13], [14]).                              τ =1,...,K
+
+
+D. Online Deterministic Annealing for Classification                    E. The algorithm
+   We can extend the proposed learning algorithm to be used                The proposed Online Deterministic Annealing (ODA) al-
+for classification as well. In this case we can rewrite the             gorithm (Algorithm 1), is based on (15), (16), and can be
+expected distortion as                                                  used for both clustering and classification alike, depending
+                                                                        on whether the data belong to a single (clustering) or several
+                     D = E db (cX , Qc )
+                                       
+                                                                        classes (classification).
+where db (cx , cµ ) = 1[cx 6=cµ ] . Because db is not differentiable,      Temperature Schedule. The temperature schedule Ti plays
+using similar principles as in the case of LVQ, we can instead          an important role in the behavior of the algorithm. Starting
+at high temperature Tmax ensures the correct operation of               • d is the dimension of the input vectors, i.e., x ∈ Rd ;
+the algorithm. The value of Tmax depends on the domain of               • Kmax is the maximum number of codevectors allowed;
+the data and should be large enough such that there is only             • σmax = {σ1 , σ2 , . . . , σKmax }, where σi is the number
+one effective codevector at T = Tmax . When the range of                  of temperature values in our temperature schedule that
+the domain of the data is not known a priori, overestimation              lie between two critical temperatures Ti and Ti+1 , with
+is recommended. The stopping temperature Tmin can be set                  the understanding that at Ti there are i distinct effective
+a priori or be decided online depending on the performance                codevectors present. Here we have assumed that Kmax
+of the model at each temperature level. The temperature step              is achievable within our temperature schedule.
+dTi = Ti−1 − Ti should be small enough such that no critical            Fine-Tuning. In practice, because the convergence to the
+temperature is missed. On the other hand, the smaller the step       Bayes decision surface comes at the limit (K, T ) → (∞, 0),
+dTi , the more optimization problems need to be solved. It is        a fine-tuning mechanism should be designed to run on top of
+common practice to use the geometric series Ti+1 = γTi .             the proposed algorithm after Tmin . This can be either an LVQ
+   Stochastic Approximation. Regarding the stochastic approx-        algorithm (Section II-B) or some other local model.
+imation stepsizes, simple time-based learning rates, e.g. of the
+form αn = 1/a+bn, have been sufficient for fast convergence          Algorithm 1 Online Deterministic Annealing
+in all our experiments so far. Convergence is checked with the          Select Bregman divergence dφ
+condition dφ (µni , µin−1 ) < c for a given threshold c that can      Set temperature schedule: Tmax , Tmin , γ
+depend on the domain of X. Exploring adaptive learning rates            Decide maximum number of codevectors Kmax
+would be an interesting research direction for the future.              Set convergence parameters: {αn }, c , n , r , δ
+   Bifurcation and Perturbations. To every temperature level            Select initial configuration µi : cµi = c, ∀c ∈ C
+                                                       Ki
+Ti , corresponds a set of effective codevectors {µj }j=1   , which      Initialize: K = 1, T = Tmax
+consist of the different solutions of the optimization problem          Initialize: p(µi ) = 1, σ(µi ) = µi p(µi ), ∀i
+(2) at Ti . Bifurcation, at Ti , is detected by maintaining a pair      while K < Kmax       and T > Tmin do
+of perturbed codevectors {µj + δ, µj − δ} for each effective               Perturb µi ← µi + δ, µi − δ , ∀i
+codevector µj generated at Ti−1 , i.e. for j = 1 . . . , Ki−1 .            Increment K ← 2K
+Using arguments from variational calculus [17], it is easy                 Update p(µi ), σ(µi ) ← µi p(µi ), ∀i
+to see that, upon convegence, the perturbed codevectors will               Set n ← 0
+merge if a critical temperature has not been reached, and                  repeat
+will get separated otherwise. In case of a merge, one of the                  Observe data point x and class label c
+perturbed codevectors is removed from the model. Therefore,                   for i = 1, . . . , K do
+the cardinality of the model is at most doubled at every                         Compute membership si = 1[c i =c]
+                                                                                                                      µ
+temperature level. For classification, a perturbed codevector                    Update:                      dφ (x,µi )
+for each distinct class is generated.                                                                p(µi )e− T
+   Regularization. Merging is detected by the condition                              p(µi |x) ← P               dφ (x,µi )
+                                                                                                           i −
+dφ (µj , µi ) < n , where n is a design parameter that acts                                         i p(µ )e
+                                                                                                                    T
+
+
+                                                                                       p(µ ) ← p(µ ) + αn s p(µi |x) − p(µi )
+                                                                                            i          i
+                                                                                                                i                
+as a regularization term for the model. Large values for
+n (compared to the support of the data X) lead to fewer                               σ(µi ) ← σ(µi ) + αn si xp(µi |x) − σ(µi )
+                                                                                                                                   
+effective codevectors, while small n values lead to a fast
+growth in the model size, which is connected to overfitting.                                       σ(µi )
+                                                                                           µi ←
+It is observed that, for practical convergence, the perturbation                                   p(µi )
+                                                                                 Increment n ← n + 1
+noise δ is best to not exceed n . An additional regulariza-
+                                                                              end for
+tion mechanism that comes as a natural consequence of the
+                                                                           until dφ (µin , µin−1 ) < c , ∀i
+stochastic approximation learning rule, is the detection of
+                                                                           Keep effective codevectors:
+idle codevectors. To see that, notice that the sequence ρi (n)
+                                                                                 discard µi if dφ (µj , µi ) < n , ∀i, j, i 6= j
+resembles an approximation of the probability p(µi , cµi ). In
+                                                                           Remove idle codevectors:
+the updates (12), (13), ρi (n) becomes negligible (ρi (n) < r )
+                                                                                 discard µi if p(µi ) < r , ∀i
+if not updated by any nearby observed data, which is a natural
+                                                                           Update K, p(µi ), σ(µi ), ∀i
+criterion for removing the codevector µi . This happens if all
+                                                                           Lower temperature T ← γT
+observed data samples xn are largely dissimilar to µi . In
+                                                                        end while
+classification, because of the choice of dc in (14), codevectors
+µi that are not assigned the same class as the data in their
+vicinity, will end up to be removed, as well. The threshold r
+                                                                            IV. E XPERIMENTAL E VALUATION AND D ISCUSSION
+is a parameter that usually takes values near zero.
+   Complexity. The worst case complexity of Algorithm 1                We illustrate the properties and evaluate the performance
+behaves as O(σmax N Kmax    2
+                                d), where:                           of the proposed algorithm in widely used artificial and real
+   • N is an upper bound of the number of data samples
+                                                                     datasets for clustering and classification2 .
+      observed, which should be large enough to overestimate            2 Code and Reproducibility: The source code is publicly available online at
+      the iterations needed for convergence;                         https://github.com/MavridisChristos/OnlineDeterministicAnnealing.
+                      (a) Concentric circles.
+
+
+
+                                                                               (a) Gaussians.                        (b) WBCD.
+
+                         (b) Half moons.
+
+
+
+
+                          (c) Gaussians.
+                                                                                 (c) PIMA.                            (d) Adult.
+                                                                              Fig. 2: Algorithm comparison for clustering.
+
+                    (d) Poor initial conditions.
+                                                                     dataset [36], (c) the PIMA dataset [37], and (d) the Adult
+Fig. 1: (a)-(c)Illustration of the evolution of Alg. 1 for           dataset3 [36]. In Fig. 2, we compare Alg. 1 with the online
+decreasing temperature T in binary classification in 2D. (d)         sVQ algorithm (Def. 1), and two offline algorithms, namely
+Showcasing robustness with respect to bad initial conditions.        k-means [27], and the original deterministic annealing (DA)
+                                                                     algorithm [17]. The algorithms are compared in terms of the
+A. Toy Examples                                                      minimum average distortion achieved, as a function of the
+   We first showcase how Alg. 1 works in three simple, but           number of samples they observed, and the number of clusters
+illustrative, classification problems in two dimensions (Fig.        they used (floating numbers inside the figures). The Euclidean
+1). The first two are binary classification problems with the        distance is used for fair comparison. Since there is no criterion
+underlying class distributions shaped as concentric circles (Fig.    to decide the number of clusters K for k-means and sVQ,
+1a), and half moons (Fig. 1b), respectively. The third is a multi-   we run them sequentially for the K values estimated by DA,
+class classification problem with Gaussian mixture class distri-     and add up the computational time. All algorithms are able
+butions (Fig. 1c). All datasets consist of 1500 samples. Since       to achieve comparable average distortion values given good
+the objective is to give a geometric illustration of how the         initial conditions and appropriate size K. Therefore, the pro-
+algorithm works in the two-dimensional plane, the Euclidean          gressive estimation of K, as well as the robustness with respect
+distance is used. The algorithm starts at high temperature           to the initial conditions, are key features of both annealing
+with a single codevector for each class. As the temperature          algorithms, i.e., DA and ODA (Alg. 1). Compared to the offline
+coefficient gradually decreases (Fig. 1, from left to right), the    algorithms, i.e., k-means and DA, ODA and sVQ achieve
+number of codevectors progressively increases. The accuracy          practical convergence with significantly smaller number of
+of the algorithm typically increases as well. As the temperature     observations, which corresponds to reduced computational
+goes to zero, the complexity of the model, i.e. the number of        time, as argued above. Notice the substantial difference in
+codevectors, rapidly increases (Fig. 1, rightmost pictures). This    running time between the original DA algorithm and the
+may, or may not, translate to a corresponding performance            proposed ODA algorithm in Fig. 4. Compared to the online
+boost. A single parameter –the temperature T – offers online         sVQ (and LVQ), the probabilistic approach of ODA introduces
+control on this complexity-accuracy trade-off. Finally, Fig.         additional computational cost: all neurons are now updated in
+1d showcases the robustness of the proposed algorithm with           every iteration, instead of only the winner neuron. However,
+respect to the initial configuration. Here the codevectors are       the updates can still be computed fast when using Bregman
+poorly initialized outside the support of the data, which is not     divergences (Theorem 2), and the aforementioned benefits of
+assumed known a priori (e.g. online observations of unknown          the annealing nature of ODA, outweigh this additional cost in
+domain). In this example the LVQ algorithm has been shown to         many real-life problems.
+fail [35]. In contrast, the entropy term H in the optimization          Classification. For classification, we consider the Gaussian
+objective of Alg. 1, allows for the online adaptation to the         (Fig. 1c), WBCD, PIMA, and Credit Card4 [38] datasets.
+domain of the dataset and helps to prevent poor local minima.        We compare Alg. 1 against an SVM model with a linear
+                                                                     kernel [39], a feed-forward fully-connected neural network
+                                                                     with a single hidden layer of nN N neurons (NN), and the
+B. Real Datasets
+  Clustering. For clustering, we consider the following                3 15000 samples randomly selected. Non-numerical features removed.
+
+datasets: (a) the dataset of Fig. 1c (Gaussians), (b) the WBCD         4 15000 samples randomly selected.
+                                                                    quantifying this robustness is beyond the scope of this paper.
+                                                                       Parameters. The parameters nN N ∈ [10, 100] and tRF ∈
+                                                                    [10, 100] were selected through extensive grid search. In
+                                                                    contrast, the parameters of the ODA algorithm for all the
+                                                                    experiments were set as follows: Tmax = 100∆S d, Tmin =
+                                                                    0.001∆S d, Kmax = 100, γ = 0.8, c = 0.0001∆S d,
+         (a) Gaussians.                     (b) WBCD.
+                                                                    n = 0.001∆S d, r = 10−7 , δ = 0.01∆S d, and αn =
+                                                                    1/1+0.9n, where d is the number of dimensions of the input
+
+                                                                    X ∈ S ⊆ Rd , and ∆S represents the length of the largest edge
+                                                                    of the smallest d-orthotope that contains S. We stress that no
+                                                                    parameter tuning has taken place for the proposed algorithm.
+                                                                       Limitations. Finally, we note that both NN and RF out-
+           (c) PIMA.                 (d) Credit Card (F1 score).    perform Alg. 1 in some datasets (Table I). A fine-tuning
+       Fig. 3: Algorithm comparison for classification.             mechanism, as discussed in Section III-E, could alleviate these
+                                                                    differences, and is currently not used in our experiments.
+                                                                    Regarding the running time of the ODA algorithm, Fig. 4
+                                                                    shows the execution time of the learning algorithms used in
+                                                                    Fig. 2a and Fig. 3a. All experiments were implemented in a
+                                                                    personal computer. We note that, in contrast to the commercial,
+                                                                    and, therefore, optimized versions of the k-means, SVM, NN,
+                                                                    and RF algorithms, the algorithmic implementation of the
+                                                                    proposed algorithm is not yet optimized, and substantial speed-
+ Fig. 4: Running time of the algorithms in Fig. 2a, Fig. 3a.        up is expected through appropriate software development.
+
+
+                                                                                               V. C ONCLUSION
+Random Forests (RF) algorithm with tRF estimators [40].
+These algorithms have been selected to represent today’s stan-         It is understood that the trade-off between model com-
+dards in simple classification tasks, i.e., when no sophisticated   plexity and performance in machine learning algorithms is
+feature extraction is required. The SVM classifier represents       closely related to over-fitting, generalization, and robustness
+the class of linear classification models, the neural network       to input perturbations and adversarial attacks. We investigate
+represents the class of non-linear approximation models, and        the properties of learning with progressively growing models,
+the random forests algorithm represents the class of partition-     and propose an online annealing optimization approach as a
+based methods with bootstrap aggregating. Table I shows the         learning algorithm that progressively adjusts its complexity
+results of a 5-fold cross validation (80/20%), and Fig. 3           with respect to new observations, offering online control over
+illustrates the performance of the algorithms during a random       the performance-complexity trade-off. The proposed algorithm
+test. The evolution of the complexity of the ODA model              can be viewed as a neural network with inherent regularization
+is depicted as a function of the observed samples and the           mechanisms, the learning rule of which is formulated as an
+classification accuracy achieved. We use the generalized I di-      online gradient-free stochastic approximation algorithm. As a
+vergence (Example 2) in the WBCD dataset and the Euclidean          prototype-based learning algorithm, it offers a progressively
+distance in the rest. ODA (Alg. 1) outperforms the linear SVM       growing knowledge base that can be interpreted as a memory
+classifier, and can achieve comparable performance with the         unit that parallels similar concepts form cognitive psychology
+NN and the RF algorithms, which are today’s standards in            and neuroscience. The annealing nature of the algorithm pre-
+classification tasks where no feature extraction is required.       vents poor local minima, offers robustness to initial conditions,
+In the greatly unbalanced Credit Card dataset, all algorithms       and provides a means to progressively increase the complexity
+achieved accuracy close to 100%, but the F 1 scores dropped         of the learning model as needed. To our knowledge, this is the
+significantly (Fig. 3d). Notably, this was not the case with the    first time such a progressive approach has been proposed for
+ODA algorithm. This may be due to the generative nature of          machine learning applications. We believe that these results
+the algorithm, and might also be an instance of the robustness      can lead to new developments in learning with progressively
+expected by vector quantization algorithms [16]. Justifying and     growing models, especially in communication, control, and
+                                                                    reinforcement learning applications.
+
+   DATA SET          ODA        SVM          NN          RF                                      R EFERENCES
+   G AUSSIAN       98.9± 0.0   79.5± 0.0   98.6± 0.0   98.7± 0.0
+   WBCD            90.7± 0.0   85.6± 0.0   92.7± 0.0   94.6± 0.0     [1] K. P. Bennett and E. Parrado-Hernández, “The interplay of optimization
+   C REDIT (F1)    95.6± 0.0   69.1± 0.2   58.9± 0.1   62.8± 0.1         and machine learning research,” The Journal of Machine Learning
+                                                                         Research, vol. 7, pp. 1265–1281, 2006.
+   PIMA            70.5± 0.0   62.9± 0.0   76.3± 0.0   74.4± 0.0     [2] A. Krizhevsky, I. Sutskever, and G. E. Hinton, “Imagenet classification
+                                                                         with deep convolutional neural networks,” in Advances in Neural Infor-
+TABLE I: Classification accuracies in 5-fold cross-validation.           mation Processing Systems, 2012, pp. 1097–1105.
+ [3] H. Lee, R. Grosse, R. Ranganath, and A. Y. Ng, “Convolutional deep          [31] H. K. B. Babiker and R. Goebel, “Using kl-divergence to focus deep
+     belief networks for scalable unsupervised learning of hierarchical repre-        visual explanation,” arXiv preprint arXiv:1711.06431, 2017.
+     sentations,” in Proceedings of the 26th Annual International Conference     [32] E. T. Jaynes, “Information theory and statistical mechanics,” Physical
+     on Machine Learning, 2009, pp. 609–616.                                          Review, vol. 106, no. 4, p. 620, 1957.
+ [4] N. C. Thompson, K. Greenewald, K. Lee, and G. F. Manso, “The                [33] K. Miettinen, Nonlinear multiobjective optimization. Springer Science
+     computational limits of deep learning,” arXiv:2007.05558, 2020.                  & Business Media, 2012, vol. 12.
+ [5] E. Strubell, A. Ganesh, and A. McCallum, “Energy and policy consid-         [34] H. Robbins and S. Monro, “A stochastic approximation method,” The
+     erations for deep learning in nlp,” arXiv:1906.02243, 2019.                      Annals of Mathematical Statistics, pp. 400–407, 1951.
+ [6] C. Szegedy, W. Zaremba, I. Sutskever, J. Bruna, D. Erhan, I. Goodfellow,    [35] J. S. Baras and A. LaVigna, “Convergence of a neural network classifier,”
+     and R. Fergus, “Intriguing properties of neural networks,” arXiv preprint        in Advances in Neural Information Processing Systems, 1991.
+     arXiv:1312.6199, 2013.                                                      [36] D. Dua and C. Graff, “UCI machine learning repository,” 2017.
+ [7] N. Carlini and D. Wagner, “Towards evaluating the robustness of neural           [Online]. Available: http://archive.ics.uci.edu/ml
+     networks,” in IEEE Symposium on Security and Privacy. IEEE, 2017.           [37] J. W. Smith, J. Everhart, W. Dickson, W. Knowler, and R. Johannes,
+ [8] V. Sehwag, A. N. Bhagoji, L. Song, C. Sitawarin, D. Cullina, M. Chiang,          “Using the adap learning algorithm to forecast the onset of diabetes
+     and P. Mittal, “Analyzing the robustness of open-world machine learn-            mellitus,” in Proceedings of the Annual Symposium on Computer Appli-
+     ing,” in Proceedings of the 12th ACM Workshop on Artificial Intelligence         cation in Medical Care. American Medical Informatics Association,
+     and Security, 2019, pp. 105–116.                                                 1988, p. 261.
+ [9] H. Xu and S. Mannor, “Robustness and generalization,” Machine Learn-        [38] F. Carcillo, Y.-A. Le Borgne, O. Caelen, Y. Kessaci, F. Oblé, and
+     ing, vol. 86, no. 3, pp. 391–423, 2012.                                          G. Bontempi, “Combining unsupervised and supervised learning in
+[10] C. G. Northcutt, A. Athalye, and J. Mueller, “Pervasive label errors             credit card fraud detection,” Information Sciences, 2019.
+     in test sets destabilize machine learning benchmarks,” arXiv preprint       [39] M. A. Hearst, S. T. Dumais, E. Osuna, J. Platt, and B. Scholkopf, “Sup-
+     arXiv:2103.14749, 2021.                                                          port vector machines,” IEEE Intelligent Systems and their Applications,
+[11] A. Raghunathan, S. M. Xie, F. Yang, J. C. Duchi, and P. Liang,                   vol. 13, no. 4, pp. 18–28, 1998.
+     “Adversarial training can hurt generalization,” arXiv:1906.06032, 2019.     [40] L. Breiman, “Random forests,” Machine Learning, vol. 45, 2001.
+[12] T. Kohonen, Learning Vector Quantization.            Berlin, Heidelberg:
+     Springer Berlin Heidelberg, 1995, pp. 175–189.                                                        Christos N. Mavridis (M’20) received the Diploma
+[13] L. Devroye, L. Györfi, and G. Lugosi, A probabilistic theory of pattern                              degree in electrical and computer engineering from
+     recognition. Springer Science & Business Media, 2013, vol. 31.                                        the National Technical University of Athens, Greece,
+[14] C. N. Mavridis and J. S. Baras, “Convergence of stochastic vector quan-                               in 2017, and the M.S. and Ph.D. degrees in electri-
+     tization and learning vector quantization with bregman divergences,” in                               cal and computer engineering at the University of
+     21rst IFAC World Congress. IFAC, 2020.                                                                Maryland, College Park, MD, USA, in 2021. His
+[15] E. A. Uriarte and F. D. Martı́n, “Topology preservation in som,”                                      research interests include learning theory, stochas-
+     International Journal of Applied Mathematics and Computer Sciences,                                   tic optimization, systems and control theory, multi-
+     vol. 1, no. 1, pp. 19–22, 2005.                                                                       agent systems, and robotics.
+[16] S. Saralajew, L. Holdijk, M. Rees, and T. Villmann, “Robustness                                          He has worked as a researcher at the Department
+     of generalized learning vector quantization models against adversarial                                of Electrical and Computer Engineering at the Uni-
+     attacks,” in International Workshop on Self-Organizing Maps. Springer,      versity of Maryland, College Park, and as a research intern for the Math and
+     2019, pp. 189–199.                                                          Algorithms Research Group at Nokia Bell Labs, NJ, USA, and the System
+[17] K. Rose, “Deterministic annealing for clustering, compression, classifi-    Sciences Lab at Xerox Palo Alto Research Center (PARC), CA, USA.
+     cation, regression, and related optimization problems,” Proceedings of         Dr. Mavridis is an IEEE member, and a member of the Institute for Systems
+     the IEEE, vol. 86, no. 11, pp. 2210–2239, 1998.                             Research (ISR) and the Autonomy, Robotics and Cognition (ARC) Lab. He
+[18] V. S. Borkar, Stochastic approximation: a dynamical systems viewpoint.      received the Ann G. Wylie Dissertation Fellowship in 2021, and the A. James
+     Springer, 2009, vol. 48.                                                    Clark School of Engineering Distinguished Graduate Fellowship, Outstanding
+[19] A. Banerjee, S. Merugu, I. S. Dhillon, and J. Ghosh, “Clustering with       Graduate Research Assistant Award, and Future Faculty Fellowship, in 2017,
+     bregman divergences,” Journal of Machine Learning Research, vol. 6,         2020, and 2021, respectively. He has been a finalist in the Qualcomm
+     no. Oct, pp. 1705–1749, 2005.                                               Innovation Fellowship US, San Diego, CA, 2018, and he has received the
+[20] T. Villmann, S. Haase, F.-M. Schleif, B. Hammer, and M. Biehl, “The         Best Student Paper Award (1st place) in the IEEE International Conference
+     mathematics of divergence based online learning in vector quantization,”    on Intelligent Transportation Systems (ITSC), 2021.
+     in IAPR Workshop on Artificial Neural Networks in Pattern Recognition.
+     Springer, 2010, pp. 108–119.                                                                           John S. Baras (LF’13) received the Diploma degree
+[21] C. N. Mavridis and J. S. Baras, “Progressive graph partitioning based on                               in electrical and mechanical engineering from the
+     information diffusion,” in Conference on Decision and Control (CDC).                                   National Technical University of Athens, Greece, in
+     IEEE, 2021, pp. 37–42.                                                                                 1970, and the M.S. and Ph.D. degrees in applied
+[22] C. N. Mavridis, N. Suriyarachchi, and J. S. Baras, “Detection of dy-                                   mathematics from Harvard University, Cambridge,
+     namically changing leaders incomplex swarms from observed dynamic                                      MA, USA, in 1971 and 1973, respectively.
+     data,” in 2020 Conference on Decision and Game Theory for Security                                        He is a Distinguished University Professor and
+     (GameSec), 2020.                                                                                       holds the Lockheed Martin Chair in Systems En-
+[23] ——, “Maximum-entropy progressive state aggregation for reinforce-                                      gineering, with the Department of Electrical and
+     ment learning,” in Conference on Decision and Control (CDC). IEEE,                                     Computer Engineering and the Institute for Systems
+     2021, pp. 5144–5149.                                                                                   Research (ISR), at the University of Maryland Col-
+[24] M. Biehl, B. Hammer, and T. Villmann, “Prototype-based models in            lege Park. From 1985 to 1991, he was the Founding Director of the ISR. Since
+     machine learning,” Wiley Interdisciplinary Reviews: Cognitive Science,      1992, he has been the Director of the Maryland Center for Hybrid Networks
+     vol. 7, no. 2, pp. 92–111, 2016.                                            (HYNET), which he co-founded. His research interests include systems
+[25] Y. Linde, A. Buzo, and R. Gray, “An algorithm for vector quantizer          and control, optimization, communication networks, applied mathematics,
+     design,” IEEE Transactions on Communications, vol. 28, 1980.                machine learning, artificial intelligence, signal processing, robotics, computing
+[26] M. Sabin and R. Gray, “Global convergence and empirical consistency         systems, security, trust, systems biology, healthcare systems, model-based
+     of the generalized lloyd algorithm,” IEEE Transactions on Information       systems engineering.
+     Theory, vol. 32, no. 2, pp. 148–155, 1986.                                     Dr. Baras is a Fellow of IEEE (Life), SIAM, AAAS, NAI, IFAC, AMS,
+[27] L. Bottou and Y. Bengio, “Convergence properties of the k-means             AIAA, Member of the National Academy of Inventors and a Foreign Member
+     algorithms,” in Advances in Neural Information Processing Systems,          of the Royal Swedish Academy of Engineering Sciences. Major honors
+     1995, pp. 585–592.                                                          include the 1980 George Axelby Award from the IEEE Control Systems
+[28] R. O. Duda, P. E. Hart, and D. G. Stork, Pattern classification. John       Society, the 2006 Leonard Abraham Prize from the IEEE Communications
+     Wiley & Sons, 2012.                                                         Society, the 2017 IEEE Simon Ramo Medal, the 2017 AACC Richard E.
+[29] A. Sato and K. Yamada, “Generalized learning vector quantization,” in       Bellman Control Heritage Award, the 2018 AIAA Aerospace Communications
+     Advances in Neural Information Processing Systems, 1996, pp. 423–429.       Award. In 2016 he was inducted in the A. J. Clark School of Engineering
+[30] B. Hammer and T. Villmann, “Generalized relevance learning vector           Innovation Hall of Fame. In 2018 he was awarded a Doctorate Honoris Causa
+     quantization,” Neural Networks, vol. 15, no. 8-9, pp. 1059–1068, 2002.      by his alma mater the National Technical University of Athens, Greece.
+

@@ -1,0 +1,764 @@
+                                         Neural Networks as Universal Finite-State Machines:
+                                         A Constructive Deterministic Finite Automaton Theory
+
+
+                                                                             Sahil Rajesh Dhayalkar
+                                                                                Brain Corporation
+                                                                                  San Diego, CA
+                                                                        sahil.dhayalkar@braincorp.com
+
+
+
+
+arXiv:2505.11694v2 [cs.LG] 28 May 2025
+                                                                                      Abstract
+                                                  We present a complete theoretical and empirical framework establishing feedfor-
+                                                  ward neural networks as universal finite-state machines (N-FSMs). Our results
+                                                  prove that finite-depth ReLU and threshold networks can exactly simulate de-
+                                                  terministic finite automata (DFAs) by unrolling state transitions into depth-wise
+                                                  neural layers, with formal characterizations of required depth, width, and state
+                                                  compression. We demonstrate that DFA transitions are linearly separable, binary
+                                                  threshold activations allow exponential compression, and Myhill-Nerode equiv-
+                                                  alence classes can be embedded into continuous latent spaces while preserving
+                                                  separability. We also formalize the expressivity boundary: fixed-depth feedforward
+                                                  networks cannot recognize non-regular languages requiring unbounded memory.
+                                                  Unlike prior heuristic or probing-based studies, we provide constructive proofs and
+                                                  design explicit DFA-unrolled neural architectures that empirically validate every
+                                                  claim. Our results bridge deep learning, automata theory, and neural-symbolic
+                                                  computation, offering a rigorous blueprint for how discrete symbolic processes can
+                                                  be realized in continuous neural systems.
+
+
+                                         1   Introduction
+                                         Neural networks are celebrated for their universal approximation capabilities [12, 2], yet the precise
+                                         nature of their computational expressivity remains an active area of theoretical inquiry. While it
+                                         is well-understood that neural networks can approximate any continuous function under suitable
+                                         conditions, less is known about how such networks relate to classical models of computation, such as
+                                         finite-state machines (FSMs) and automata. This paper presents the first comprehensive theoretical
+                                         and empirical framework establishing neural networks as universal finite-state machines (N-FSMs),
+                                         with a constructive and exact simulation of deterministic finite automata (DFAs), thereby formally
+                                         bridging deep learning and automata theory.
+                                         Our core contribution is a set of rigorous theorems, lemmas, and corollaries demonstrating that
+                                         feedforward neural networks with ReLU or threshold activations can exactly emulate the behavior
+                                         of deterministic finite automata (DFAs) over finite-length strings. Unlike traditional universal ap-
+                                         proximation theorems, our results capture bounded-memory computation and deterministic transition
+                                         dynamics, offering a new lens through which to analyze the symbolic computation capabilities of
+                                         neural architectures. We also provide a constructive theory of DFA emulation by explicitly “unrolling”
+                                         automaton transitions into depth-wise neural layers, a methodology previously unexplored in the
+                                         neural-symbolic literature.
+                                         To complement the theoretical results, we design a suite of DFA-unrolled neural architectures that
+                                         empirically validate each claim across increasingly complex properties: from direct DFA simulation,
+                                         linear separability of transitions, and compact binary state encodings, to equivalence class embedding
+                                         and information-theoretic compression. We further delineate the expressive boundary of N-FSMs,
+
+                                         Preprint. Under review.
+demonstrating empirically that fixed-depth feedforward networks cannot recognize context-free
+languages requiring unbounded memory, such as {an bn }, thereby aligning our results with the
+Chomsky hierarchy [10, 11].
+Our findings contribute to both neural theory and symbolic AI by:
+       • Establishing formal proofs that DFAs can be exactly simulated by finite-depth neural
+         networks, and identifying the architectural depth and width requirements.
+       • Demonstrating that neural networks can learn Myhill-Nerode equivalence class representa-
+         tions, providing a geometric interpretation of regular languages in latent space.
+       • Showing that DFA state encodings can be compressed to O(log n)-dimensional embeddings
+         while preserving class distinction.
+       • Empirically validating the expressivity limits of N-FSMs through DFA-unrolled experiments.
+This work advances the field of neural-symbolic computation [1, 3] by formalizing how neural
+networks can simulate deterministic symbolic processes and by providing a blueprint for designing
+neural architectures that integrate classical computation principles. In doing so, it lays the foundation
+for future research on efficient neural representations of symbolic systems, differentiable automata,
+and the theoretical limits of neural computation. The paper uses a structure with theorems, lemmas,
+and corollaries, similar to prior work [20, 8, 15, 4, 5].
+
+2   Related Work
+Neural-Symbolic Integration and Computability: Integrating neural computation with symbolic
+reasoning has long been a goal of neural-symbolic computing [1, 3]. Early efforts combined symbolic
+logic with connectionist models using recurrent or hybrid architectures, but lacked formal characteri-
+zations of computational equivalence. While universal approximation theorems [2, 12] established
+that feedforward networks can approximate any continuous function, they address function approx-
+imation in the limit and not exact simulation of discrete models like finite-state machines (FSMs).
+Later work examined the Turing completeness of recurrent and deep networks [17], yet finite-state
+computation in fixed-depth feedforward networks remains underexplored.
+Finite-State Machines and Boolean Circuits in Neural Networks: Empirical studies have shown
+that recurrent networks and transformers can implicitly learn finite automata representations when
+trained on regular languages [19, 16]. These works used black-box probing techniques but did
+not offer formal proofs or constructive architectures guaranteeing FSM simulation. Separately,
+threshold units simulating Boolean logic have been foundational in circuit complexity theory [9]
+and prior neural-symbolic work applied Boolean gates for propositional reasoning [3]. However, no
+previous work linked these to DFA transition simulation or the compression advantages of binary
+state encodings. Our results unify these areas, providing formal proofs that binary threshold networks
+can simulate DFA transitions exactly with logarithmic compression.
+Expressivity Limits and Language Hierarchies: Discussions of neural network expressivity often
+invoke the Chomsky hierarchy [10]. While fixed-depth feedforward networks can model regular
+languages, they lack the memory capacity to recognize non-regular languages like context-free
+languages requiring unbounded memory [11]. Our Theorem 3 and Corollary 3.1 rigorously formalize
+this limitation and validate the boundary between regular and non-regular language recognition.
+Geometric Representations and Neural Automata: Some studies have explored geometric repre-
+sentations of language structure and compositionality in neural networks. Hupkes et al. [13] analyzed
+compositional generalization, and Weiss et al. [19] observed automaton-equivalent state embeddings
+in recurrent networks. However, these lacked formal guarantees. In contrast, our Theorem 2 and
+Corollary 2.1 provide the first formal and empirical demonstration that Myhill-Nerode equivalence
+classes can be represented as distinct geometric embeddings with provable compression. Concurrent
+work has also explored combining automaton structures with neural architectures to enhance inter-
+pretability and generalization [6, 7], but these approaches remain empirical or limited to theoretical
+bounds without constructive architectural proofs.
+Summary: Prior efforts have relied on empirical observations, heuristics, or probing-based ap-
+proaches. In contrast, our work presents a complete theoretical and empirical framework proving that
+feedforward neural networks can serve as universal finite-state machines, bridging foundational gaps
+between deep learning, automata theory, and neural-symbolic computation.
+
+
+                                                   2
+3     Theoretical Framework
+3.1   Preliminaries: Deterministic Finite Automata
+
+A Deterministic Finite Automaton (DFA)is a tuple A = (Q, Σ, δ, q0 , F ) where:
+
+       • Q is a finite set of states, |Q| = n.
+       • Σ is a finite input alphabet, |Σ| = k.
+       • δ : Q × Σ → Q is the transition function.
+       • q0 ∈ Q is the initial state.
+       • F ⊆ Q is the set of accepting states.
+
+Given a finite-length input string x = (s1 , s2 , . . . , sT ) ∈ ΣT , the DFA reads one symbol at a time
+and updates its state according to the transition function δ. The extended transition function δ̂ maps
+strings to final states by recursively applying δ:
+                             δ̂(q0 , x) = δ(. . . δ(δ(q0 , s1 ), s2 ), . . . , sT ).
+We write δ̂(x) to denote the final state reached when starting at q0 and reading string x.
+The DFA accepts x if δ̂(x) ∈ F . The corresponding language indicator function is defined as:
+                                       
+                                         1, if x is accepted by A,
+                              ϕ(x) =
+                                         0, otherwise.
+
+The language recognized by A is the set:
+                      L(A) = {x ∈ Σ∗ | ϕ(x) = 1} = {x ∈ Σ∗ | δ̂(x) ∈ F }.
+
+This formalism underpins all theorems, lemmas, and corollaries that follow.
+
+3.2   Theorem 1: Existence of FSM-Emulating Neural Networks
+
+Let A = (Q, Σ, δ, q0 , F ) be a deterministic finite automaton (DFA), where |Q| = n and |Σ| = k. For
+any finite input length T ∈ N, there exists a feedforward neural network fθ : RT k → R such that for
+every input string x = (s1 , s2 , . . . , sT ) ∈ ΣT , the network outputs
+                                                  
+                                                     1 if A accepts x,
+                                         fθ (x) =
+                                                     0 otherwise,
+
+i.e., fθ (x) = ϕ(x), where ϕ : ΣT → {0, 1} is the language indicator function of A. (Proof provided
+in Appendix A.1)
+This theorem asserts that any DFA over finite-length strings can be exactly emulated by a feedforward
+neural network (FNN) without recurrence or explicit memory. This goes beyond the universal
+approximation theorem by focusing on bounded memory and deterministic computation, and opens a
+new direction in understanding how classical computation models (finite automata) can be encoded
+into the structure of neural networks. Figure 1 shows how a neural network would emulate a DFA.
+The core idea is that each layer of the network simulates one transition step of the automaton,
+propagating the current state forward based on the current input symbol. The network "unrolls" the
+automaton in depth, with each layer encoding a single application of the transition function δ.
+
+3.3   Lemma 1: Linear Separability of State Transitions
+
+Let A = (Q, Σ, δ, q0 , F ) be a DFA, where each state qi ∈ Q and symbol sj ∈ Σ are encoded as
+one-hot vectors ei ∈ Rn and uj ∈ Rk respectively. Then there exists a two-layer feedforward neural
+network with ReLU activations that computes the transition function
+                             g : Rn+k → Rn ,          g([ei ; uj ]) = eδ(qi ,sj ) .
+
+
+                                                       3
+                   Figure 1: Figure depicting a Neural Network emulating a DFA
+
+
+(Proof provided in Appendix A.2)
+This lemma formalizes the intuition that, because a DFA has a finite transition table, its behavior
+can be captured by a small neural module. Using one-hot encoding, every valid input pair ([qi ], [sj ])
+maps to a unique one-hot output vector [q ′ ]. Since both the domain and codomain are finite and
+discrete, the mapping is trivially realizable by a ReLU MLP.
+This lemma implies that the DFA’s logic is linearly separable in the input space of concatenated state
+and symbol vectors. Every transition rule δ(qi , sj ) = qk corresponds to a point in input space that
+maps to a unique output. The ReLU MLP simply partitions input space into these regions.
+Although DFA transition tables are finite and discrete, the claim and construction that ReLU MLPs
+can realize them using linear separability over concatenated one-hot vectors is new. Prior work does
+not explicitly connect DFA transitions to linear separability in neural space.
+
+3.4   Lemma 2: State Encodings via Binary Neurons
+
+Let A = (Q, Σ, δ, q0 , F ) be a DFA with |Q| = n. Suppose each state qi ∈ Q is encoded using a
+unique binary vector bi ∈ {0, 1}⌈log2 n⌉ . Then there exists a feedforward neural network with binary
+threshold activations (e.g., hard step or sign units) that computes the transition function
+
+                   g : {0, 1}⌈log2 n⌉+k → {0, 1}⌈log2 n⌉ ,   g([bi ; uj ]) = bδ(qi ,sj ) ,
+where uj is a one-hot encoding of sj ∈ Σ. (Proof provided in Appendix A.3)
+This lemma establishes that DFA transitions can be simulated using exponentially compact binary
+encodings and binary threshold activations, replacing one-hot encodings which are large and sparse.
+By representing states with ⌈log2 n⌉-bit vectors and using step or sign activations, the DFA transition
+function becomes equivalent to a Boolean circuit—a key theoretical connection not previously
+formalized in neural-symbolic literature. Since binary encoding is exponentially more compact, it is
+useful for implementations with restricted memory or to analyze theoretical compression properties
+of FSM simulators.
+
+3.5   Theorem 2: FSM Equivalence Class Representation
+
+Let A = (Q, Σ, δ, q0 , F ) be a DFA with language L = L(A), and let ≡L be the Myhill-Nerode
+equivalence relation on Σ∗ . Then there exists a feedforward neural network fθ such that for all strings
+x, y ∈ Σ≤T :
+                                     x ≡L y ⇒ fθ (x) = fθ (y),
+
+
+                                                   4
+and
+                                     x ̸≡L y ⇒ fθ (x) ̸= fθ (y),
+i.e., fθ learns an injective mapping from equivalence classes of L to a vector space. (Proof provided
+in Appendix A.4)
+The Myhill-Nerode theorem tells us that every regular language partitions the set of strings into
+finitely many equivalence classes. Each class represents a set of strings that are indistinguishable
+with respect to future continuations. This theorem shows that a neural network can learn to represent
+each class with a distinct vector, thus behaving as a classifier over equivalence classes, rather than
+over raw strings.
+This result gives a geometric representation of regular language structure. Each equivalence class
+corresponds to a unique “state vector” in the output space. Two strings are mapped to the same vector
+if and only if they lead the DFA to the same state—hence are in the same class.
+
+3.6   Corollary 2.1: FSM State Compression via Embedding
+
+Let A = (Q, Σ, δ, q0 , F ) be a DFA with |Q| = n states and minimal with respect to language L.
+Then there exists a feedforward neural network fθ : Σ≤T → Rd with d = O(log n) such that for all
+x, y ∈ Σ≤T :
+                                 δ̂(x) = δ̂(y) ⇒ fθ (x) = fθ (y),
+and
+                               δ̂(x) ̸= δ̂(y) ⇒ ∥fθ (x) − fθ (y)∥ > ϵ,
+for some ϵ > 0. That is, fθ maps DFA states into a compressed, continuous latent space that preserves
+their distinction. (Proof provided in Appendix A.5)
+This corollary shows that DFA states, traditionally represented as high-dimensional one-hot vectors,
+can be embedded into a low-dimensional latent space while preserving their distinguishability. Neural
+networks thus achieve logarithmic compression of the state space, enabling compact state signatures
+that reflect automaton-level equivalence, and connects neural representations with the structure of
+regular languages.
+This result leverages the Johnson-Lindenstrauss lemma [14] to compress DFA state space into an
+O(log n)-dimensional space while preserving class distinction. This connection between automata
+theory and latent space compression in neural networks is original
+
+3.7   Theorem 3: Hardness of Non-FSM Recognition
+
+Let fθ be any feedforward neural network of finite depth and width, with input x ∈ ΣT encoded
+via one-hot vectors. Then there exists a context-free language LCF ⊂ Σ∗ (e.g., {an bn | n ≥ 1})
+such that no such fθ can compute the exact indicator function ϕCF (x) = I[x ∈ LCF ] for unbounded
+input lengths T . (Proof provided in Appendix A.6)
+This theorem formally states the limits of expressivity of feedforward neural networks with fixed
+architecture. While DFAs (regular languages) can be simulated exactly and compactly, higher-
+level languages in the Chomsky hierarchy [10], such as context-free languages, require unbounded
+memory, which FNNs fundamentally lack. For example, the language {an bn } cannot be recognized
+for arbitrarily large n without mechanisms like a stack or recurrence.
+
+3.8   Corollary 3.1: Boundary of FSM-Expressive Neural Networks
+
+Let fθ be a feedforward neural network with fixed depth and width. Then:
+
+      1. There exists a class of regular languages Lreg such that for every L ∈ Lreg , there exists a
+         network fθ that exactly computes the membership function ϕ(x) = I[x ∈ L].
+      2. There exists a disjoint class of non-regular languages Lnon-reg (e.g., context-free or context-
+         sensitive languages) such that for every L ∈ Lnon-reg , no such network fθ can compute ϕ(x)
+         for all x ∈ Σ∗ .
+
+
+                                                   5
+(Proof provided in Appendix A.7)
+This corollary formally demarcates the boundary between languages that can and cannot be simulated
+by neural finite-state machines (N-FSMs). It highlights that N-FSMs are strictly equivalent in power
+to DFAs and strictly weaker than models that require stacks, tapes, or memory for counting. It
+provides a clean separation: if your language is regular, a feedforward neural network can model
+it exactly. If not—even something as simple as {an bn }—you need memory, recurrence, or a more
+expressive neural architecture.
+This corollary restates the classical Chomsky hierarchy [10] in neural terms. While not novel in its
+conclusion, its utility lies in clearly delineating neural FSM expressivity limits in terms of symbolic
+language classes. We include it for completeness and clarity.
+
+
+4     Experiments
+
+4.1   Overview and Common Setup
+
+We empirically validate each theoretical result using neural architectures specifically designed to
+either mirror deterministic finite automaton (DFA) computations (via DFA-unrolled networks) or to
+test generalization principles through learned models.
+For the experiments, we define an explicit two-state even-parity DFA over the binary alphabet
+Σ = {0, 1}, where the accepting state corresponds to strings with an even number of ones. The
+training data, totalling of 2000 samples, is synthetically generated by uniformly sampling binary
+sequences (lengths are specific to the individual experiments and are mentioned accordingly) and
+labeling them via the DFA’s transition logic. The dataset comprises pairs (x, y) where x ∈ ΣT and
+y = 1 if the DFA accepts x, and 0 otherwise. The DFA-Unrolled Network processes the sequence
+symbol-by-symbol, unrolling T depth-wise transition layers (each with width 32), each simulating a
+step of the DFA’s transition function. The final output is a scalar probability (computed via a sigmoid
+layer) indicating acceptance by the DFA.
+Unless otherwise stated, all experiments use the Adam optimizer with a learning rate of 0.01 and full-
+batch training (the entire dataset per epoch) for 200 epochs. To account for variability, each experiment
+is repeated across five random seeds. Reported results include mean accuracy, standard deviation,
+and 95% confidence intervals computed using Student’s t-distribution. For DFA simulations, datasets
+were generated by uniformly sampling sequences from the DFA’s input alphabet. DFA state encodings
+are represented as one-hot vectors unless compact binary encodings are explicitly required, as in
+Lemma 2 and Corollary 2.1. All experiments were run on NVIDIA GeForce RTX 4060 GPU.
+
+4.2   Validation of Theorem 1: Existence of FSM-Emulating Neural Networks
+
+To validate Theorem 1, we construct a DFA-unrolled ReLU MLP whose architecture mirrors the DFA’s
+transition structure via depth-wise unrolling, as described in the proof of Theorem 1 (Appendix A.1).
+The DFA accepts binary strings of fixed length T where the number of ones is even. Furthermore,
+each transition layer is itself a two-layer ReLU MLP operating on the current state and input
+symbol—exactly instantiating the construction described in Lemma 1. Thus, the success of this
+experiment also empirically supports the claim of Lemma 1 in the context of sequential composition.
+Each layer of the network simulates one transition of the DFA:
+
+       • Input symbols are one-hot encoded.
+       • Each transition layer applies the DFA’s transition function deterministically.
+       • The final layer outputs 1 if the final DFA state is accepting, 0 otherwise.
+
+Results: Table 1 lists the accuracies achieved by DFA-unrolled MLP across five random seeds for
+varying input sequence lengths T . This deterministic simulation confirms Theorem 1: for any DFA
+over finite-length strings, there exists a finite-depth ReLU neural network that computes the language
+indicator function exactly. Our experiment realizes this construction explicitly, providing both
+theoretical and empirical validation. Furthermore, it reinforces the feasibility of shallow transition
+networks as asserted in Lemma 1.
+
+
+                                                   6
+Table 1: Validation results for Theorem 1: DFA-unrolled ReLU network simulating even-parity DFA.
+                 Sequence Length (T ) Mean Accuracy Std Dev 95% CI
+                     1, 2, 3, 4, 5, 6, 7           1.0000            0.0000     ±0.0000
+                              8                    0.9975            0.0025     ±0.0318
+                              9                    0.9942            0.0025     ±0.0318
+                             10                    0.9817            0.0163     ±0.0226
+
+
+4.3   Validation of Lemma 1: Linear Separability of State Transitions
+
+To validate Lemma 1, we train a two-layer ReLU MLP to learn the function g : Rn+k → Rn that
+realizes the transition logic g([ei ; uj ]) = eδ(qi ,sj ) across varying numbers of states and symbols.
+Each state qi is encoded as a one-hot vector ei ∈ Rn , each symbol sj as a one-hot vector uj ∈ Rk ,
+and the target output is eδ(qi ,sj ) . The input to the network is the concatenation [ei ; uj ]. We generate a
+dataset of all n × k possible inputs [ei ; uj ] ∈ Rn+k and corresponding outputs ek ∈ Rn .
+Results: Across all tested configurations, covering 1 to 8 states (n) and 1 to 3 symbols (k) (and
+across five random seeds), the model consistently achieved perfect accuracy of 1.0000 (with Standard
+Deviation of 0.0000 and 95% Confidence Interval of ±0.0000.
+This validates that DFA transitions are linearly separable and can be exactly realized using a two-layer
+ReLU network. The result supports Lemma 1’s claim that the transition function over one-hot inputs
+is computable via a shallow MLP, further demonstrating how finite symbolic structures (like DFA
+transition tables) are representable within neural architectures. While the DFA-unrolled network in
+Theorem 1 implicitly applies a two-layer ReLU MLP per transition, this experiment isolates transition
+learning from sequence-level composition. It confirms Lemma 1 independently, ensuring that the
+transition functions are realizable without confounding effects from depth or sequential training.
+
+4.4   Validation of Lemma 2: State Encodings via Binary Neurons
+
+To validate Lemma 2, we test whether DFA transitions can be simulated using compact binary state
+encodings and binary threshold units. We consider deterministic finite automata with varying numbers
+of states (n = 2, 4, 8, 16, 32), requiring d = ⌈log2 n⌉ bits for binary encoding, and k = 2 input
+symbols. Each input to the network is a concatenation of the binary-encoded current state and a
+one-hot input symbol vector:
+                                         [bi ; uj ] ∈ {0, 1}d+k .
+The target output is the binary representation of the next state bk = bδ(qi ,sj ) .
+We train a two-layer feedforward neural network with threshold-like activations: sigmoid activations
+are used during training to enable differentiability, while outputs are discretized using round() at
+inference time to simulate binary step behavior. The model is trained on all n · k transition pairs
+using 5 random seeds.
+Results: Table 2 lists the accuracies achieved by the binary transition simulator across five random
+seeds. This confirms that DFA transition logic can be implemented via threshold circuits over
+compact binary encodings, validating Lemma 2. As the number of states increases, the performance
+slightly decreases due to increased learning complexity, but remains high. These results demonstrate
+that exponential compression of state representation is possible without sacrificing exactness for
+moderate-sized automata, and that neural networks with Boolean-style logic units can serve as
+symbolic simulators.
+
+4.5   Validation of Theorem 2: FSM Equivalence Class Representation
+
+To validate Theorem 2, we construct a DFA-unrolled ReLU network that processes entire input strings
+and learns an embedding that reflects equivalence class membership as defined by the Myhill-Nerode
+relation. Each layer of the network implements one transition of the DFA, updating a learned state
+representation. The final state is mapped to a continuous embedding vector, and a simple classifier is
+trained on top of these embeddings to predict the DFA state corresponding to each string.
+
+
+                                                      7
+Table 2: Validation results for Lemma 2: Binary neural simulation of DFA transitions for varying
+state counts.
+                 Number of States (n) Mean Accuracy Std Dev 95% CI
+                            2                  1.0000          0.0000     ±0.0000
+                            4                  1.0000          0.0000     ±0.0000
+                            8                  0.9781          0.0508     ±0.0228
+                           16                  0.9202          0.0558     ±0.0251
+                           32                  0.9320          0.0394     ±0.0386
+
+
+Results: Table 3 lists the accuracies achieved by the DFA-unrolled embedding network across five
+random seeds for varying input string lengths T . These results confirm Theorem 2’s claim: by
+unrolling the DFA’s transition logic, the neural network learns embeddings that separate strings
+according to their equivalence classes. High accuracy across varying sequence lengths demonstrates
+that the embedding function fθ effectively respects the equivalence relation ≡L . This provides both
+theoretical and empirical validation of FSM-equivalence class representation via deep networks.
+
+
+Table 3: Validation results for Theorem 2: DFA-unrolled equivalence embeddings across varying
+sequence lengths.
+                 Sequence Length (T ) Mean Accuracy Std Dev 95% CI
+                     1, 2, 3, 4, 5, 6          1.0000          0.0000     ±0.0000
+                            7                  0.9877          0.0106     ±0.0147
+                            8                  0.9890          0.0123     ±0.0170
+                            9                  0.9958          0.0025     ±0.0318
+                           10                  0.9283          0.0887     ±0.1232
+
+
+
+4.6   Validation of Corollary 2.1: State Compression via Equivalence Class Embeddings
+
+To validate Corollary 2.1, we design a neural network architecture that first simulates the DFA
+transition function via explicit unrolling (as in Theorem 1 and Theorem 2), and then compresses the
+resulting state representations into a lower-dimensional embedding space of size d = ⌈log2 n⌉, where
+n is the number of DFA states.
+We use mod-n counter DFAs with n ∈ {2, 4, 8} states, binary input alphabet Σ = {0, 1}, and input
+sequence length T = 10. Each network consists of a linear compression layer that maps the final
+DFA state vector to a log2 (n)-dimensional embedding and the classifier trained to predict the final
+DFA state from the compressed embedding. The network was trained across five random seeds per
+setting. We report both classification accuracy and the mean pairwise distance between compressed
+class centroids.
+
+
+Table 4: Validation results for Corollary 2.1: DFA-unrolled compressed embeddings with increasing
+number of states.
+   # States d                 Mean Accuracy                     Mean Class Distance
+       2       1   0.8639 ± 0.0371 (CI95: ±0.1127)        3.2595 ± 0.9603 (CI95: ±2.9218)
+       4       2   0.9956 ± 0.0016 (CI95: ±0.0048)        15.8036 ± 0.8637 (CI95: ±2.6277)
+       8       3   0.9961 ± 0.0021 (CI95: ±0.0063)       67.3720 ± 16.6305 (CI95: ±50.5973)
+
+
+Results: As presented in Table 4, the DFA-unrolled networks achieved near-perfect accuracy and
+increasing class separation as the number of DFA states increased, even as the compressed embedding
+dimension scaled logarithmically with n. This provides empirical confirmation that DFA state
+spaces can be effectively compressed to O(log n) dimensions without significant loss of separability,
+validating Corollary 2.1.
+
+
+                                                 8
+4.7   Validation of Theorem 3: Hardness of Non-FSM Recognition
+
+Theorem 3 asserts that fixed-depth, finite-width feedforward neural networks cannot recognize non-
+regular languages such as L = {an bn | n ≥ 1}, which are context-free and require unbounded
+memory (e.g., stack-based counting). To validate this limitation, we construct an experimental task
+where the network must classify whether a string belongs to L.
+Setup: Each string is over the alphabet Σ = {a, b} and is one-hot encoded. Positive examples follow
+the pattern an bn , while negative examples are of the form an bm for m ̸= n. All sequences are
+padded to a maximum length of 20. The model is a fixed-size feedforward ReLU MLP, trained on
+examples with n ∈ [1, 5] and tested on unseen lengths with n ∈ [6, 10].
+Results: The following results were obtained over five random seeds:
+Mean Accuracy = 0.5080, Standard Deviation = 0.0484, and 95% Confidence Interval = ±0.0425.
+The near-random performance on longer sequences confirms that the fixed-size feedforward network
+fails to generalize the structure of the language an bn . This provides strong empirical support for
+Theorem 3, reaffirming that non-regular language recognition requires computational capabilities
+beyond finite-state simulation and cannot be achieved by standard FNNs without memory mechanisms
+or architectural extensions.
+
+4.8   Validation of Corollary 3.1: Boundary of FSM-Expressive Neural Networks
+
+No new experiment is required for Corollary 3.1, as it is empirically validated by results from
+Theorem 1 and Theorem 3:
+       • Regular languages: Theorem 1 demonstrated exact simulation of DFA behavior using
+         DFA-unrolled ReLU MLPs, achieving perfect accuracy across input lengths.
+       • Non-regular languages: Theorem 3 showed that fixed-size feedforward networks failed
+         to recognize the context-free language L = {an bn }, with accuracy degrading to random
+         chance on longer sequences.
+These results jointly confirm that finite-depth ReLU networks can express regular languages but not
+non-regular languages, as asserted by Corollary 3.1.
+
+5     Conclusion
+We presented the first complete theoretical and empirical framework establishing feedforward neural
+networks as universal finite-state machines (N-FSMs), with a constructive and exact simulation
+of deterministic finite automata (DFAs). Our constructive theory shows that ReLU and threshold
+networks can exactly simulate deterministic finite automata (DFAs) by unrolling automaton transitions
+into depth-wise neural layers with formally characterized depth, width, and compression. We proved
+that DFA transitions are linearly separable, binary threshold activations suffice for exponential state
+compression, and Myhill-Nerode equivalence classes can be embedded into continuous latent spaces
+while preserving separability. We also formalized the expressivity boundary: fixed-depth feedforward
+networks cannot recognize non-regular languages, aligning neural expressivity with the Chomsky
+hierarchy.
+Unlike prior empirical or heuristic approaches, we construct explicit DFA-unrolled neural networks
+that align exactly with our theoretical results. Experiments confirm DFA simulation, transition
+separability, binary state encoding, equivalence-class embedding, and the expressivity boundary for
+non-regular languages—achieving near-perfect accuracy where expected, and failure where provably
+necessary. These findings unify deep learning, automata theory, and neural-symbolic computation
+into a formal blueprint for implementing symbolic processes in continuous neural systems.
+
+6     Limitations
+Our results are restricted to regular languages and deterministic finite automata (DFAs). While we
+provide exact simulations and compression bounds for DFAs, our architectures cannot recognize
+non-regular languages, such as context-free languages like {an bn }, as formalized and empirically
+validated in Theorem 3.
+
+
+                                                  9
+References
+ [1] Tarek R. Besold, Artur d’Avila Garcez, Sebastian Bader, Howard Bowman, Pedro Domingos,
+     Pascal Hitzler, Kai-Uwe Kuehnberger, Luis C. Lamb, Daniel Lowd, Priscila Machado Vieira
+     Lima, Leo de Penning, Gadi Pinkas, Hoifung Poon, and Gerson Zaverucha. Neural-symbolic
+     learning and reasoning: A survey and interpretation, 2017.
+ [2] George Cybenko. Approximation by superpositions of a sigmoidal function. Mathematics of
+     control, signals and systems, 2(4):303–314, 1989.
+ [3] Artur d’Avila Garcez, Marco Gori, Luis C. Lamb, Luciano Serafini, Michael Spranger, and
+     Son N. Tran. Neural-symbolic computing: An effective methodology for principled integration
+     of machine learning and reasoning, 2019.
+ [4] Sahil Rajesh Dhayalkar. A combinatorial theory of dropout: Subnetworks, graph geometry, and
+     generalization, 2025.
+ [5] Sahil Rajesh Dhayalkar. The geometry of relu networks through the relu transition graph, 2025.
+ [6] Alex Graves. Adaptive computation time for recurrent neural networks, 2017.
+ [7] Michael Hahn. Theoretical limitations of self-attention in neural sequence models. Transactions
+     of the Association for Computational Linguistics, 8:156–171, December 2020.
+ [8] Boris Hanin and Mark Sellke. Approximating continuous functions by relu nets of minimal
+     width, 2018.
+ [9] J Hastad. Almost optimal lower bounds for small depth circuits. In Proceedings of the Eighteenth
+     Annual ACM Symposium on Theory of Computing, STOC ’86, page 6–20, New York, NY, USA,
+     1986. Association for Computing Machinery.
+[10] David G. Hays. Chomsky hierarchy, page 210–211. John Wiley and Sons Ltd., GBR, 2003.
+[11] John E. Hopcroft, Rajeev Motwani, and Jeffrey D. Ullman. Introduction to Automata Theory,
+     Languages, and Computation (3rd Edition). Addison-Wesley Longman Publishing Co., Inc.,
+     USA, 2006.
+[12] Kurt Hornik, Maxwell Stinchcombe, and Halbert White. Multilayer feedforward networks are
+     universal approximators. Neural Networks, 2(5):359–366, 1989.
+[13] Dieuwke Hupkes, Verna Dankers, Mathijs Mul, and Elia Bruni. Compositionality decomposed:
+     how do neural networks generalise?, 2020.
+[14] William B. Johnson and Joram Lindenstrauss. Extensions of lipschitz mappings into hilbert
+     space. Contemporary mathematics, 26:189–206, 1984.
+[15] Behnam Neyshabur, Ryota Tomioka, and Nathan Srebro. In search of the real inductive bias:
+     On the role of implicit regularization in deep learning, 2015.
+[16] Maxim Rabinovich, Mitchell Stern, and Dan Klein. Abstract syntax networks for code genera-
+     tion and semantic parsing, 2017.
+[17] Hava T. Siegelmann and Eduardo Sontag. On the computational power of neural nets. In Annual
+     Conference Computational Learning Theory, 1992.
+[18] Alan Turing. On computable numbers, with an application to the entscheidungsproblem.
+     Proceedings of the London Mathematical Society, 42(1):230–265, 1936.
+[19] Gail Weiss, Yoav Goldberg, and Eran Yahav. On the practical computational power of finite
+     precision RNNs for language recognition. In Iryna Gurevych and Yusuke Miyao, editors,
+     Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics
+     (Volume 2: Short Papers), pages 740–745, Melbourne, Australia, July 2018. Association for
+     Computational Linguistics.
+[20] Yuchen Zhang, Jason D. Lee, Martin J. Wainwright, and Michael I. Jordan. Learning halfspaces
+     and neural networks with random initialization, 2015.
+
+
+                                                10
+A    Appendix
+A.1 Proof of Theorem 1: Existence of FSM-Emulating Neural Networks
+
+We construct such a network explicitly.
+Let n = |Q| and k = |Σ|. Each state qi ∈ Q is represented as a one-hot vector ei ∈ Rn . Each symbol
+sj ∈ Σ is similarly represented as a one-hot vector uj ∈ Rk .
+Transition Function as a Neural Layer: The transition function δ : Q × Σ → Q can be written as
+a function g : Rn × Rk → Rn that maps (ei , uj ) to eδ(qi ,sj ) . Since the domain and codomain of
+g are finite, g is a discrete function on a finite domain and can therefore be implemented using a
+feedforward layer with ReLU activations. Specifically, for each pair (qi , sj ), we hard-code a weight
+matrix Wij such that:
+                          g(ei , uj ) = ReLU(Wij · [ei ; uj ] + bij ) = eδ(qi ,sj ) .
+We can combine all such transitions into a single layer by constructing a block-sparse weight matrix
+with appropriate routing logic (i.e., selector units based on the input).
+Unrolling for T Time Steps: We stack T such transition modules, one per symbol st in the sequence
+x = (s1 , . . . , sT ). The output of the previous step is the current state, which along with st , determines
+the next state.
+Let the initial state q0 be encoded as h0 = e0 ∈ Rn . Then the recursive computation is:
+                   h1 = g(h0 , u1 ),    h2 = g(h1 , u2 ),     ...,   hT = g(hT −1 , uT ).
+
+Define the output layer as a dot product fθ (x) = σ(h⊤                 n
+                                                      T v), where v ∈ R is the indicator vector of
+the accepting states:                        
+                                               1 if qi ∈ F,
+                                      vi =
+                                               0 otherwise,
+and σ is the identity or a step function (e.g., σ(z) = I[z > 0.5]). Thus, fθ (x) = 1 iff hT corresponds
+to a state qi ∈ F , i.e., the DFA accepts x.
+Hence, the function ϕ(x) can be exactly computed by a feedforward network fθ with ReLU activations
+and finite depth proportional to the string length T .
+Architecture Summary: The full network is a depth-T + 1 FNN:
+       • Input: Sequence x = (s1 , . . . , sT ), encoded as concatenated one-hot vectors in RT k .
+       • Layers 1 to T : Each simulates one δ step.
+       • Output layer: Binary classification over F using final hidden state.
+
+A.2 Proof of Lemma 1: Linear Separability of State Transitions
+
+Let n = |Q| and k = |Σ|. Fix one-hot encodings:
+                                   qi 7→ ei ∈ Rn ,         sj 7→ uj ∈ Rk .
+The concatenated input zij = [ei ; uj ] ∈ Rn+k uniquely encodes each transition pair (qi , sj ).
+The DFA transition function δ defines a mapping δ : Q×Σ → Q, which, under encoding, corresponds
+to:
+                        T : {zij } ⊂ Rn+k → {ek ∈ Rn | qk = δ(qi , sj )}.
+Realizing Transition Logic via MLP: Construct an affine transformation:
+                                       W ∈ Rn×(n+k) ,         b ∈ Rn ,
+such that:
+                                 g(zij ) = ReLU(W zij + b) = eδ(qi ,sj ) .
+Since there are nk such input-output pairs and the output space is one-hot encoded in Rn , we can
+construct nk affine subspaces—each projecting to a specific ek . This is possible because:
+
+
+                                                      11
+       • The inputs zij are disjoint unit vectors in the standard basis.
+       • Each corresponds to a unique target vector.
+
+We now use a one-hidden-layer ReLU network as a lookup:
+
+       • First layer: identity matrix and appropriate shifts to isolate each zij .
+       • Hidden layer: width = nk, with ReLU used to activate exactly one unit per input.
+       • Output layer: sum the contributions to emit the corresponding ek .
+
+For any one-hot input zij , the first layer computes a unique linear combination that activates only one
+ReLU unit in the hidden layer, say unit ℓij , associated to the pair (qi , sj ).
+The output layer maps ℓij to ek where qk = δ(qi , sj ). Thus:
+                                           g([ei ; uj ]) = eδ(qi ,sj ) .
+
+Hence, the DFA’s transition function is linearly separable over its one-hot encoding domain and is
+exactly computable by a shallow ReLU network.
+Network Structure:
+
+       • Input: Rn+k (concatenated one-hot).
+       • Hidden: O(nk) ReLU units, each uniquely mapped to a (qi , sj ) pair.
+       • Output: Rn (state vector).
+
+A.3 Proof of Lemma 2: State Encodings via Binary Neurons
+
+Let n = |Q| and k = |Σ|. Assign to each state qi ∈ Q a unique binary code bi ∈ {0, 1}d where
+d = ⌈log2 n⌉. Let B : Q → {0, 1}d be this encoding.
+The DFA transition function δ : Q × Σ → Q induces a function:
+                                    δ ′ : {0, 1}d × {0, 1}k → {0, 1}d ,
+mapping binary input [bi ; uj ] to the binary encoding bδ(qi ,sj ) of the next state. Since this function has
+finite domain size 2d · k = n · k, we can tabulate all possible inputs and outputs.
+Boolean Logic Simulation: Any Boolean function f : {0, 1}m → {0, 1} can be implemented using a
+small threshold circuit, specifically a network of units computing:
+                                              σ(z) = I[z ≥ θ],
+              ⊤                    m
+where z = w x, and x ∈ {0, 1} .
+This is a well-known result from circuit complexity theory: Every finite Boolean function is repre-
+sentable using a network of threshold logic units, often in depth-2 or depth-3 depending on fan-in.
+Thus, for each output bit bout,i ∈ {0, 1}, we construct a Boolean circuit over input bits [bi ; uj ] that
+decides its value.
+Network Construction: Build a two-layer neural network:
+
+       • Input: d + k binary inputs from bi and uj .
+       • Hidden layer: threshold logic gates (with weights and biases) computing relevant conjunc-
+         tions/disjunctions.
+       • Output: d binary values representing the bits of the next state.
+
+Output Correctness: Each output unit implements a Boolean function:
+                                   b′ℓ = fℓ (bi , uj ),    for ℓ = 1, . . . , d.
+Thus, the output vector is precisely bδ(qi ,sj ) . Hence, a binary threshold neural network can simulate
+the full transition function over compact binary state representations. This achieves exponential
+compression over one-hot encoding while preserving exact DFA behavior.
+
+
+                                                          12
+A.4 Proof of Theorem 2: FSM Equivalence Class Representation
+
+Let x, y ∈ Σ≤T be two strings of length at most T .
+Myhill-Nerode Equivalence: Recall that x ≡L y if for all z ∈ Σ∗ ,
+                                          xz ∈ L ⇐⇒ yz ∈ L.
+                               ∗
+This equivalence partitions Σ into finitely many classes, each corresponding to a unique residual
+language. Each class corresponds to a unique state in the minimal DFA A accepting L.
+DFA Transition Function: Define δ̂ : Σ≤T → Q as the extension of the DFA’s transition function
+over input strings:
+                               δ̂(x) = δ(. . . δ(q0 , s1 ), . . . , sT ),
+where x = s1 s2 . . . sT .
+Thus, x ≡L y ⇐⇒ δ̂(x) = δ̂(y).
+Construction of Neural Mapping: Let g : Σ≤T → Q be the function that returns the DFA state
+reached after reading x. By Theorem 1, g is computable by a feedforward neural network gθ .
+We now define a final layer that maps each state qi ∈ Q to a unique embedding vector vi ∈ Rd .
+Define:
+                                      fθ (x) := V · gθ (x),
+where V ∈ Rd×n is a learnable matrix such that:
+                                V e i = vi ,   with vi ̸= vj for all i ̸= j.
+
+Injectivity and Class Consistency: Then:
+
+                                   δ̂(x) = δ̂(y) ⇒ gθ (x) = gθ (y) = ei
+                                                 ⇒ fθ (x) = fθ (y) = vi .
+                                   δ̂(x) ̸= δ̂(y) ⇒ fθ (x) ̸= fθ (y).
+
+Thus, fθ respects equivalence classes under ≡L and maps each class to a distinct vector. Hence,
+there exists a neural network fθ that assigns each Myhill-Nerode equivalence class of L a unique
+embedding in Rd .
+
+A.5 Proof of Corollary 2.1: FSM State Compression via Embedding
+
+Let n = |Q| be the number of states in the minimal DFA A. By Theorem 2, there exists a function
+fθ : Σ≤T → Rn that maps each string x to a one-hot vector corresponding to the state reached by
+δ̂(x).
+Let S = {v1 , v2 , . . . , vn } ⊂ Rn be these one-hot vectors corresponding to states.
+Dimension Reduction via Linear Projection: We apply a linear projection P : Rn → Rd , where
+d = ⌈log2 n⌉ + 1. Let:
+                                    fθ′ (x) := P (fθ (x)).
+
+We wish for the new embedding fθ′ (x) to preserve class distinction under a norm separation criterion.
+By the Johnson-Lindenstrauss lemma [14], there exists a linear projection P ∈ Rd×n such that for
+any pair vi , vj ∈ S, we have:
+                                 ∥P vi − P vj ∥2 ≥ ϵ > 0,
+for some constant ϵ, provided d = O(log n).
+The full function fθ′ : Σ≤T → Rd is implemented as a feedforward network:
+                                            fθ′ (x) = P · fθ (x),
+where fθ (x) is the one-hot state vector computed from the input string as in Theorem 2.
+
+
+                                                     13
+The projection preserves the separation of state classes because:
+                         δ̂(x) = δ̂(y) ⇒ fθ (x) = fθ (y) ⇒ fθ′ (x) = fθ′ (y),
+and
+                      δ̂(x) ̸= δ̂(y) ⇒ fθ (x) ̸= fθ (y) ⇒ ∥fθ′ (x) − fθ′ (y)∥ > ϵ.
+Thus, there exists a function fθ′ computable by a neural network with final output dimension d =
+O(log n) that faithfully represents DFA states in a compressed latent space.
+
+A.6 Proof of Theorem 3: Hardness of Non-FSM Recognition
+
+Let us consider the classical non-regular, context-free language:
+                                       LCF := {an bn | n ≥ 1}.
+This language is not regular and cannot be accepted by any DFA. We will show that a finite-depth
+feedforward neural network cannot compute its indicator function for unbounded n.
+Assume a Contradiction: Suppose there exists a feedforward ReLU network fθ of fixed architecture
+(depth D, width W ) that accepts precisely the strings in LCF , i.e.,
+                                   fθ (x) = ϕCF (x) = I[x ∈ LCF ],
+             T
+for all x ∈ Σ , and for arbitrarily large T .
+Each input string x ∈ ΣT is encoded as a concatenated one-hot matrix of dimension T × |Σ|, flattened
+into RT k . The network maps this input to a binary decision.
+Counting Requirement of LCF : To recognize an bn , the machine must count how many a’s occur (in
+prefix), store that count, and compare it to the number of b’s (in suffix). This requires unbounded
+memory: no finite-state machine or fixed-architecture FNN can maintain this count arbitrarily. It
+cannot “count to n” if n exceeds the effective receptive field of its depth and activations.
+In particular, no matter how the weights are tuned, if n > D, the network cannot distinguish between
+an bn and an bn+1 , since it lacks recurrence, memory, or adaptive depth.
+Pumping Lemma for Regular Languages: The classical pumping lemma for regular languages proves
+that LCF cannot be regular. Hence, no DFA can recognize LCF . Since any feedforward network
+with fixed architecture is equivalent to a finite-state transducer (when viewed symbolically), it cannot
+recognize LCF either.
+Therefore, no feedforward network of fixed architecture can compute the indicator function for LCF
+over unbounded-length strings. This proves the theorem.
+
+A.7 Proof of Corollary 3.1: Boundary of FSM-Expressive Neural Networks
+
+Part 1. Positive Expressivity
+From Theorem 1 and Lemma 1, we know that any DFA A over a regular language L = L(A) can be
+simulated by a feedforward neural network of finite depth and width. Thus:
+                                L ∈ Lreg ⇒ ∃fθ s.t. fθ (x) = I[x ∈ L].
+
+Hence, the class of regular languages is fully representable by neural FSM simulators.
+Part 2. Negative Expressivity
+From Theorem 3, we know that non-regular languages such as LCF = {an bn } cannot be simulated
+by any fixed-depth feedforward neural network. This holds true for any language requiring unbounded
+memory, iierarchical dependencies or Nested structure (as in Dyck languages [11]).
+Therefore:
+                 L ∈ Lnon-reg ⇒ ∄fθ (of finite architecture) s.t. fθ (x) = I[x ∈ L] ∀x.
+
+Since the classes Lreg and Lnon-reg are disjoint in the Chomsky hierarchy [10], this implies a strict
+boundary in neural expressivity:
+                      Neural FSMs simulate exactly and only regular languages.
+
+
+                                                  14
+Conclusion: The feedforward neural model class is expressively equivalent to deterministic finite
+automata and is strictly less powerful than pushdown automata or Turing machines [18].
+
+
+
+
+                                               15
+

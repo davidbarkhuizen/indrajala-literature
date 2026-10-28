@@ -1,0 +1,1263 @@
+                                                 Finite State Automata Inside Transformers with Chain-of-Thought:
+                                                               A Mechanistic Study on State Tracking
+
+                                                          Yifan Zhang1,2 * , Wenyu Du3 , Dongming Jin1,2 , Jie Fu4† , Zhi Jin1,2†
+                                                    1
+                                                      Key Laboratory of High Confidence Software Technology (PKU), MOE, China
+                                                                2
+                                                                  School of Computer Science, Peking University, China
+                                                                    3
+                                                                      The University of Hong Kong, 4 Shanghai AI Lab
+                                                    yifanzhang@stu.pku.edu.cn, fujie@pjlab.org.cn, zhijin@pku.edu.cn
+
+
+                                                                  Abstract                        Input Sequence          Attention            MLP             Output State
+                                                                                                     𝑚                   ...
+                                                Chain-of-Thought (CoT) significantly en-             𝑚
+                                                                                                     $                   ...
+                                                                                                     𝑚
+                                                                                                     &                   ...
+
+
+
+
+arXiv:2502.20129v3 [cs.CL] 3 Jun 2025
+                                                hances the performance of large language mod-        …                   ...                                         𝑞
+                                                                                                     𝑞                   ...                                         𝑞%
+                                                els (LLMs) across a wide range of tasks,
+                                                                                                                         Train                 Recover
+                                                and prior research shows that CoT can the-                                                               𝑚"
+                                                oretically increase expressiveness. However,                        𝒎𝟎      𝒎𝟏
+                                                                                                                                                         𝑞!
+                                                there is limited mechanistic understanding of                                         Equivalent
+                                                                                                             𝒒𝟎     𝑞#      𝑞$                     𝑚!         𝑚!
+                                                the algorithms that a Transformer with CoT                                                               𝑞"
+                                                (denoted as Transformer+CoT in this paper)                   𝒒𝟏     𝑞$      𝑞#
+                                                                                                                                                         𝑚"
+                                                can learn. Our key contributions are: (1)                      Transition Rules                         FSA
+                                                We evaluate the state tracking capabilities of
+                                                Transformer+CoT and its variants, confirm-        Figure 1: An illustration of one of the simplest state-
+                                                ing the effectiveness of CoT. (2) Next, we        tracking problems, Z2 . After training on sequences gen-
+                                                identify the circuit (a subset of model com-      erated from the Z2 transition rules, Transformer+CoT
+                                                ponents, responsible for tracking the world       successfully recovers an implicit finite state automaton
+                                                state), indicating that late-layer MLP neurons    (FSA) by differentiating between two internal states—q0
+                                                play a key role. We propose two metrics,          and q1 —using two distinct and disjoint sets of neurons
+                                                compression and distinction, and show that        in the late-layer MLPs. These neuron groups are visu-
+                                                the neuron sets for each state achieve nearly     ally distinguished using colors: neurons corresponding
+                                                100% accuracy, providing evidence of an im-       to state q0 are marked in purple, those for q1 in red,
+                                                plicit finite state automaton (FSA) embedded      while neurons not contributing to either state are shown
+                                                within the model. (3) Additionally, we explore    in gray.
+                                                three challenging settings: skipping interme-
+                                                diate steps, introducing data noises, and test-
+                                                ing length generalization. Our results demon-     2021) address these limitations by generating inter-
+                                                strate that Transformer+CoT learns robust al-     mediate reasoning steps. To understand the success
+                                                gorithms (FSAs), highlighting its resilience in   of CoT, prior work has analyzed its expressiveness
+                                                challenging scenarios. Our code is available at   from the perspective of formal language theory and
+                                                https://github.com/IvanChangPKU/FSA.
+                                                                                                  circuit complexity. Theoretical works (Zhang et al.,
+                                        1       Introduction                                      2024; Qiu et al., 2024; Li et al., 2024) demonstrate
+                                                                                                  that incorporating a linear number of intermediate
+                                        Transformer-based large language models (LLMs             steps increases the expressive power of transform-
+                                        Touvron et al., 2023; OpenAI, 2023) revolution-           ers, enabling them to represent all Finite State
+                                        ize natural language processing (NLP) by demon-           Automata, which are a foundational class of au-
+                                        strating significant progress across various tasks.       tomata.
+                                        However, they still face challenges with basic cal-          However, theoretical expressiveness indicates
+                                        culations (Zhou et al., 2023), complex reasoning          only upper and lower bounds on what an architec-
+                                        (Valmeekam et al., 2024; Han et al., 2024), and           ture can express; it does not guarantee successful
+                                        regular languages (Bhattamishra et al., 2020). Ap-        learning during training in practice. For instance,
+                                        proaches such as Chain-of-Thought (CoT) prompt-           although recurrent neural networks (RNNs) are
+                                        ing (Wei et al., 2023) and scratchpads (Nye et al.,       theoretically more expressive than transformers in
+                                            * Work done during internship at Shanghai AI Lab.     Chomsky’s computational hierarchy—being capa-
+                                            †
+                                                Corresponding and co-senior authors.              ble of recognizing all regular languages, whereas
+transformers fail to recognize certain types (e.g.,                Next, to provide a mechanistic explanation
+periodic finite-state languages) (Delétang et al.,              for this success, we apply interpretability tech-
+2023)—they often fail to outperform transform-                  niques to analyze the algorithms learned by
+ers in practice. This discrepancy is primarily due              Transformer+CoT . Using activation patching (Vig
+to issues such as vanishing gradients, which hin-               et al., 2020), we identify the circuits (specific
+der learning long-term dependencies, and diffi-                 model components) responsible for state tracking
+culties in parallelization, which limit computa-                and observe that Transformer+CoT relies heavily
+tional efficiency (Hochreiter and Schmidhuber,                  on late-layer MLP neurons. These neurons can
+1997; Vaswani et al., 2017; Brown et al., 2020).                be effectively grouped into states based on tran-
+Consequently, some studies investigate the ex-                  sition rules. To quantify this, we introduce two
+pressiveness of these architectures through the                 metrics: compression and distinction. Compres-
+lens of learnability by measuring performance                   sion measures the similarity of representations for
+in language modeling. For example, Liu et al.                   the same state under different input prompts, while
+(2023a) demonstrate that training transformers with             distinction quantifies the separation between differ-
+recency-biased scratchpads improves sequential ac-              ent states, even when their inputs are similar. We
+curacy. However, even near-perfect next-token pre-              find nearly 100% accuracy on both metrics at every
+diction accuracy does not imply that generative                 intermediate step, providing strong evidence that
+models reconstruct a true world model (Vafa et al.,             the model reconstructs the world model (i.e., FSAs).
+2024). This raises a critical question: Does CoT                For instance, in Figure 1, Transformer+CoT com-
+help transformers recover a world model in the                  presses inputs corresponding to two states (i.e. q0
+form of FSAs, or do they merely learn short-                    and q1 ) by activating two distinct sets of neurons.
+cuts?                                                              In real-world tasks that involve state tracking,
+   To address this question, we extend the study of             state transitions are often implicit, and reason-
+learnability beyond accuracy improvements, per-                 ing structures tend to be imperfect. For example,
+forming an internal mechanistic analysis of CoT’s               mathematical reasoning is related to state track-
+success. Specifically, we focus on state tracking, a            ing, which involves keeping track of the problem
+foundational task to evaluate expressiveness (Mer-              goal, and chain-of-thought annotations in existing
+rill et al., 2024). In state tracking, a sequence of            datasets—such as OpenWebMath—contain skip-
+updates modifies the world state, which is repre-               ping or noise. To evaluate robustness in challenging
+sented as an FSA. The goal is to determine the final            scenarios, we assume three experimental settings:
+state after applying all updates sequentially. State            skip-step reasoning, noisy scratchpads, and length
+tracking is a core capability of generative models              generalization. Through controlled experiments,
+and supports many downstream tasks — such as                    we show that Transformer+CoT learns robust al-
+entity tracking (Kim and Schuster, 2023), chess                 gorithms even in noisy environments, suggesting
+(Toshniwal et al., 2022), and map navigation (Liu               that the underlying FSAs exhibit strong resilience.
+et al., 2023b). Figure 1 illustrates Z2 , one of the               In summary, this work is the first to ex-
+simplest state tracking problems1 , along with its              tend the study of learnability and expressive-
+corresponding FSA and transition rules.                         ness through mechanistic interpretation on state
+   We begin by comprehensively evaluating the                   tracking, uncovering the underlying algorithms of
+state tracking capabilities of Transformer+CoT ,                Transformer+CoT . Our contributions are as fol-
+comparing it with other models (RNNs), trans-                   lows:
+former variants (e.g., those with recurrence (Fan
+et al., 2021; Yang et al., 2022)), and CoT vari-                  1. We conduct a comprehensive evalua-
+ants (e.g., implicit CoT (Goyal et al., 2024)). Em-                  tion of the state tracking capabilities of
+pirically, we show that Transformer+CoT is the                       Transformer+CoT , demonstrating its unique
+only model capable of efficiently learning state                     ability to track states of arbitrary lengths
+tracking for sequences of arbitrary lengths across                   across multiple groups (Z60 , A4 ×Z5 , and A5 )
+three groups: Z60 , A4 × Z5 , and A5 , in both in-                   in both in-distribution and out-of-distribution
+distribution and out-of-distribution settings.                       settings.
+   1
+                                                                  2. Using interpretability techniques, including
+     The state tracking problem Z2 is equivalent to parity, a
+formal language describing binary sequences with specific            activation patching, we analyze the learned al-
+evenness or oddness properties.                                      gorithms in Transformer+CoT . We identify
+       the activation of late-layer MLP neurons and         Expanding this further, it can be decomposed as:
+       classify them into states based on transition
+                                                                                  dmlp                             dmlp
+       rules, achieving nearly 100% accuracy in met-                   l    l
+                                                                                  X
+                                                                                                l
+                                                                                                                   X
+       rics of compression and distinction, which                MLP (x ) =              f (x       · klj )vjl =          mlj vjl
+                                                                                  j=1                              j=1
+       confirms the model’s reconstruction of the
+       world model (FSAs).                                  where klj ∈ Rdm and vjl ∈ Rdm correspond to the
+    3. We explore Transformer+CoT in three chal-
+                                                            j-th row vectors of Kl and Vl , respectively. The
+       lenging settings and find that it learns resilient
+                                                            scalar mlj = f (xl · klj ) represents the activation
+       algorithms capable of effective state tracking
+       in noisy conditions.                                 coefficient for the neuron vjl . Notably, when these
+                                                            sub-updates mlj vjl are projected into the vocabulary
+                                                            space using the logit lens (Geva et al., 2021), they
+2     Background
+                                                            can be interpreted in a human-understandable way.
+2.1    FSA and State Tracking
+                                                            3    Evaluating State Tracking Capability
+We adopt the conventional definition of a finite                 Across Architectures
+state automaton (FSA) as a tuple A = (Σ, Q, q0 , δ),
+where Σ is the alphabet, Q is a set of states, q0 is        Besides Transformer+CoT , there are various theo-
+the initial state, and δ is the transition function         retical works (Zhang et al., 2024; Fan et al., 2024;
+(Hopcroft, 2007). Formally, state tracking can              Yang et al., 2022; Fan et al., 2021) attempting to
+be framed as solving a word problem on a finite             inject recurrence into transformers, while another
+monoid (M, ·), where the objective is to compute            line of work (Goyal et al., 2024; Hao et al., 2024)
+the product m1 · m2 · . . . · mn ∈ M (Merrill et al.,       proposing modifications of chain-of-thought (im-
+2024). When M is finite, the computation can                plicit chain-of-thought in contrast to explicit chain-
+be carried out by a corresponding finite state au-          of-thought). In this section, we will explore the
+tomaton (M, M, e, δ), where the identity element            state tracking capability with an empirical lens: can
+e acts as the initial state and the transition func-        transformers with/without CoT, and their variants,
+tion is defined as δ(m1 , m2 ) = m1 · m2 for all            learn state tracking?
+m1 , m2 ∈ M .                                               Datasets: A5 , A4 × Z5 , Z60 . Following the for-
+   As generative models, transformers augmented             mal definition of state tracking in (Merrill et al.,
+with chain-of-thought generate state sequences              2024; Grazzi et al., 2024), we model state track-
+(q1 . . . qn ) ∈ M ∗ conditioned on input sequences         ing as word problems, and consider three kinds of
+(m1 . . . mn ) ∈ M ∗ . Our work centers on word             groups with increasing difficulty: Z60 , an abelian
+problems in the context of groups, which are                group encoding mod-60 addition, A4 × Z5 , a non-
+monoids with inverses. We specifically investigate          abelian but solvable group2 , which is a direct prod-
+two structures: the cyclic group Zk , defined by ad-        uct group of one alternating group A4 (a subgroup
+dition modulo k, and the alternating group Ak , a           of the symmetric group S4 containing only even
+subgroup of the symmetric group Sk comprising               permutations) and one cyclic group Z5 , and A5 ,
+all even permutations of k elements.                        the alternating group on five elements, which is
+                                                            the smallest non-solvable subgroup. With the same
+2.2    Mechanistic Interpretation of MLPs                   number of elements 60, the three groups belong
+Geva et al. (2022) demonstrate that multilayer per-         to TC0 , TC0 , and NC1 -complete respectively, with
+ceptrons (MLPs) contribute additive updates to the          varying difficulty mainly deriving from the com-
+residual stream, which can be decomposed into               plexity of learning the group multiplication opera-
+weighted sums of sub-updates. In particular, given          tion.
+input xl at layer l, the MLP can be expressed us-           Architectures. We denote Transformer as a
+ing parameter matrices Kl , Vl ∈ Rdmlp ×dm , where          GPT2 architecture (Radford et al., 2019) with
+dmlp is the MLP intermediate dimension and dm is            a bounded number of layers.        When aug-
+the model dimension. Additionally, a non-linear             mented with chain-of-thought, it is denoted as
+activation function f is applied as follows:                    2
+                                                                  Formally, a finite group G is solvable if it has a subnormal
+                                                            series 1 = G0 < G1 < . . . < Gk = G such that each factor
+               MLPl (xl ) = f (Kl xl )Vl                    Gi /Gi−1 is abelian.
+                                                      Looped         Mamba        Recurrent         SRN                 Transformer+CoT
+
+                                                      LSTM           Pause        S4                Transformer         Transformer+CoT(ood)
+
+                                                      LSTM(ood)
+                                      Z60                                              A4xZ5                                                         A5
+               1.0                                             1.0                                                         1.0
+
+
+
+
+ performance
+               0.5                                             0.5                                                         0.5
+
+
+
+               0.0                                             0.0                                                         0.0
+                       5   7   10   15 20   30   50   100              5     7   10    15 20   30      50         100              5      7   10   15 20   30   50   100
+                                                                                 sequence length
+
+
+Figure 2: Model accuracy across sequence lengths for Z60 , A4 × Z5 and A5 . The x-axis shows sequence lengths (2
+to 100), and the y-axis shows sequence accuracy. Each line represents a different model (see legend). Dots indicate
+in-distribution performance, while triangles indicate out-of-distribution performance (group elements sampled from
+the full set, including mixed sequences not encountered during training, though within the same length range).
+
+
+Transformer+CoT . To compare with other models,                                           (m1 . . . mn ) and corresponding state sequences
+we also consider recurrent neural networks (RNNs                                          (q1 . . . qn ), where state transitions follow the mul-
+Jain and Medsker, 1999 and LSTMs Hochreiter and                                           tiplication operations of three different algebraic
+Schmidhuber, 1997), S4 (Gu et al., 2022), Mamba                                           groups: A5 , A4 × Z5 , Z60 . For comparison, all
+(Gu and Dao, 2024), implicit chain-of-thought:                                            models are configured with a single layer and a
+transformers with pause (denoted as Pause) (Goyal                                         model dimension of 512. Each model is trained
+et al., 2024) and other variants of transformers:                                         on 1,000,000 sampled sequences of length n, for
+standard recurrent transformer (denoted as Recur-                                         successively larger values of n, and evaluated the
+rent) (Yang et al., 2022), looped transformer (de-                                        sequence accuracy on a held-out validation set. We
+noted as Looped) (Fan et al., 2024).                                                      set a maximum of 500 training epochs and employ
+                                                                                          early stopping once the validation accuracy reaches
+Task Formulation. In order to disentangle recur-                                          99%.
+rence introduced by CoT from those arising from
+architectural modifications (e.g., the standard re-                                       In-Distribution Performance. We hold a com-
+current transformer, where recurrence is inherent                                         prehensive evaluation of models’ state tracking ca-
+to the model architecture), we employ two differ-                                         pability on word problems, with the same model
+ent task formulations for evaluation: the Token-                                          depth and dimension. Figure 2 gives different mod-
+Tagging (TT) task and the Language Modeling                                               els’ performance across different input sequence
+(LM) task. In the TT task, each input token mi is                                         length and different groups. We draw several con-
+annotated with its corresponding world state qi . In                                      clusions:
+contrast, the LM task requires the model to autore-
+gressively generate the sequence of state transitions                                          1. Consistent with theoretical study (Liu et al.,
+(q1 . . . qn ). Specifically, only Transformer+CoT                                                2023a; Merrill et al., 2024), Transformer
+and implicit CoT (Pause) are evaluated using the                                                  and state-space models, such as S4 and
+LM task, whereas other models and variants the TT                                                 Mamba, are incapable of expressing arbitrary
+task. The reason of the difference is that, we use                                                length A5 word problems, in contrast to RNN
+the same set of labels whatever the task is, so as to                                             and LSTM.
+eliminate the label-related influences on supervised                                           2. CoT definitely extends the expressive
+training—similar to the “hint” setting in (Li et al.,                                             power of Transformer. In contrast to
+2024).                                                                                            Pause, which fails with longer sequences,
+                                                                                                  Transformer+CoT can efficiently learn word
+Experimental Setup. We utilize the Python
+                                                                                                  problems of arbitrary length across multiple
+package Abstract        Algebra3 to randomly
+                                                                                                  groups.
+generate three distinct types of group-based
+                                                                                               3. Transformer+CoT achieves a dual win in
+datasets. Each dataset consists of input sequences
+                                                                                                  both expressiveness and learnability. Unlike
+               3
+                   https://github.com/alreich/abstract_algebra                                    architectural modifications such as Looped or
+     Recurrent, Transformer+CoT maintains the           possibility that the model learns specific shortcuts
+     original Transformer architecture without          similar to those Liu et al. (2023a) find on Z2
+     modification, and thus preserves the inher-        group, but this does not rule out the possibility
+     ent advantages of the standard Transformer,        that other shortcuts exist, which necessitates an
+     including the parallel training and smoother       interpretation on the mechanism.
+     gradient flow. While alternative architectures
+     may postpone accuracy degradation on longer        4       Mechanism Inside Transformers with
+     input sequences compared to the standard                   Chain-of-Thought: FSAs
+     Transformer, they ultimately fail to con-
+                                                        Both transformers with chain-of-thought and recur-
+     verge on sequences of arbitrary length.
+                                                        rent neural networks achieve perfect performance
+                                                        in-distribution, and the former even generalizes
+Out-of-Distribution Performance. Liu et al.
+                                                        well out-of-distribution. Due to the transformer’s
+(2023a) analyze transformers’ failure in out-of-
+                                                        black-box nature, the mechanism behind its state
+distribution of parity, and argue that transformers
+                                                        tracking implementation remains unknown. Conse-
+learn a shortcut solution, which compute the parity
+                                                        quently, we cannot answer questions such as what
+by counting the number of 1s in the input sequences
+                                                        algorithm the model has learned to keep track of
+and compute mod-2, thus failing to generalize to se-
+                                                        the world state, and how well the model can gener-
+quences with unseen sum of 1s. Zhang et al. (2024)
+                                                        alize. Considering that the word problems involve a
+discuss the role of chain-of-thought in computabil-
+                                                        series of state transitions, the model’s state compu-
+ity, and point that CoT simulates the recurrent con-
+                                                        tation is dynamic and sequential while generating
+nection by iteratively encode and decode back and
+                                                        intermediate steps. In this section, we first try to
+forth between states and tokens. The expressive-
+                                                        analyze the circuit used by transformers with chain-
+ness of Transformer+CoT in state tracking stems
+                                                        of-thought to keep track of the world state, and then
+from its ability to retrieve prior computations by
+                                                        conduct a deeper component analysis to interpret
+appending the previous step’s state to the end of
+                                                        the mechanism.
+the scratchpad.
+   To investigate whether Transformer+CoT               4.1       Circuit Localization
+learns an algorithm based solely on the input
+                                                        To understand the mechanism of state tracking, we
+sequences (m1 . . . mn ) or combines input and
+                                                        will first localize the circuit (a subset of compo-
+scratchpad as theoretical work expects, we divide
+                                                        nents) using activation patching (Vig et al., 2020).
+the elements of the three groups into proper
+                                                        We formalize each word problem as a prompt
+subsets. And we train the model on sequences with
+                                                        pi = (m1 . . . mn |q1 . . . qi−1 ), where (m1 . . . mn )
+m belonging to one proper subset, but evaluate
+                                                        is the problem description and qi is the resulting
+on the full set. We stress that, through restricting
+                                                        state token at i-th step.4 At each intermediate step,
+the input sequences into separate subsets, the
+                                                        we sample a prompt pi with its corresponding state
+possible state sequences remain the same, for the
+                                                        token qi , and then sample a counterfactual prompt
+reason that any subset can express the whole group
+                                                        p′i that yields a different state token qi′ . We perform
+through group operation. If the model learns a
+                                                        intervention experiments by replacing the activa-
+shortcut solution, that attends to only input, it can
+                                                        tion of a specific MLP layer or attention head with
+not generalize to sequences with group elements
+                                                        the pre-computed activation from p′i , and then as-
+sampled from the full set, because the model has
+                                                        sess how this affects the probabilities of answer
+not seen mixed input sequences in the training
+                                                        tokens. To assess the importance of a component
+set. As previously outlined, both LSTM and
+                                                        at i-th step, we compute the following intervention
+Transformer+CoT successfully learn all word
+                                                        effect (IE) metric (Nikankin et al., 2024), averaged
+problems in-distribution, and we test their perfor-
+                                                        over all prompts. The IE measures the mean rela-
+mance out-of-distribution. Results in Figure 2
+                                                        tive change in the model’s output probabilities for
+show that Transformer+CoT achieves perfect
+                                                        both qi and qi′ :
+generalization on three groups Z60 , A4 × Z5 , A5
+in contrast to LSTM, implying that the model                            1
+                                                                              ∗ ′
+                                                                              P (qi ) − P(qi′ ) P(qi ) − P∗ (qi )
+                                                                                                                  
+attends to not only input but also scratchpad. We       IE(qi , qi′ ) =                        +
+                                                                           2      P(qi′ )           P∗ (qi )
+provide more experimental settings in Appendix B.
+                                                            4
+The out-of-distribution performance eliminates the              In this paper, the scratchpad step index starts at 0.
+where P(q) and P∗ (q) denote the model’s predicted                of MLP play a significant role, with MLP11 pri-
+probability for token q before and after the inter-               marily driving the state transition, contributing an
+vention, respectively.                                            average of 72% to the logit increase.
+   We localize the circuit in Transformer+CoT re-
+sponsible for tracking the world state at each in-
+termediate step in A5 word problems. As shown
+                                                                                   20
+in Figure 3, the circuit responsible for state track-
+
+
+                                                                  Logit Increase
+                                                                                   15
+ing primarily consists of MLPs rather than atten-
+tion heads. Moreover, the circuit remains largely                                  10
+
+consistent across steps: MLP0 (McDougall et al.,                                   5
+2023) at the position of mi and late-layer MLPs
+                                                                                   0
+at the last position consistently play a key role in                                    0   2      4       6    8      10
+                                                                                                       Layer
+state tracking at the i-th step. Overall, given in-
+put sequences (m1 . . . mn ) ∈ M ∗ concatenated                   Figure 4: Average logit increase in the layer represen-
+with scratchpad tokens (q1 . . . qi−1 ) ∈ M ∗ , it is             tation for different MLPs. The final three layers of the
+primarily the MLPs—particularly those in the later                MLP primarily contribute to promoting the resulting
+layers—that implement the state transitions.                      state Q, with MLP11 contributing the most.
+
+                                                                     We distinguish prompts (m1 . . . mn |q1 . . . qi−1 )
+                     MLPs                        Heads            according to the tuple (mi , qi−1 )5 , referred to as
+        10                                                  10    (m, q) pairs for brevity. We then compute the ac-
+         8                                                  5     tivation coefficient mlj of the j-th MLP neuron in
+Layer
+         6
+                                                            0     layer l across all such pairs. Late-layer MLP neu-
+         4
+                                                            −5    rons are selectively activated by a specific subset of
+         2
+                                                            −10   (m, q) pairs. Specifically, the top 60 most-activated
+         0
+          m1 m3 m5 m7 m9       :   q2   q4   0 2 4 6 8 10         (m, q) pairs for a given neuron are distributed along
+                    Position                   Head Index         individual rows or columns in the two-dimensional
+                                                                  (m, q) grid. Notably, the transition rules dictate
+Figure 3: Activation patching results for A5 word
+problems of length 10 at 4-th step, with the prompt               that exactly 60 (m, q) pairs reduce to the state Q,
+p5 = (m1 . . . m10 |q1 . . . q4 ) and the label q5 . The color    and these pairs are similarly distributed across rows
+intensity reflects the magnitude of the IE value. The             or columns in the grid. This observation prompts
+left and right subfigures represent MLPs and attention            the following research questions:
+heads, respectively, emphasizing that the circuit is pri-
+marily composed of MLP0 and late-layer MLPs.                                       • Q1: Do the observed activation patterns indi-
+                                                                                     cate a group of MLP neurons that activated by
+                                                                                     one Q prompt subset, where the (m, q) pairs
+4.2          MLP Neuron Analysis                                                     reduce to the same state Q?
+Having identified the circuit, we then hold deeper
+                                                                                   • Q2: Is it possible to classify MLP neurons
+component analysis of how late-layer MLPs imple-
+                                                                                     based on the resulting states to which their
+ment state tracking.
+                                                                                     activations correspond?
+   We begin by grouping all possible prompts into
+distinct subsets based on their resulting states.                    To address these research questions, we conduct
+Specifically, any prompt (m1 . . . mn |q1 . . . qi−1 ) at         neuron classification experiments (see Appendix D)
+i-th step belongs to the same subset if it reduces                to categorize all MLP neurons at layer l. Our find-
+to the same state qi under the group operation.                   ings reveal that neurons in layers MLP11, MLP10,
+For simplicity, we refer to such a subset as the Q                and MLP9 can be mapped to specific states with
+prompt subset, where Q denotes the resulting state.               success rates of 90.0%, 79.6%, and 38.7%, respec-
+To quantify the contributions of the MLPs, we com-                tively. Notably, approximately 15.5% of MLP11
+pute the contribution of each late-layer MLP to pro-              neurons achieve a perfect F1 score relative to the
+moting Q in the residual stream using the logit lens                  5
+                                                                        According to the transition rules, the resulting state qi
+(Geva et al., 2021), evaluated across all Q prompt                is determined by the input mi and the preceding state qi−1 .
+subsets. As shown in Figure 4, the last three layers              Hence, each prompt can be represented as a tuple (mi , qi−1 ).
+ground truth subset of (m, q) pairs, suggesting an       tivates distinct neuron sets for prompts leading to
+N-to-1 mapping between neurons and states.               different states. To quantify these properties, we
+   For Q1, most neurons exhibit high F1 scores           propose two metrics. For two prompts, pi and
+with respect to the ground truth subset, indicat-        p′i , that converge to the same state, we define the
+ing that these neurons are selectively activated by      compression metric as:
+the Q prompt subset. For Q2, we systematically
+classify activated late-layer MLP neurons across                                     |Npi ∩ Np′i |
+intermediate steps, achieving high success rates.                  Compression =
+                                                                                     |Npi ∪ Np′i |
+Notably, we observe that 15.5% of MLP11 neu-
+rons exhibit an N-to-1 mapping to specific states.
+                                                         where Npi and Np′i denote the sets of neurons ac-
+These results suggest that transformers with chain-
+                                                         tivated by prompts pi and p′i , respectively. Con-
+of-thought primarily keep track of the world state
+                                                         versely, for prompts pi and p′i leading to distinct
+via the late-layer MLP neurons. These neurons
+                                                         states, we define the distinction metric as:
+exhibit selective activation in response to specific
+subsets of (m, q) pairs and contribute to promoting
+                                                                                      |Npi ∩ Np′i |
+the correct state token Q into the residual stream.               Distinction = 1 −
+Furthermore, accurate state transitions are achieved                                  |Npi ∪ Np′i |
+through the collective sub-updates of multiple neu-
+rons associated with the target state Q. Beyond the         We calculate compression and distinction met-
+late-layer MLPs, we also analyze another critical        rics pairwise for all prompts, averaging them
+component of the circuit: MLP0, which primarily          at each intermediate step. Our results demon-
+achieves effective embedding of the input mi , facil-    strate that Transformer+CoT effectively com-
+itating subsequent state transitions. Further details    presses prompts sampled from the Q prompt subset
+are provided in Appendix G.                              while distinguishing prompts from different sub-
+                                                         sets, achieving near-perfect world model recovery
+4.3   Transformers with Chain-of-Thought                 with an average metric score of 0.991. This indi-
+      Recover FSAs                                       cates efficient capture of the underlying FSA struc-
+Near-perfect next-token prediction does not guar-        ture. Extending our analysis beyond the group A5 ,
+antee that a generative model has fully recon-           we identify similar FSAs for Z60 and A4 × Z5 ,
+structed a world model. For instance, in the cu-         as well as in larger-scale models, with detailed re-
+mulative Connect-4 task, a generative model with         sults in Appendix I. Collectively, we conclude that
+uniform probability can still achieve near-perfect       Transformers with Chain-of-Thought recover
+next-token prediction (Vafa et al., 2024). To ad-        FSAs on state tracking, even at the granularity
+dress this, we focus on state tracking, where world      of MLP neurons.
+model FSAs can effectively compress distinct se-
+quences converging to the same state while dis-          5   Robustness and Generalizability of
+tinguishing sequences leading to different states,           FSAs
+regardless of their superficial similarity. This
+subsection explores how the generative model             Sections 3 and 4 have demonstrated positive results
+Transformer+CoT , which achieves near-perfect se-        in the recovery of FSAs. However, the word prob-
+quence accuracy on word problems, recovers FSAs          lems considered are too idealistic, with sequence
+by analyzing its internal structure at the granularity   length controlled and noise excluded. In this sec-
+of MLP neurons.                                          tion, we will investigate the robustness and gener-
+   Our analysis builds on findings from Section 4.2,     alizability of the FSAs within Transformer+CoT ,
+which suggest that Transformer+CoT performs              considering intermediate step skipping, scratchpad
+state tracking by activating specific groups of neu-     noise, and length generalization. We find that re-
+rons. To evaluate the model’s ability to recover         fining the training data distribution can steer the
+FSAs, we examine its sequence compression and            model toward better adaptation to the aforemen-
+distinction capabilities. For compression, we as-        tioned scenarios, except for length generalization.
+sess whether the model activates the same set of         Addressing the latter may require exploring alter-
+neurons for prompts converging to the same state.        native approaches, such as modifying the model
+For distinction, we verify whether the model ac-         architecture, improving training strategies, etc.
+5.1          Skipping Steps                                                                    of noise, where noise affects any state other than
+In practical training datasets, such as OpenWeb-                                               qi−1 , the model maintains near-perfect next-token
+Math6 , reasoning trajectories include implicit or                                             prediction accuracy. The reason is obvious: the
+skipped intermediate steps. For example, the length                                            model depends primarily on the input mi and the
+of (q1 . . . qn ) may be less than n, with some in-                                            preceding state qi−1 for the state transition at the
+termediate steps skipped. In our experiment set-                                               i-th step, while disregarding intermediate states
+tup, we introduce a skipping probability to omit                                               prior to qi−1 . For the second type of noise, where
+each intermediate state qi (except qn ) and train                                              qi−1 is false, the model’s performance declines
+Transformer+CoT on this dataset. To investigate                                                significantly, with next-token prediction accuracy
+the model’s ability to perform intermediate step                                               falling to approximately 0.017.
+jumps, we employ a linear classifier (Gurnee et al.,                                              Here, we aim to address the scenario by ad-
+2023) to probe the states embedded in the resid-                                               justing the dataset distribution. Specifically, we
+ual stream at the last position. Specifically, we                                              train the model using data containing the second
+probe the token qi at the last position, given the                                             type of noise in the scratchpad states and achieve
+prompt (m1 . . . mn |q1 . . . qi−1 ). From the results                                         a substantial improvement in robustness: the ac-
+in Figure 5, we can find that qi , qi+1 , and qi+2 are                                         curacy increases from 0.017 to 0.896. To investi-
+all embedded in the residual stream, suggesting                                                gate whether the model accurately recovers the
+that the model has learned single-step reasoning,                                              correct state tracking from noise, we employ a
+two-step reasoning (skipping one step), as well as                                             linear classifier (Gurnee et al., 2023) at the final
+three-step reasoning (skipping two steps). Addi-                                               position. Specifically, given a corrupted prompt
+tionally, we propose possible mechanisms for skip-                                             (m1 . . . mn |q1 . . . q̂i−1 ) (where q̂i−1 denotes an in-
+ping and design experiments for further analysis, as                                           correct state), we probe the correct next state qi ,
+detailed in appendix K. Finally, we conclude that                                              the false previous state q̂i−1 and the true previous
+incorporating skipping examples into the training                                              state qi−1 . We find that the activation sustains pos-
+set facilitates the adaptation of the FSAs within                                              itive probing results for q̂i−1 across layers until
+Transformer+CoT to the scenario.                                                               the final one, where it demonstrates a high aver-
+                                                                                               age accuracy of 0.943 for qi and 0.379 for qi−1 .
+                                                                                               In autoregressive models, the residual stream at
+                                                                                               the preceding position of qi−2 in the sequence
+        10                                                                                     (m1 . . . mn |q1 . . . q̂i−1 ) encodes the correct input
+         8                                                                              0.5    state qi−1 . Based on this, we propose a possible
+Layer
+         6                                                                              0      mechanism that the model’s attention heads attend
+         4                                                                                     to the activation at the preceding position, thus
+                                                                                        −0.5
+         2
+                                                                                               retrieving the correct input state qi−1 and conse-
+         0
+             m1   m2   m3   m4   m5   m6   m7   m8   m9   m10
+                                                                :
+                                                                    q1   q2   q3   q4          quently updating the state to qi . We have also
+                                           Position                                            designed experiments to analyze the hypothesis,
+                                                                                               as detailed in Appendix L. We conclude that re-
+Figure 5: Probing results for state qi at 4-th step. We                                        fining dataset distribution can help in maintain-
+can find the positive results appearing two positions                                          ing the accuracy and reliability of the FSAs inside
+earlier, demonstrating that the model has learned skip-
+                                                                                               Transformer+CoT .
+step reasoning, including the ability to skip one or two
+intermediate steps.
+                                                                                               5.3   Length Generalization
+                                                                                               Lastly, we explore length generalization, a key chal-
+5.2          Noise in Scratchpad                                                               lenge in developing transformer-based LLMs. To
+                                                                                               enhance length generalization, we replace GPT2’s
+We analyze the impact of injecting noise into the
+                                                                                               original absolute positional embedding with NoPE
+scratchpad states (q1 . . . qi−1 ), where at least one
+                                                                                               (No Positional Embedding), which has been shown
+state is false. We categorize noise into two types:
+                                                                                               in prior work (Kazemnejad et al., 2024) to outper-
+(1) any false state except qi−1 , and (2) a false qi−1 .
+                                                                                               form other explicit positional embedding methods,
+We evaluate the accuracy of model’s next-token
+                                                                                               including both absolute and relative approaches.
+prediction under these conditions. For the first type
+                                                                                               Notably, in our experiments, NoPE exhibits a cer-
+        6
+            https://github.com/keirp/OpenWebMath                                               tain degree of length generalization, whereas ab-
+solute and relative positional embeddings show                           different states. In contrast, our proposed metric
+negligible generalization. We choose LSTM for                            operates at the level of individual MLP neurons,
+comparison for the reason that it efficiently learns                     measuring how the model internally differentiates
+all investigated word problems on sequences of                           between input sequences. This offers a more fine-
+arbitrary length.                                                        grained, mechanistic perspective on the model’s
+   Table 1 illustrates the length generalization ca-                     internal dynamics.
+pabilities of various models on unseen sequence
+lengths during training. LSTM achieves perfect                           7   Conclusions
+generalization, while transformers with chain-of-
+thought exhibit weak performance. Analyzing the                          In this work, we investigate the learnability of
+failure from the perspective of MLP neurons, we                          Transformer+CoT through the lens of mechanis-
+identify an intriguing “U-turn” phenomenon: the                          tic interpretability in state tracking. We begin by
+precision of activated neurons, which, after ini-                        reaffirming the success of Transformer+CoT in
+tially decreasing, exhibits an increase during the                       both in-distribution and out-of-distribution settings.
+final few steps of inference. Further details are pro-                   Next, we identify the key components of the cir-
+vided in Appendix M. We conclude that improving                          cuit, specifically the neurons in the last layers of
+the length generalization ability of the model re-                       the MLP, which play a critical role. We find evi-
+quires other approches, such as modifications to                         dence of an implicit FSA within the model, where
+model architecture, loss functions, or optimization                      each state is compressed by a distinct group of
+algorithms.                                                              neurons. Finally, we evaluate the model in three
+                                                                         challenging settings and show that the learned
+                                           length                        FSAs are robust to noise and skipping but strug-
+    Models            20     21     22      23      24     25     30     gle with generalization to significantly longer se-
+    LSTM              1.00   1.00   1.00   1.00     1.00   1.00   1.00   quences. This suggests the need for architectural
+    Transformer+CoT   0.99   0.98   0.87   0.53     0.24   0.09   0.00
+                                                                         or optimization improvements. Our findings reveal
+                                                                         that Transformer+CoT achieves near-perfect per-
+Table 1: Comparison of length generalization perfor-
+mance between LSTM and Transformer+CoT . Models                          formance in next-token prediction while internal-
+are trained on sequences of mixed lengths up to 20 and                   izing an FSA-like structured state representation,
+tested on seen (20) and unseen (>20) lengths.                            bridging the gap between expressiveness and learn-
+                                                                         ability. This work provides insights into structured
+                                                                         reasoning for sequential tasks.
+6      Related Work
+Theoretical studies (Merrill et al., 2024; Liu et al.,                   8   Acknowledgments
+2023a) integrate circuit complexity and algebraic                        This research is supported by the National Natu-
+formal language theory to categorize different mod-                      ral Science Foundation of China under Grant Nos.
+els and word problems into distinct computational                        62436006, 62192731, 62192730. Jie Fu is sup-
+complexity classes, such as TC0 and NC1 . In par-                        ported by Shanghai Artificial Intelligence Labora-
+ticular, Merrill et al. (2024) demonstrate that NC1 -                    tory.
+complete word problems cannot be expressed by
+models within the TC0 class. In contrast, our work                       Limitations
+investigates Transformer+CoT through the lens of
+mechanistic interpretability, revealing a dual advan-                    In this paper, we define state tracking as word prob-
+tage in expressiveness and learnability, while also                      lems involving cyclic and symmetric groups, which
+uncovering FSA structures within the model.                              form the basis of our conclusions. Our study fo-
+   Vafa et al. (2024) argue that next-token predic-                      cuses solely on GPT2 models, leaving the explo-
+tion is a fragile metric for evaluating generative                       ration of additional models, such as Llama, for
+models and propose novel evaluation metrics for                          future research. Furthermore, while we have made
+world model recovery, drawing inspiration from                           efforts to address more realistic word problems,
+Myhill-Nerode boundary theory (Myhill, 1957;                             state tracking in real-world tasks is intricate, mak-
+Nerode, 1958). Their metrics—such as distinc-                            ing it challenging to separate state tracing abilities
+tion recall and precision—evaluate how effectively                       from other skills.
+a model distinguishes between prefixes that lead to
+References                                                Albert Gu, Karan Goel, and Christopher Ré. 2022. Effi-
+                                                            ciently modeling long sequences with structured state
+Satwik Bhattamishra, Kabir Ahuja, and Navin Goyal.          spaces. Preprint, arXiv:2111.00396.
+  2020. On the Ability and Limitations of Transform-
+  ers to Recognize Formal Languages. In Proceed-
+                                                          Wes Gurnee, Neel Nanda, Matthew Pauly, Katherine
+  ings of the 2020 Conference on Empirical Methods
+                                                           Harvey, Dmitrii Troitskii, and Dimitris Bertsimas.
+  in Natural Language Processing (EMNLP), pages
+                                                           2023. Finding neurons in a haystack: Case studies
+  7096–7116, Online. Association for Computational
+                                                           with sparse probing. Preprint, arXiv:2305.01610.
+  Linguistics.
+
+Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie          Simeng Han, Hailey Schoelkopf, Yilun Zhao, Zhent-
+  Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind          ing Qi, Martin Riddell, Wenfei Zhou, James Coady,
+  Neelakantan, Pranav Shyam, Girish Sastry, Amanda          David Peng, Yujie Qiao, Luke Benson, Lucy Sun,
+  Askell, Sandhini Agarwal, Ariel Herbert-Voss,             Alex Wardle-Solano, Hannah Szabo, Ekaterina
+  Gretchen Krueger, Tom Henighan, Rewon Child,              Zubova, Matthew Burtell, Jonathan Fan, Yixin Liu,
+  Aditya Ramesh, Daniel M. Ziegler, Jeffrey Wu,             Brian Wong, Malcolm Sailor, Ansong Ni, Linyong
+  Clemens Winter, Christopher Hesse, Mark Chen, Eric        Nan, Jungo Kasai, Tao Yu, Rui Zhang, Alexander R.
+  Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess,       Fabbri, Wojciech Kryscinski, Semih Yavuz, Ye Liu,
+  Jack Clark, Christopher Berner, Sam McCandlish,           Xi Victoria Lin, Shafiq Joty, Yingbo Zhou, Caim-
+  Alec Radford, Ilya Sutskever, and Dario Amodei.           ing Xiong, Rex Ying, Arman Cohan, and Dragomir
+  2020. Language models are few-shot learners. In           Radev. 2024. Folio: Natural language reasoning with
+  Proceedings of the 34th International Conference on       first-order logic. Preprint, arXiv:2209.00840.
+  Neural Information Processing Systems, NIPS ’20,
+  Red Hook, NY, USA. Curran Associates Inc.               Shibo Hao, Sainbayar Sukhbaatar, DiJia Su, Xian Li,
+                                                            Zhiting Hu, Jason Weston, and Yuandong Tian. 2024.
+Grégoire Delétang, Anian Ruoss, Jordi Grau-Moya, Tim        Training large language models to reason in a contin-
+  Genewein, Li Kevin Wenliang, Elliot Catt, Chris           uous latent space. Preprint, arXiv:2412.06769.
+  Cundy, Marcus Hutter, Shane Legg, Joel Veness, and
+  Pedro A. Ortega. 2023. Neural networks and the          Sepp Hochreiter and Jürgen Schmidhuber. 1997. Long
+  chomsky hierarchy. Preprint, arXiv:2207.02098.            short-term memory. Neural Computation, 9(8):1735–
+                                                            1780.
+Angela Fan, Thibaut Lavril, Edouard Grave, Armand
+  Joulin, and Sainbayar Sukhbaatar. 2021. Address-        John E. Hopcroft. 2007. Introduction to Automata The-
+  ing some limitations of transformers with feedback        ory, Languages, and Computation, 3rd edition. Pear-
+  memory. Preprint, arXiv:2002.09402.                       son Addison Wesley.
+Ying Fan, Yilun Du, Kannan Ramchandran, and Kang-
+  wook Lee. 2024. Looped transformers for length          L. C. Jain and L. R. Medsker. 1999. Recurrent Neu-
+  generalization. Preprint, arXiv:2409.15647.                ral Networks: Design and Applications, 1st edition.
+                                                             CRC Press, Inc., USA.
+Mor Geva, Avi Caciularu, Kevin Wang, and Yoav Gold-
+ berg. 2022. Transformer feed-forward layers build        Amirhossein     Kazemnejad,          Inkit    Padhi,
+ predictions by promoting concepts in the vocabulary       Karthikeyan Natesan Ramamurthy, Payel Das,
+ space. In Proceedings of the 2022 Conference on           and Siva Reddy. 2024. The impact of positional
+ Empirical Methods in Natural Language Process-            encoding on length generalization in transformers.
+ ing, pages 30–45, Abu Dhabi, United Arab Emirates.        In Proceedings of the 37th International Conference
+ Association for Computational Linguistics.                on Neural Information Processing Systems, NIPS
+                                                           ’23, Red Hook, NY, USA. Curran Associates Inc.
+Mor Geva, Roei Schuster, Jonathan Berant, and Omer
+ Levy. 2021. Transformer feed-forward layers are          Najoung Kim and Sebastian Schuster. 2023. Entity
+ key-value memories. Preprint, arXiv:2012.14913.            tracking in language models. In Proceedings of the
+                                                            61st Annual Meeting of the Association for Compu-
+Sachin Goyal, Ziwei Ji, Ankit Singh Rawat, Aditya Kr-       tational Linguistics (Volume 1: Long Papers), pages
+  ishna Menon, Sanjiv Kumar, and Vaishnavh Na-              3835–3855, Toronto, Canada. Association for Com-
+  garajan. 2024. Think before you speak: Train-             putational Linguistics.
+  ing language models with pause tokens. Preprint,
+  arXiv:2310.02226.
+                                                          Zhiyuan Li, Hong Liu, Denny Zhou, and Tengyu
+Riccardo Grazzi, Julien Siems, Jörg K. H. Franke, Arber     Ma. 2024. Chain of thought empowers transform-
+  Zela, Frank Hutter, and Massimiliano Pontil. 2024.        ers to solve inherently serial problems. Preprint,
+  Unlocking state-tracking in linear rnns through nega-     arXiv:2402.12875.
+  tive eigenvalues. Preprint, arXiv:2411.12537.
+                                                          Bingbin Liu, Jordan T. Ash, Surbhi Goel, Akshay
+Albert Gu and Tri Dao. 2024. Mamba: Linear-                 Krishnamurthy, and Cyril Zhang. 2023a. Trans-
+  time sequence modeling with selective state spaces.       formers learn shortcuts to automata. Preprint,
+  Preprint, arXiv:2312.00752.                               arXiv:2210.10749.
+Xiao Liu, Hao Yu, Hanchen Zhang, Yifan Xu, Xu-           Karthik Valmeekam, Kaya Stechly, and Subbarao Kamb-
+  anyu Lei, Hanyu Lai, Yu Gu, Hangliang Ding,              hampati. 2024. Llms still can’t plan; can lrms? a
+  Kaiwen Men, Kejuan Yang, Shudan Zhang, Xiang             preliminary evaluation of openai’s o1 on planbench.
+  Deng, Aohan Zeng, Zhengxiao Du, Chenhui Zhang,           Preprint, arXiv:2409.13373.
+  Sheng Shen, Tianjun Zhang, Yu Su, Huan Sun,
+  Minlie Huang, Yuxiao Dong, and Jie Tang. 2023b.        Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+  Agentbench: Evaluating llms as agents. Preprint,         Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz
+  arXiv:2308.03688.                                        Kaiser, and Illia Polosukhin. 2017. Attention is all
+                                                           you need. In Proceedings of the 31st International
+Callum McDougall, Arthur Conmy, Cody Rushing,              Conference on Neural Information Processing Sys-
+  Thomas McGrath, and Neel Nanda. 2023. Copy               tems, NIPS’17, page 6000–6010, Red Hook, NY,
+  suppression: Comprehensively understanding an at-        USA. Curran Associates Inc.
+  tention head. Preprint, arXiv:2310.04625.
+                                                         Jesse Vig, Sebastian Gehrmann, Yonatan Belinkov,
+William Merrill, Jackson Petty, and Ashish Sabharwal.       Sharon Qian, Daniel Nevo, Yaron Singer, and Stu-
+  2024. The illusion of state in state-space models.        art Shieber. 2020. Investigating gender bias in lan-
+  Preprint, arXiv:2404.08819.                               guage models using causal mediation analysis. In
+John Myhill. 1957. Finite automata and the representa-      Proceedings of the 34th International Conference on
+  tion of events. WADD Technical Report, 57:112–137.        Neural Information Processing Systems, NIPS ’20,
+                                                            Red Hook, NY, USA. Curran Associates Inc.
+Anil Nerode. 1958. Linear automaton transformations.
+  Proceedings of the American Mathematical Society,      Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+  9(4):541–544.                                             Bosma, Brian Ichter, Fei Xia, Ed Chi, Quoc Le, and
+                                                            Denny Zhou. 2023. Chain-of-thought prompting elic-
+Yaniv Nikankin, Anja Reusch, Aaron Mueller, and             its reasoning in large language models. Preprint,
+  Yonatan Belinkov. 2024. Arithmetic without algo-          arXiv:2201.11903.
+  rithms: Language models solve math with a bag of
+  heuristics. Preprint, arXiv:2410.21272.                Jiewen Yang, Xingbo Dong, Liujun Liu, Chao Zhang,
+                                                            Jiajun Shen, and Dahai Yu. 2022. Recurring the
+Maxwell Nye, Anders Johan Andreassen, Guy Gur-Ari,          transformer for video action recognition. In 2022
+ Henryk Michalewski, Jacob Austin, David Bieber,            IEEE/CVF Conference on Computer Vision and Pat-
+ David Dohan, Aitor Lewkowycz, Maarten Bosma,               tern Recognition (CVPR), pages 14043–14053.
+ David Luan, Charles Sutton, and Augustus Odena.
+ 2021. Show your work: Scratchpads for interme-          Xiang Zhang, Muhammad Abdul-Mageed, and Laks
+ diate computation with language models. Preprint,         V. S. Lakshmanan. 2024. Autoregressive + chain of
+ arXiv:2112.00114.                                         thought = recurrent: Recurrence’s role in language
+                                                           models’ computability and a revisit of recurrent trans-
+OpenAI. 2023. Gpt-4 technical report. arXiv preprint
+                                                           former. Preprint, arXiv:2409.09239.
+  arXiv:2303.08774.
+Ruizhong Qiu, Zhe Xu, Wenxuan Bao, and Hanghang          Hattie Zhou, Arwen Bradley, Etai Littwin, Noam Razin,
+  Tong. 2024. Ask, and it shall be given: Turing com-      Omid Saremi, Josh Susskind, Samy Bengio, and Pree-
+  pleteness of prompting. Preprint, arXiv:2411.01992.      tum Nakkiran. 2023. What algorithms can transform-
+                                                           ers learn? a study in length generalization. Preprint,
+Alec Radford, Jeffrey Wu, Rewon Child, David Luan,         arXiv:2310.16028.
+  Dario Amodei, Ilya Sutskever, et al. 2019. Language
+  models are unsupervised multitask learners. OpenAI     A    Symbol Description
+  blog, 1(8):9.
+Shubham Toshniwal, Sam Wiseman, Karen Livescu,
+                                                         In this section, we briefly introduce the symbols
+  and Kevin Gimpel. 2022. Chess as a testbed             used in this article as in Table 2.
+  for language model state tracking. Preprint,
+  arXiv:2102.13249.                                      B    Separating Elements in Groups
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier    In Section 3, we separate all m into proper subsets
+  Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+  Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal
+                                                         to explore the models’ performance. As Table 3
+  Azhar, Aurelien Rodriguez, Armand Joulin, Edouard      shows, we divide m in Z60 , A4 × Z5 and A5 ac-
+  Grave, and Guillaume Lample. 2023. Llama: Open         cording to values, orders and permutation types,
+  and efficient foundation language models. Preprint,    respectively. We then prove that the division is rea-
+  arXiv:2302.13971.
+                                                         sonable, for the reason that every proper subset can
+Keyon Vafa, Justin Y. Chen, Ashesh Rambachan, Jon        generate the whole group.
+  Kleinberg, and Sendhil Mullainathan. 2024. Evaluat-
+  ing the world model implicit in a generative model.    Theorem 1 Every separated proper subset can
+  Preprint, arXiv:2406.03689.                            generate the whole group under group operation.
+Symbol    Description
+Σ         Finite set of characters
+Q         Finite set of states in the automaton
+q0        Start state, an element of the state set Q
+δ         State-transition function
+(M, ·)    A monoid
+M∗        Set of all possible sequences from M
+e         The starting state
+Zk        Cyclic group of order k
+Sk        Symmetric group of order k
+TC0       A complexity class in computational complexity theory, consisting of problems
+          solvable by uniform constant-depth threshold circuits with a polynomial number
+          of gates.
+NC1       A complexity class containing problems solvable by uniform logarithmic-depth
+          Boolean circuits with a polynomial number of gates and bounded fan-in.
+Z60       An abelian group encoding mod-60 addition
+A5        The alternating group on five elements
+A4 × Z5   A non-abelian but solvable group
+pi        Prompt at the ith step
+qi        Resulting state at the ith step
+Q         Resulting state qi
+mi        The ith input of word problems
+qi−1      The preceding state of word problems
+(m, q)    (mi , qi−1 )
+q̂i       Error state
+p′i       Counterfactual prompt at the ith step
+qi′       Counterfactual result state at the ith step
+P         Pre-intervention probability distribution
+P∗        Post-intervention probability distribution
+xl        Input at layer l
+Kl        The weight matrix at layer l
+Vl        The weight matrix at layer l
+dmlp      the MLP intermediate dimension
+dm        the model dimension
+f         Non-linear activation function
+klj       the j-th row vectors of Kl
+vjl       the j-th row vectors of Vl
+mlj       Activation coefficient at the jth neuron
+Npi       Set of activated neurons on prompt pi
+Np′i      Set of activated neurons on prompt p′i
+
+                           Table 2: Symbols used in this paper
+Proof B.1 For Cyclic group, every element is a           constant learning rate of 0.0001 and a batch size of
+generator, so that proper subsets can generate h ∈       512. The GPT2-small model is trained on a mix-
+Z60 .                                                    ture of word problems with n ranging from 2 to
+   For alternating group, the 3-cycle and 5-cycle in     20, and optimized via gradient-based methods with
+A5 can both generate the group.                          a cross-entropy loss function. Early stopping is
+   For direct product group, we continue the proof       implemented once the test accuracy reaches 99%,
+as follows:                                              after which the model is used for MI experiments.
+   The elements of order 15 in the direct product
+group A4 ×Z5 are those elements of the form (g, h),      D     Classification Algorithms
+where g ∈ A4 is a 3-cycle (order 3) and h ∈ Z5           We provide the late-layer MLP neurons classifica-
+is a nonzero element (order 5). Although these           tion procedures as follows:
+elements of order 15 form a proper subset of the
+entire group, their projections onto the factors A4          1. Utilize the priori transition rules to pre-
+and Z5 separately generate the full groups:                     compute all ground truth sets of (m, q) pairs.
+                                                             2. Measure all activation coefficient mlj across
+    • The 3-cycle in A4 can generate A4 (since A4
+                                                                all (m, q) pairs.
+      is generated by its 3-cycles).
+                                                             3. Utilize the logit lens to calculate the logits of
+    • Any nonzero element in Z5 is a generator, thus            tokens embedded in vjl , and convert to a 2D
+      can generate the entire Z5 .                              pattern, where the cell in index (m, q) is the
+                                                                logit of the result state Q = m · q.
+By the generation theorem of direct product groups,
+                                                             4. Multiply the intermediate results of the pre-
+if a subset has surjective projections onto each
+                                                                vious two steps element-wise, resulting in ef-
+factor, then the group it generates must be the entire
+                                                                fective logit contribution of the neuron to the
+direct product. Thus, all elements of order 15 can
+                                                                corresponding state for each (m, q) pair.
+generate the entire group A4 × Z5 .
+                                                             5. Extract the top 60 (m, q) pairs from the acti-
+   We train the model with sequences sampled                    vation pattern as the prediction.
+from one subset, and evaluate on sequences with              6. Compute the F1 scores between prediction
+m sampled from the group. We emphasize that                     and all labels. The neuron can be classified
+although the model did not encounter mixed se-                  to state with F1 score no less than threshold
+quences during training, the proper subset is able              θ = 0.2.7
+to generate the entire group. Therefore, all pos-
+sible state transitions are included in the data.        E     Expected F1 Score of Randomly
+Transformer+CoT success in out-of-distribution                 Activated Neurons
+shows that the learned algorithm does not rely on        In Section 4.2, we empirically set the value of θ as
+finding a certain pattern in the input sequence.         0.2 to classify MLP neurons, which is non-trivial
+   Surprisingly, LSTM fails to generalize in the         compared with random F1 score 0.017. And we
+task. We hypothesize that the disparity in out-of-       provide detailed calculation process of randomly
+distribution performance stems from the difference       activated neurons’ F1 score as follows.
+in task formulation: the LM task can integrate all          Let S be a set containing 3600 elements: S =
+elements of the group into the sequence by concate-      {0, 1, 2, . . . , 3599}, and let L be the label sub-
+nating each possible state after the input sequence.     set consisting of the first 60 elements: L =
+C    More Experimental Details                           {0, 1, 2, . . . , 59}. We randomly sample 60 ele-
+                                                         ments from S to form a subset x: x ⊆ S and
+In Section 4, we train a GPT2-small model with 12        |x| = 60. Our goal is to compute the expected val-
+layers, 12 heads, and a hidden dimension of 768          ues of precision, recall, and F1 score for the subset
+on a synthetic group dataset. Specifically, we use 2     x with respect to the label subset L.
+NVIDIA A100 GPUs, employing mixed-precision                 Define T = |x ∩ L| as the number of correctly
+bfloat16 for improved computational efficiency.          selected elements. Since x is chosen uniformly
+For one group experiment, each run takes approx-         at random from S, and given that L contains 60
+imately 50 minutes. We configure the AdamW                  7
+                                                              Here the value of θ is an empirical setting, significantly
+optimizer with a weight decay of 0.01 and mo-            higher than the random value of 0.017. See Appendix E for
+mentum parameters β = (0.9, 0.999), alongside a          details on computing the random value.
+              Group         Proper Subsets
+              A5            Identity and Double Transpositions:
+                            0, 3, 8, 11, 12, 13, 14, 27, 30, 33, 41, 43, 47, 53, 55, 59
+                            3-Cycles:
+                            1, 2, 4, 5, 6, 7, 9, 10, 15, 19, 22, 24, 28, 29, 37, 39, 40, 49, 51, 52
+                            5-Cycles:
+                            16, 17, 18, 20, 21, 23, 25, 26, 31, 32, 34, 35, 36, 38, 42, 44, 45, 46,
+                            48, 50, 54, 56, 57, 58
+              A4 × Z5       Order 15:
+                            6, 7, 8, 9, 11, 12, 13, 14, 21, 22, 23, 24, 26, 27, 28, 29, 31, 32, 33,
+                            34, 36, 37, 38, 39, 46, 47, 48, 49, 51, 52, 53, 54
+                            Other Orders:
+                            0, 15, 40, 55, 5, 10, 20, 25, 30, 35, 45, 50, 1, 2, 3, 4, 16, 17, 18,
+                            19, 41, 42, 43, 44, 56, 57, 58, 59
+              Z60           < 30:
+                            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                            21, 22, 23, 24, 25, 26, 27, 28, 29
+                            ≥ 30:
+                            30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
+                            47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59
+
+                     Table 3: Division of elements for three groups in out-of-distribution.
+
+
+elements, T follows a hypergeometric distribution.          F    Activated Neurons Analysis
+Its expected value is:
+                                                           Having classified neurons into states as described
+                |x| · |L|   60 × 60                        in Section 4.2, We can compute the precision and
+        E[T ] =           =         = 1.
+                  |S|        3600                          recall of the activated neurons, averaged over all Q
+The precision and recall are defined by                    prompt subsets, during the model’s single-step state
+                                                           transitions. Specifically, we select the top-K acti-
+                            |x ∩ L|   T
+           Precision =              =                      vated neurons based on the activation coefficient
+                              |x|     60
+                                                           mlj and calculate precision and recall using the clas-
+                       |x ∩ L|     T                       sified neurons as ground truth labels. The results
+              Recall =          =
+                         |L|      60                       presented in Figure 6 indicate that across interme-
+Thus, their expected values are                            diate steps, the model activates MLP11 neurons
+                        
+                         T       E[T ]  1                  with high average precision (0.797) but relatively
+     E[Precision] = E         =        = ,                 low average recall (0.253). We emphasize that the
+                         60       60    60
+                                                           high precision accounts for the model’s accuracy
+                               1                           in solving word problems, whereas the low recall
+                 E[Recall] =      .
+                              60                           suggests that the neurons activated by a given Q
+The F1 score is the harmonic mean of precision             prompt subset can vary across different steps.
+and recall:
+                 2 · Precision · Recall                     G    MLP0 in Circuit
+            F1 =                        .
+                  Precision + Recall                       Activation patching results in Section 4.1 show that
+                           T
+Since Precision = Recall = 60 , we substitute to           the circuit mainly consists of MLP0 and late-layer
+obtain                                                     MLPs. Given a prompt (m1 . . . mn |q1 . . . qi−1 ),
+                                       2
+                  T
+              2 · 60   T
+                     · 60            T
+                                2 · 3600       T           the late-layer MLPs implement state transition in
+       F1 =    T    T
+                            =     2T
+                                           =      .        the postion qi−1 , while the MLP0 mainly achieves
+               60 + 60            60
+                                               60
+                                                           effective word embedding at the position of mi . As
+Hence, the expected F1 score is                            Figure7 shows, the MLP0 promotes input mi into
+                                                           the residual stream, which will then be transferred
+                   
+                   T       1
+      E[F1] = E         =      ≈ 0.01667.                  to the last position of qi−1 by attention heads for
+                   60     60
+                                                                                      I   Automta still exists on other groups
+                 0.8                                                                      with large model scale.
+                 0.7
+                 0.6                                       Precision (Layer 9)
+                                                                                      We have found a FSA within GPT2-small on A5 as
+                                                           Recall (Layer 9)
+                 0.5                                       Precision (Layer 10)       in Section 4.3, in this section, we will extrapolate
+Value
+                                                           Recall (Layer 10)
+                 0.4                                       Precision (Layer 11)
+                                                           Recall (Layer 11)
+                                                                                      this conclusion to other groups and larger model
+                 0.3                                                                  size. We first conduct analogous experiments on
+                 0.2                                                                  A4 × Z5 and Z60 . We find that MLP11 neurons can
+                 0.1
+                                                                                      still be classified according to transition rules, and
+                 0.0
+                       1    2   3        4   5    6        7        8             9   the model retains the ability to compress and distin-
+                                     Scratchpad Step                                  guish different input sequences, achieving average
+Figure 6: Averaged precision and recall of top-K acti-                                compression and distinction metrics of 0.992 and
+vated neurons across different intermediate steps.                                    0.997, respectively. Moreover, we explore whether
+                                                                                      FSAs still exist with model size larger. Specifi-
+                                                                                      cally, we repeat the experiments, increasing the
+subsequent state transitions.
+                                                                                      model size from GPT2-small (124M) to GPT2-
+                                                                                      large (744M), and find FSAs still exist. Results are
+                                                                                      shown in Figure 10.
+                 8
+                                                                                      J   Noisy State Tracking
+
+Logit Increase
+                 6
+                                                                                      We make an assumption that skipping, noise, and
+                 4
+                                                                                      length generalization are present in real-world sce-
+                 2
+                                                                                      narios. For example, consider the following ex-
+                 0                                                                    ample sampled from the OpenWebMath corpus.
+                  0        10       20       30       40            50
+                                             m                                        The CoT reasoning misses a step in computing the
+                                                                                      derivative of 2x in the second to last line. Neverthe-
+Figure 7: Average input m logit increase in the layer rep-
+resentation for MLP0. The MLP0 mainly implements
+                                                                                      less, given the vast scale of the pretraining corpus,
+effective word embedding in the circuit.                                              it is hard to quantify the proportion of noisy reason-
+                                                                                      ing. Due to the existence of noise and the difficulty
+                                                                                      from vast corpora, we investigate the robustness of
+H                    Attention Heads                                                  FSAs through controlled experiments.
+The activation patching results in Section 4.1 re-                                         What is the derivative of f (x) =
+veal that the circuit is primarily composed of MLPs,                                       (e2x )(ln(x))?
+which predominantly encode state transitions. Ad-                                          Mar 3, 2017
+ditionally, attention heads within the circuit facili-                                     f ′ (x) = e2x 2 ln x + x1
+                                                                                                                       
+tate the flow of information across positions. We                                          Explanation:
+identify the principal attention heads using the ac-                                       The derivative of ln x is x1
+tivation patching results shown in Figure 3 and                                            The derivative of eg(x) is eg(x) · g ′ (x)
+analyze their activation patterns. The findings, pre-                                      The derivative of h(x) · l(x) is h′ (x) ·
+sented in Figure 9, reveal two distinct attention                                          l(x) + h(x) · l′ (x)
+patterns:                                                                                  Then
+        1. Across all steps, specific attention heads di-                                  f ′ (x)
+           rectly transfer information from the position                                   = (e2x )′ · ln x + e2x · x1
+           of mi to the position of qi−1 .                                                 = e2x · 2 · ln x + e2x · x1
+        2. The model develops a secondary pattern: in-                                     = e2x 2 ln x + x1
+           formation from positions m1 . . . mn is relayed
+                                                                                      K    Skipping Steps
+           backward to the position of “:”, which sepa-
+           rates the input and scratchpad and marks the                               According to the probing results in Figure 5, we
+           start of state tracking, thus enabling the model                           propose two possible mechanisms for skipping in
+           to attend to this relay position during infer-                             Transformer+CoT : one is to use continuous lay-
+           ence.                                                                      ers to achieve skip-step state transitions, and the
+other is to use a single layer to achieve skip-step       ing those in the training set. As shown in Figure 8,
+transitions. The key difference is that the former        both precision and recall drop significantly when
+depends on the skipped states, while the latter does      the scratchpad steps surpass the maximum steps
+not. To explore what algorithms the model uses in         encountered during training. Notably, when the
+skipping, we design intervention experiments by           sequence length slightly exceeds the training range,
+suppressing skipped tokens. Specifically, given the       a “U-turn” phenomenon emerges in precision dur-
+prompt (m1 . . . mn |q1 . . . qi−1 ), we evaluate the     ing the final inference steps, which vanishes as
+probing changes for qi+1 at the last position, while      the length increases further. To investigate this
+suppressing token qi . We observe that suppress-          “U-turn" phenomenon, we conducted experiments
+ing qi significantly reduces positive probing results     with models trained on various length ranges. Our
+to nearly zero at the final position with skipping        findings reveal that this effect occurs within a mar-
+probabilities varying from 0 to 1, suggesting that        gin of approximately 150% of the training length,
+Transformer+CoT implements skipping through               beyond which it disappears. The phenomenon sug-
+continuous layers.                                        gests that activating the correct neurons may not
+                                                          be the primary factor limiting length generaliza-
+L    Noise in Scratchpad                                  tion. In conclusion, enhancing the model’s length
+                                                          generalization capability likely requires alternative
+Given a corrupted prompt (m1 . . . mn |q1 . . . q̂i−1 )
+                                                          approaches, such as modifications to the model ar-
+(where q̂i−1 represents an incorrect state), we probe
+                                                          chitecture, loss function, or optimization algorithm.
+the incorrect previous state q̂i−1 , the correct previ-
+ous state qi−1 , and the correct next state qi at the
+last position. The results in Figure 11 show that                  0.8                             Precision
+the activation maintains positive probing results                  0.7                             Recall
+for q̂i−1 across layers, up to the final one, where                0.6
+it exhibits a high average accuracy of 0.943 for qi                0.5
+and 0.379 for qi−1 .                                       Value   0.4
+   In addition, we propose one possible mechanism                  0.3
+                                                                   0.2
+that at the i-th step, the model mitigates the influ-
+                                                                   0.1
+ence of the incorrect input state q̂i−1 in the final
+                                                                   0.0
+layer through attending to the preceding position.                       5   10       15      20   25      30
+                                                                               Scratchpad Step
+This allows it to recover the correct input state qi−1
+and accurately update to qi . To verify this, we mask     Figure 8: MLP11 neurons precision and recall across
+the position of qi−2 in the final layer and analyze       intermediate steps on word problems with length 30.
+the resulting changes in probing accuracy for state       The model is trained on sequences with length ranging
+                                                          from 2 to 20.
+qi at the last position. The results in Figure 11 show
+that after masking, the average score drops from
+above 0.9 to nearly zero, indicating that attending
+to qi−2 in the last layer is crucial for accurate state
+transitions. In contrast, we hold ablation experi-
+ments with a model trained without noise, and we
+observe minimal change in the probing accuracy
+for state qi while masking. This suggests that the
+FSA may develop adaptive attention mechanisms
+to deal with noise in the scratchpad.
+
+M    Length Generalization
+Numerous factors contribute to poor length gener-
+alization in models. Here, we analyze the model’s
+failure to generalize to longer sequences from the
+perspective of MLP neurons. We evaluate the preci-
+sion and recall of activated neurons (see Section F)
+on word problems with sequence lengths exceed-
+                             q4                      1                              q4                      1
+                             q3                                                     q3
+                             q2                                                     q2
+                             q1                                                     q1
+                               :                     0.5                              :                     0.5
+
+
+
+
+     Destination Position                                   Destination Position
+                            m10                                                    m10
+                             m9                                                     m9
+                             m8                                                     m8
+                                                     0                                                      0
+                             m7                                                     m7
+                             m6                                                     m6
+                             m5                                                     m5
+                             m4                      −0.5                           m4                      −0.5
+                             m3                                                     m3
+                             m2                                                     m2
+                             m1                                                     m1
+                            BOS                      −1                            BOS                      −1
+                               q4
+                               q3
+                               q2
+                               q1
+                               :                                                      q4
+                                                                                      q3
+                                                                                      q2
+                                                                                      q1
+                                                                                      :
+                               m10
+                               m9
+                               m8
+                               m7
+                               m6                                                     m10
+                                                                                      m9
+                                                                                      m8
+                                                                                      m7
+                                                                                      m6
+                               m5
+                               m4
+                               m3
+                               m2
+                               m1                                                     m5
+                                                                                      m4
+                                                                                      m3
+                                                                                      m2
+                                                                                      m1
+                               BOS                                                    BOS
+                                   Source Position                                        Source Position
+
+                                          (a)                                                    (b)
+
+
+
+                             q4                      1                              q4                      1
+                             q3                                                     q3
+                             q2                                                     q2
+                             q1                                                     q1
+                               :                     0.5                              :                     0.5
+
+
+
+
+     Destination Position                                   Destination Position
+                            m10                                                    m10
+                             m9                                                     m9
+                             m8                                                     m8
+                                                     0                                                      0
+                             m7                                                     m7
+                             m6                                                     m6
+                             m5                                                     m5
+                             m4                      −0.5                           m4                      −0.5
+                             m3                                                     m3
+                             m2                                                     m2
+                             m1                                                     m1
+                            BOS                      −1                            BOS                      −1
+                               q4
+                               q3
+                               q2
+                               q1
+                               :                                                      q4
+                                                                                      q3
+                                                                                      q2
+                                                                                      q1
+                                                                                      :
+                               m10
+                               m9
+                               m8
+                               m7
+                               m6                                                     m10
+                                                                                      m9
+                                                                                      m8
+                                                                                      m7
+                                                                                      m6
+                               m5
+                               m4
+                               m3
+                               m2
+                               m1                                                     m5
+                                                                                      m4
+                                                                                      m3
+                                                                                      m2
+                                                                                      m1
+                               BOS                                                    BOS
+                                   Source Position                                        Source Position
+
+                                          (c)                                                    (d)
+
+Figure 9: Attention patterns of the principal attention heads. Specific attention heads send information directly from
+mi to qi−1 . Besides, the model learns another pattern: it passes information backward from m1 to mn backwards
+until the relay position of “:”, so that the model can attend to the relay position during inference.
+                    3500                                 1                     3500                                 1
+
+                    3000                                                       3000
+
+                                                         0.5                                                        0.5
+                    2500                                                       2500
+
+
+
+
+     Prompt Index                                               Prompt Index
+                    2000                                                       2000
+                                                         0                                                          0
+                    1500                                                       1500
+
+                    1000                                 −0.5                  1000                                 −0.5
+
+                     500                                                        500
+
+                       0                                 −1                       0                                 −1
+                        0   1000        2000      3000                             0   1000        2000      3000
+                                   Prompt Index                                               Prompt Index
+
+
+                                        (a)                                                        (b)
+
+
+
+                    3500                                 1                     3500                                 1
+
+                    3000                                                       3000
+
+                                                         0.5                                                        0.5
+                    2500                                                       2500
+
+
+
+
+     Prompt Index                                               Prompt Index
+                    2000                                                       2000
+                                                         0                                                          0
+                    1500                                                       1500
+
+                    1000                                 −0.5                  1000                                 −0.5
+
+                     500                                                        500
+
+                       0                                 −1                       0                                 −1
+                        0   1000        2000      3000                             0   1000        2000      3000
+                                   Prompt Index                                               Prompt Index
+
+
+                                        (c)                                                        (d)
+
+Figure 10: (a): Compression and distinction metrics for MLP11 on A5 . (b): Compression and distinction metrics for
+MLP11 on A4 × Z5 . (c): Compression and distinction metrics for MLP11 on Z60 . (d): Compression and distinction
+metrics for MLP35 on A5 with larger model size (GPT2-large). The entire square’s dark color can be interpreted as
+the metric being nearly 1 for any pairwise combination of prompts.
+              11                                             1              11
+              10                                                            10                                             0.8
+
+               9                                                             9                                             0.6
+                                                             0.5
+               8                                                             8                                             0.4
+               7                                                             7
+                                                                                                                           0.2
+               6                                                             6
+      Layer                                                  0      Layer                                                  0
+               5                                                             5
+                                                                                                                           −0.2
+               4                                                             4
+               3                                                             3                                             −0.4
+                                                             −0.5
+               2                                                             2                                             −0.6
+               1                                                             1                                             −0.8
+               0                                             −1              0
+                   1   2   3     4   5      6    7   8   9                       1   2   3     4   5      6    7   8   9
+                               Scratchpad Step                                               Scratchpad Step
+
+
+                                      (a)                                                           (b)
+
+
+
+
+              11                                             1              11
+              10                                                            10                                             0.8
+
+               9                                                             9                                             0.6
+                                                             0.5
+               8                                                             8                                             0.4
+               7                                                             7
+                                                                                                                           0.2
+               6                                                             6
+      Layer                                                  0      Layer                                                  0
+               5                                                             5
+                                                                                                                           −0.2
+               4                                                             4
+               3                                                             3                                             −0.4
+                                                             −0.5
+               2                                                             2                                             −0.6
+               1                                                             1                                             −0.8
+               0                                             −1              0
+                   1   2   3     4   5      6    7   8   9                       1   2   3     4   5      6    7   8   9
+                               Scratchpad Step                                               Scratchpad Step
+
+
+                                      (c)                                                           (d)
+
+Figure 11: (a): Probing results for q̂i−1 . (b): Probing results for qi−1 . (c): Probing results for qi . (d): Probing
+results for qi while masking the preceding position. The model activation maintains high probing performance for
+q̂i−1 across layers, reaching a final layer average accuracy of 0.943 for qi and 0.379 for qi−1 . However, masking the
+position of qi−2 leads to a sharp drop in the probing score—from above 0.9 to nearly zero.
+

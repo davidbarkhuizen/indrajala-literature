@@ -1,0 +1,558 @@
+                                          Partial Answer of How Transformers Learn Automata
+                                                                              Tiantian ZHANG (Crystal)
+                                                                                        cz2737
+
+                                                                                       May 13, 2025
+
+
+
+
+arXiv:2504.20395v2 [cs.FL] 11 May 2025
+                                                                                          Abstract
+                                                   We introduce a novel framework for simulating finite automata using representation-theoretic
+                                               semidirect products and Fourier modules, achieving more efficient Transformer-based implemen-
+                                               tations. Classical Krohn–Rhodes theory decomposes automata into cascades of simple groups
+                                               and flip-flop memories, but this decomposition leads to deep, sequential simulation circuits with
+                                               large embedding dimensions. In contrast, we model the automaton’s transition monoid as a
+                                               semidirect product M = N ⋊ H, where HH is a group acting linearly on a monoidal memory
+                                               component NN. This formulation captures both control (via HH) and memory (via NN) in a
+                                               unified, low-depth structure. Using representation theory and Fourier analysis over finite groups
+                                               and monoids, we embed the states of NN and HH jointly into a flat feature space, enabling par-
+                                               allelizable updates via linear operations. Our method achieves Transformer simulation depth
+                                               O(log T ), compared to O(log T ·log |Q|) for prime decompositions, and avoids width blowup even
+                                               for automata with rich memory structures. The approach subsumes classical group-only models
+                                               and extends naturally to automata with additive or stack-like monoidal memories, offering a
+                                               new, fully parallelizable algebraic foundation for automaton-to-Transformer compilation.
+
+
+                                         1    Introduction
+                                         In the original paper[1], it states for the future direction:
+
+                                              Finer-grained circuit complexity of self-attention: For certain automata of interest (e.g.
+                                              bounded Dyck language parsers (Yao et al., 2021), and the gridworld automata from
+                                              Theorem 3), there exist extremely shallow Transformer solutions, with depth indepen-
+                                              dent of both T and |Q|. Which other natural classes of automata have this property of
+                                              “beyond Krohn-Rhodes” representability?
+
+                                         This paper answers:
+
+                                               The Fourier composition module shows that automata whose state spaces form algebraic
+                                               groups (especially abelian groups like Zp ) and whose transitions are group actions can
+                                               be simulated by extremely shallow Transformer circuits, with depth independent of both
+                                               input length T and state size |Q|. Thus, natural classes like modular counters, abelian
+                                               group automata, and cumulative phase trackers have this “beyond Krohn-Rhodes” rep-
+                                               resentability.
+
+
+
+
+                                                                                              1
+2     Shallow Fourier Transformer Setup
+2.1     Fourier Composition Module for Modular Counters
+Let Q = Zp denote the cyclic group of integers modulo p, and let ω = e2πi/p denote the primitive
+p-th root of unity.
+    The standard Fourier embedding of a state x ∈ Q is given by:
+                                                                 
+                             Φ(x) = ω 0x , ω 1x , . . . , ω (p−1)x ∈ Cp .
+
+    Given two transition functions f, g : Q → Q, we define their Fourier composition via:
+                                   ϕfourier (f, g) = F −1 (F (f ) · F (g)) ,
+where:
+    • F (f ) and F (g) denote the discrete Fourier transforms (DFT) of f and g,
+    • · denotes pointwise (Hadamard) product,
+    • F −1 denotes the inverse DFT over Zp .
+    Operationally, the module applies:
+    1. Fourier transform to both inputs: F (f ), F (g),
+    2. Pointwise multiplication: F (f ) · F (g),
+    3. Inverse Fourier transform to recover the composed function.
+    This Fourier composition module can be implemented as either:
+    • A fixed attention block with sinusoidal basis projections, or
+    • A learned complex-valued linear layer operating in the frequency domain.
+
+2.2     Relation to Attention and Positional Encoding
+The Fourier embedding Φ(x) naturally parallels the positional encodings used in Transformer ar-
+chitectures. Each position x is mapped into a high-dimensional complex vector capturing all phase
+information relative to Zp . Thus, attention over such Fourier-embedded states amounts to opera-
+tions in the frequency domain.
+    The attention layer used here acts by taking average (or learned) interactions between the
+Fourier embeddings, aligning with the fixed or learned frequency interactions. (The frequency
+stuff is inspired by [2]) Because Fourier transforms are linear, this attention can be realized by
+fixed-weight projections or by a shallow learned layer. The proof of how to embedding is in A.1
+
+2.2.1    Summary of Mapping
+               Stage                 Operation
+               Embedding             Fourier basis projection Φ
+               Query/Key/Value       Identity maps
+               Attention             Frequency-wise multiplication (Hadamard product)
+               Output                Inverse Fourier transform F −1
+
+                                                      2
+2.3     Depth Analysis of the Fourier Module
+2.3.1     Length Proof Intuition
+We now formally prove that the Fourier composition module has depth O(1), independent of se-
+quence length T .
+
+Lemma 1 (Informal). The Fourier composition module operates with depth O(1), independent of
+sequence length T .
+
+Proof. At each position t, given ft , gt : Q → Q, the module computes:
+
+                                    ϕfourier (ft , gt ) = F −1 (F (ft ) · F (gt )).
+
+This involves:
+
+   • Applying a fixed Fourier transform F (a matrix multiplication of size p × p),
+
+   • A pointwise Hadamard product (entrywise multiplication),
+
+   • Applying a fixed inverse Fourier transform F −1 (another matrix multiplication).
+
+Each of these operations has complexity depending only on p, not on the sequence length T . More-
+over, they act independently at each token t, requiring no recurrence or sequential accumulation.
+   Thus, the entire computation can be executed in parallel across all T positions with constant
+(non-growing) depth, determined only by the fixed sequence of Fourier transforms and pointwise
+operations.
+   Therefore, the overall depth of the Fourier composition module is O(1), independent of T .
+
+2.4     Proof of Bound of Simulation Automata
+Definition 1 (Modular automaton). A modular automaton is a semiautomaton A = (Q, Σ, δ)
+where:
+
+   • The state set is Q = Zp for some prime p,
+
+   • The input alphabet Σ is arbitrary,
+
+   • The transition function δ : Q × Σ → Q consists of modular functions over Zp , meaning for
+     each σ ∈ Σ, δ(·, σ) is a function of the form:
+
+                                                x 7→ aσ x + bσ       mod p,
+
+        for some fixed coefficients aσ , bσ ∈ Zp .
+
+Theorem 1 (Constant-depth Transformer simulation of modular automata). Let A = (Q, Σ, δ)
+be a modular automaton. Then there exists a Transformer of constant depth, width O(p), and
+fixed attention structure, which simulates A over arbitrary input sequences of length T , with no
+dependence on T in either the depth or the width.
+
+Proof. We construct a Transformer block as follows:
+
+
+                                                          3
+    1. Embedding: Each token x ∈ Q = Zp is mapped into its Fourier basis embedding:
+
+                                  Φ(x) = (ω 0x , ω 1x , ω 2x , . . . , ω (p−1)x ) ∈ Cp ,
+
+      where ω = e2πi/p is a primitive p-th root of unity.
+
+    2. Transition simulation: Each transition x 7→ aσ x + bσ mod p corresponds to an action in
+       Fourier space:
+
+         • Modular multiplication x 7→ aσ x corresponds to permuting Fourier coefficients,
+         • Modular addition x 7→ x + bσ corresponds to multiplying Fourier coefficients by phases
+           ω jbσ ,
+         • Thus, applying δ(·, σ) amounts to a simple, fixed linear operation in the Fourier basis.
+
+    3. Locality: Fourier transform, coefficient-wise phase shift, and inverse Fourier transform each
+       act independently per token, requiring constant-time operations regardless of sequence length
+       T.
+
+    4. Constant depth: Fourier transform, pointwise multiplication, and inverse Fourier transform
+       can each be implemented with O(1) Transformer layers. Thus, overall simulation depth is
+       O(1), independent of both T and p (for fixed p).
+
+    5. Width: We define width as the dimension of the per-token embeddings at each layer. Since
+       each token is mapped into Cp via the Fourier embedding, the width is O(p), independent of
+       the sequence length T . Fourier space has size p but no sequential steps are needed
+
+    6. Comparison to explicit counting: Previous constructions (e.g., Lemma 6) simulate modu-
+       lar counting explicitly over time and require width O(pT ) to store evolving states. In contrast,
+       working in Fourier space compresses the entire evolution into width O(p), achieving a constant
+       factor improvement.
+
+Thus, modular automata over Zp with modular affine transitions can be simulated by constant-
+depth, bounded-width Transformers.
+
+
+3     Generalization to Semigroup and Group Automata
+3.1    From Cyclic Groups to Non-Commutative Structures
+The key reason the Fourier Transformer simulated modular counters over Zp was the availability
+of a Fourier basis: a set of multiplicative characters χj : Zp → C× that formed an orthogonal basis
+for functions on Zp . Updates like x 7→ x + 1 mod p became phase rotations in frequency space,
+implemented as Hadamard multiplications.
+    To generalize beyond abelian groups, we move to the broader setting of finite semigroups and
+non-abelian groups—possibly unsolvable or without inverses. Our objective is to simulate automata
+whose state evolution is governed by algebraic multiplication in such structures, using constant-
+depth Transformers.
+
+
+
+                                                        4
+3.2   Fourier Analysis on Semigroups and Groups
+Let S be a finite semigroup. The space of functions f : S → C admits a representation-theoretic
+analogue of the Fourier transform.
+   Let Rep(S) = {ρ(1) , . . . , ρ(k) } be a complete set of inequivalent irreducible (complex) matrix
+representations of S, where each
+                                             ρ(j) : S → Cdj ×dj
+is a homomorphism of semigroups (not necessarily unitary). Then, for any f : S → C, we define
+its Fourier transform at ρ(j) as:              X
+                                  fb(ρ(j) ) :=   f (x) ρ(j) (x).
+                                                   x∈S
+This maps scalar functions to a tuple of matrices, encoding how f aligns with the algebraic structure
+of S.
+    If f, g : S → C, then their semigroup convolution is defined as:
+                                                 X
+                                   (f ∗ g)(x) :=     f (y) g(y −1 x),
+                                                    y∈S
+
+where inverses may be generalized using Green’s relations or regular semigroup theory.
+   When S is a group, this simplifies to the standard group convolution, and Fourier convolution
+becomes matrix multiplication:
+
+                                    f[
+                                     ∗ g(ρ(j) ) = fb(ρ(j) ) · gb(ρ(j) ).
+
+3.3   Embedding via Direct Sum of Representations
+We embed each element x ∈ S as:
+                                    k
+                                    M                                      X
+                          Φ(x) :=         ρ(j) (x) ∈ CD ,   where D =          d2j .
+                                    j=1                                    j
+
+This block-structured vector plays the role of a frequency-domain representation.
+   Each input token stores this embedding; Transformer layers then simulate updates by applying
+representation-level matrix multiplication, e.g.:
+                                               M
+                                  Φ(x · tσ ) =     ρ(j) (x) ρ(j) (tσ ).
+                                                   j
+
+
+3.4   Definition of Semigroup Automata
+Definition 2 (Semigroup Automaton). Let S be a finite semigroup and Σ an input alphabet. A
+semigroup automaton is a tuple A = (S, Σ, δ) where:
+   • The state space is S,
+   • The transition function is δ(s, σ) := s · tσ for each fixed tσ ∈ S,
+
+   • Transitions are performed by left-multiplication in S.
+   We now show how such automata can be simulated by shallow Transformers.
+
+                                                       5
+3.5   Depth and Width Bounds for Simulation
+Theorem 2 (Constant-depth Transformer simulation of semigroup automata). Let A = (S, Σ, δ)
+be a semigroup automaton. Let Rep(S) = {ρ(1) , . . . , ρ(k) } be a complete set of irreducible complex
+representations, with total dimension
+                                               X k
+                                       D :=           d2j .
+                                                     j=1
+
+Then there exists a Transformer network with:
+
+  1. Depth: O(1), independent of input length T ,
+
+  2. Width: O(D), determined solely by the representation theory of S,
+
+which exactly simulates the state evolution of A on any sequence from ΣT .
+
+Proof. We construct the Transformer as follows:
+
+   1. Embedding. Each state s ∈ S is encoded as:
+                                              M
+                                      Φ(s) :=    ρ(j) (s) ∈ CD .
+                                                     j
+
+
+   2. Transition. For each input symbol σ, the fixed right-multiplier tσ ∈ S has representation
+      matrices ρ(j) (tσ ). The transition s 7→ s · tσ becomes:
+
+                                      ρ(j) (s · tσ ) = ρ(j) (s) · ρ(j) (tσ ),
+
+      which is blockwise matrix multiplication.
+
+   3. Locality and Depth. All updates are local (token-wise), and involve only constant-time oper-
+      ations:
+
+        • Each Transformer block performs a fixed blockwise linear transformation,
+        • No recurrence or memory across tokens is required,
+        • Therefore, total depth is O(1).
+
+   4. Width. The embedding dimension is:
+                                                              X
+                                            Width = D =             d2j ,
+                                                                j
+
+
+      where dj is the dimension of ρ(j) . This depends only on S and is constant across sequence
+      length.
+
+
+
+
+                                                    6
+3.6      Special Case: Group Automata
+Definition 3 (Group Automaton). Let G be a finite group and Σ an input alphabet. A group
+automaton is a semigroup automaton A = (G, Σ, δ) where G is a group and δ(g, σ) = g · tσ for
+tσ ∈ G.
+
+    Let Irr(G) = {ρ(j) } denote the irreducible unitary representations of G. Then:
+                                            X
+                                                d2j = |G|,
+                                            j
+
+so the total embedding dimension is D = |G|.
+
+Theorem 3 (Transformer simulation of group automata). Let A = (G, Σ, δ) be a group automaton.
+Then there exists a Transformer with:
+
+    1. Depth: O(1),
+
+    2. Width: O(|G|),
+
+which exactly simulates A over any input sequence of length T .
+
+3.7      Complexity for Unsolvable Groups
+Unsolvable groups (such as A5 ) have high-dimensional irreducible representations and no abelian
+normal series. For such groups:
+
+    1. Irr(G) remains complete and orthonormal,
+
+    2. Representation dimensions dj may be large (e.g., A5 has a 5-dimensional irrep),
+                  P
+    3. Width D = j d2j grows with group complexity,
+
+    4. However, the Transformer simulation remains of constant depth.
+
+    Thus, even automata over unsolvable groups are simulable in constant depth — at the cost of
+increased embedding width and per-token parameter count.
+
+
+4     Transformer Simulation of Semidirect Product Automata and
+      Non-Group Structures
+We extend the Transformer simulation framework in the orginal paper [1] to a broad class of non-
+group automata based on semidirect products and finite monoids.
+
+4.1      Semidirect Product Automata
+Definition 4 (Semidirect Product Automata). Suppose the transition monoid M of an automaton
+is a semidirect product:
+                                       M =N ⋊H
+where:
+
+                                                  7
+   • N is a finite additive monoid (not necessarily a group), modeling memory updates,
+   • H is a finite group, modeling control actions (e.g., permutations),
+   • H acts on N by a linearizable action H y N .
+   The multiplication rule is:
+
+                                 (n1 , h1 )(n2 , h2 ) = (n1 + h1 · n2 , h1 h2 )
+
+which is associative even if N lacks inverses.
+
+Simulation Strategy.
+   1. Represent h ∈ H using a linear embedding ρH (h) (e.g., permutation matrices).
+   2. Represent n ∈ N as an additive vector.
+   3. Use attention layers to apply h to n via linear maps.
+   4. Use MLP layers to implement the monoid addition in N .
+   5. Apply a log-depth prefix scan across the sequence based on semidirect composition.
+
+Key Observation: Because associativity holds, Transformers can simulate the computation with
+depth O(log T ) even when N is only a monoid.
+
+4.2   Formal Theorem
+Theorem 4 (Transformer Simulation of Semidirect Product Automata). Let A = (Q, Σ, δ) be a
+semiautomaton with transformation monoid M = N ⋊ H, where:
+   • N is a finite additive monoid,
+   • H ⊆ Sym(Q) is a finite group acting linearly on N ,
+   • the action H y N is linearizable.
+Then there exists a Transformer architecture with:
+   • Depth O(log T ),
+   • Embedding dimension O(dim(ρH ) + dim(N )),
+   • Attention head width O(dim(ρH ) + dim(N )),
+   • MLP width O(dim(N )),
+that simulates AT,q0 via prefix-scanning over the semidirect product structure.
+
+Proof Sketch. The Transformer simulates control (H) and memory (N ) layers separately. Each
+layer updates in parallel using matrix multiplication (for H action) and addition (for N ), both of
+which are associative. Thus, log-depth prefix scan suffices. Attention layers apply the H-action to
+memory embeddings, and MLP layers handle additive accumulation. Detail in B.1
+
+                                                       8
+4.3   Extension to Finite Monoids
+More generally, if the automaton’s transition monoid M ⊆ End(Q) is arbitrary but finite, we can:
+
+   • Represent M using a (possibly non-invertible) semigroup representation ρ : M → Matd (F),
+
+   • Simulate compositions via matrix multiplication,
+
+   • Use masked attention to model noninvertible, nilpotent, or idempotent behaviors.
+
+   This covers monoids arising from automata with resets, projections, and absorbing states.
+
+4.4   Answer to the Open Question
+The paper Finer-grained circuit complexity of self-attention asks:
+    “Which natural classes of automata admit extremely shallow Transformer solutions, with depth
+independent of both T and |Q|?”
+
+Our Answer: Automata whose transition semigroups are structured as semidirect products N ⋊
+H, where N is a finite monoid and H a finite group with a linearizable action, admit:
+
+   • Transformer simulations of depth O(log T ),
+
+   • Embedding and attention width O(dim(N ) + dim(ρH )).
+
+Thus, we go beyond Krohn-Rhodes decompositions (which involve only groups) by covering
+monoid-based structured memory automata.More comparison can be found in C.
+   Examples include bounded Dyck language automata with structured counters and automata
+with reset operations, modeled as semidirect products or finite 0-simple monoids.
+
+   • Associativity of transition operations (even without inverses) is sufficient for log-depth simu-
+     lation.
+
+   • Memory structures that combine additive monoids and control groups are naturally simulated
+     by parallelized attention + MLP Transformer layers.
+
+4.5   Summary Table
+           Structure                  Simulation Tool               Transformer Feature
+             Group              Faithful representation, scan         Matrix attention
+       Semidirect product        Split action and compose       Structured MLP + attention
+             Monoid              Semigroup representation          Block-masked attention
+      General semiautomata       Green’s relations layering      Layered MLP with gating
+
+References
+[1] Liu, B., Ash, J. T., Goel, S., Krishnamurthy, A., and Zhang, C. Transformers learn
+    shortcuts to automata. In The Eleventh International Conference on Learning Representations
+    (2023).
+
+
+                                                 9
+[2] Tancik, M., Srinivasan, P., Mildenhall, B., Fridovich-Keil, S., Raghavan, N., Sing-
+    hal, U., Ramamoorthi, R., Barron, J., and Ng, R. Fourier features let networks learn
+    high frequency functions in low dimensional domains. In Advances in Neural Information Pro-
+    cessing Systems (2020), H. Larochelle, M. Ranzato, R. Hadsell, M. Balcan, and H. Lin, Eds.,
+    vol. 33, Curran Associates, Inc., pp. 7537–7547.
+
+
+A     Fourier Module
+A.1    Proof: Embedding Fourier Composition into Transformer Attention
+We aim to realize
+                                  ϕfourier (f, g) = F −1 (F (f ) · F (g))
+using only Transformer components (attention + MLP).
+    Given token embeddings f and g at each position:
+
+    • Map them into the Fourier basis via fixed sinusoidal projections.
+
+    • For Zp , use p-th roots of unity:
+                                            p−1
+                                 Φ(x) = ωpkx      ,      where ωp = e2πi/p .
+                                                  k=0
+
+Key point: The embedding Φ is a fixed, non-learned projection.
+  Within the attention mechanism:
+
+                           Role           Content
+                           Query Q        Fourier embedding of f : Q = Φ(f )
+                           Key K          Fourier embedding of g: K = Φ(g)
+                           Value V        Fourier embedding of g: V = Φ(g)
+
+The projections from input to Q, K, V are identity after the Fourier embedding.
+   Standard attention computes:
+                                                                 
+                                                             QK ⊤
+                           Attention(Q, K, V ) = softmax      √     V.
+                                                               d
+    Instead, we perform:
+
+    • No softmax.
+
+    • No dot product.
+
+    • Elementwise (Hadamard) product in the Fourier domain:
+
+                                  Fourier-Attention(Q, K, V ) = (Q ⊙ K).
+
+    After Hadamard product:
+
+    • Apply a fixed inverse Fourier transform F −1 ,
+
+                                                    10
+    • Recover the composed function in the original domain.
+
+This inverse transform can be implemented as:
+    • A fixed linear layer using conjugate Fourier phases, or
+
+    • A small learned complex-valued linear layer.
+
+
+B     Representation-theoretic(Semi-direct) Approach
+B.1     Proof of Embedding and Attention width
+B.1.1    Embedding Dimension
+Embedding dimension = total number of real-valued features (per token) that the Transformer
+holds internally to represent the automaton’s state at that time step.
+- In the semidirect approach, the internal state is an element (n, h) ∈ N ⋊ H. - So embedding
+dimension = dimension to represent n + dimension to represent h.
+    Thus:
+                            Embedding Dimension = dim(N ) + dim(ρH )
+where dim(ρH ) is the dimension of a linear representation of H.
+
+B.1.2    Attention Head Width
+Attention head width = the number of features that each attention head “sees” and operates on
+per token. - Attention computes operations like
+
+                                         softmax(QK ⊤ )V
+
+where Q, K, V are linear projections of the embedding.
+   - If your embedding already contains (n, h) and you need attention to manipulate them together,
+then the attention head must span the whole (n, h) representation.
+   Thus:
+                          Attention Head Width ≈ dim(N ) + dim(ρH )
+same as the embedding dimension.
+    (Technically, you could split into multiple heads, but each head would still need width propor-
+tional to the structure size.)
+
+B.1.3    Proof of Equality
+Because both the memory n and control h are evolving together under the semidirect action:
+- h evolves by group multiplication.
+- n evolves by a combined action involving h.
+    When you simulate one time step:
+- you update (n, h) together,
+- and this requires reading/processing both the n and h parts.
+    Thus both embedding and attention widths must be wide enough to encode and manipulate
+the full (n, h) pair at each time step.
+
+                                                 11
+    Summary:
+
+                Embedding Dimension = Attention Head Width = dim(N ) + dim(ρH )
+
+because your Transformer needs to fully encode and fully operate on (n, h) at every time step.
+
+
+C     Comparison with the Prime Decomposition and KR Method
+
+Feature                     Prime Decomposition Approach                   Semidirect Representation Approach
+Target Structure            Cascade of simple groups + flip-flop monoids   Semidirect product N ⋊ H (monoid N , group H)
+Memory Type                 Only trivial (2-element) flip-flop memories    General finite monoids (counters, stacks)
+Control Type                Simple groups, composed sequentially           Single group H, acting linearly
+Depth                       O(log T · log |Q|)                             O(log T )
+Embedding Dimension         Sum over all factors; can be O(|Q|)            O(dim(N ) + dim(ρH ))
+Attention Head Width        Grows with cascade layers                      Flat: O(dim(N ) + dim(ρH ))
+MLP Width                   Needed for flip-flop resets                    Needed for monoid addition
+Associativity Handling      Sequential by cascade                          Single global associative scan
+Resets and Idempotents      Simple resets only                             Arbitrary idempotent actions via N
+Efficiency (Group-like)     Good if nearly group                           Equally good
+Efficiency (Memory-like)    Poor                                           Superior
+Overall Efficiency          Good for groups; grows with flip-flops         Better for mixed memory/control structures
+
+Table 1: Comparison of Prime Decomposition vs Semidirect Representation for Transformer Simu-
+lation
+
+
+ Aspect                    Prime Decomposition                 Semidirect Representation
+ Memory Evolution          Hard resets only                    General associative updates (noninvertible allowed)
+ Invertibility             Groups invertible, resets not       H invertible; N may not be
+ Structure                 Cascade of groups + flip-flops      Semidirect product N ⋊ H
+
+      Table 2: Updated Comparison: Memory Generalization in Semidirect Representation
+
+
+
+
+                                                            12
+

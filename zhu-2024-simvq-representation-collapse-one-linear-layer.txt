@@ -1,0 +1,810 @@
+                                                 Addressing Representation Collapse in Vector Quantized Models with
+                                                                         One Linear Layer
+
+                                                        Yongxin Zhu1,2 , Bocheng Li1,2 , Yifei Xin3 , Zhihua Xia4 , Linli Xu* 1,2
+                                                                  1
+                                                                    University of Science and Technology of China
+                                               2
+                                                 State Key Laboratory of Cognitive Intelligence, 3 Peking University, 4 Jinan University
+                                                        zyx2016@mail.ustc.edu.cn,bcli@mail.ustc.edu.cn
+                                            xinyifei@stu.pku.edu.cn,xiazhihua@jnu.edu.cn,linlixu@ustc.edu.cn
+
+
+
+
+arXiv:2411.02038v3 [cs.LG] 3 Oct 2025
+                                                                    Abstract                                  modalities [25, 28, 37] or scientific domains [10] to discrete
+                                                                                                              sequences for next token prediction training. However, at-
+                                        Vector Quantization (VQ) is essential for discretizing con-           tempts to integrate VQ models as multimodal tokenizers
+                                        tinuous representations in unsupervised learning but suffers          to leverage the scaling laws of LLMs face significant chal-
+                                        from representation collapse, causing low codebook utiliza-           lenges because of the difficulty of expanding the codebook.
+                                        tion and limiting scalability. Existing solutions often rely          For example, the Chameleon model [28] constrains its code-
+                                        on complex optimizations or reduce latent dimensionality,             book size to 8k, which is significantly trailing behind the
+                                        which compromises model capacity and fails to fully solve             vocabulary size of LLMs (e.g., LLaMA3’s vocabulary size
+                                        the problem. We identify the root cause as disjoint codebook          is 128k [8]).
+                                        optimization, where only a few code vectors are updated via
+                                                                                                                  There is a broad agreement that increasing vocabulary
+                                        gradient descent. To fix this, we propose SimpleVQ, which
+                                                                                                              size can consistently improve the performance of LLMs
+                                        reparameterizes code vectors through a learnable linear
+                                                                                                              [27]. However, recent studies [42] indicate that traditional
+                                        transformation layer over a latent basis, optimizing the en-
+                                                                                                              VQ models often fail to utilize the additional parameters in-
+                                        tire linear space rather than nearest individual code vec-
+                                                                                                              troduced by codebook expansion, leaving most codes inac-
+                                        tors. Although the multiplication of two linear matrices is
+                                                                                                              tive during training. The contradiction between codebook
+                                        equivalent to applying a single linear layer, this simple ap-
+                                                                                                              expansion and low codebook utilization in VQ models is
+                                        proach effectively prevents collapse. Extensive experiments
+                                                                                                              known as the representation collapse problem [22], where
+                                        on image and audio tasks demonstrate that SimVQ improves
+                                                                                                              increasing the codebook size fails to improve the perfor-
+                                        codebook usage, is easy to implement, and generalizes well
+                                                                                                              mance. To address these discrepancies, we conduct a theo-
+                                        across modalities and architectures. The code is available
+                                                                                                              retical analysis of the optimization procedure of VQ models
+                                        at https://github.com/youngsheen/SimVQ.
+                                                                                                              and identify that the disjoint optimization of the codebook
+                                                                                                              is the root cause of representation collapse. As illustrated
+                                                                                                              in Fig. 1(a), the core mechanism of VQ models involves a
+                                        1. Introduction                                                       nearest-neighbor replacement strategy, where the encoder’s
+                                        In recent years, vector quantization (VQ) [19, 29] has                output features are replaced by the nearest vector in the
+                                        emerged as a foundational technique in unsupervised rep-              codebook to serve as input to the decoder. The indices of
+                                        resentation learning [2, 5] and latent generative models              the nearest vector are taken as the discrete representation
+                                        [4, 21, 31, 33, 34, 44]. By converting continuous represen-           of the data. This nearest-selection operator results in only
+                                        tations into discrete codes, VQ models can effectively iden-          a subset of codes being updated through gradient descent,
+                                        tify the inherent structure of data and enable various discrete       while the remaining codes remain unchanged.
+                                        modeling methods on continuous data, from high-quality                   Some methods mitigate representation collapse by hand-
+                                        image generation [9] to audio synthesis [6]. The recent suc-          designing complex optimization strategies, such as stochas-
+                                        cess of Large Language Models (LLMs) [1] has highlighted              tic quantization [26], distribution penalty [30, 32], and
+                                        the effectiveness of next-token prediction as a powerful and          codebook reset [40] through sophisticated training strate-
+                                        versatile training objective. Consequently, VQ models are             gies. Recently, some approaches [16, 33, 35] propose to re-
+                                        taken as the direct method to transform data from various             duce the dimension of the latent space to a very small scale
+                                          * Corresponding author.                                             (e.g., 8 v.s. 128) to alleviate the curse of dimensionality,
+
+
+                                                                                                          1
+                             Vanilla VQ                                                                  SimVQ
+    No Gradient on Dead Codes          Disjoint Optimization on C           Update CW w/ Latent Basis W All Codes Active on CW
+
+
+                                                               Dead
+                                                                                                                            Active
+                                  Update                                                                   Update
+
+
+
+   Data Representation VQ Codebook C       Partially Optimized Codes       Data Representation VQ Codebook CW
+          fθ(x)                                                                   fθ(x)                  Frozen
+                                                                                                                          Gradient
+
+
+
+Figure 1. Comparison of Vanilla VQ and SimVQ. (a): (left) Disjoint optimization in Vanilla VQ. Only the nearest codes are updated,
+resulting in a high percentage of “dead” codes that are not updated. (b): (right) Joint optimization in SimVQ. The entire codebook is
+updated with a latent basis, ensuring all codes remain active.
+
+
+thereby improving the overlap between the encoder’s fea-                   and easily adaptable for improving VQ-based models across
+tures and the codebook. However, while these methods en-                   a wide range of domains, requiring only one linear layer.
+hance codebook utilization, they do so at the cost of model                   In summary, our contributions to vector quantized mod-
+capacity, leading to worse performance compared to vanilla                 els are as follows:
+VQ models when the codebook size is small or representa-                   • We theoretically analyze the representation collapse prob-
+tion collapse is not severe. Another approach, VQGAN-LC                      lem in VQ models and reveal that optimizing the latent
+[42], initializes the codebook with features extracted from                  space spanned by the codebook, rather than individual
+the pre-trained CLIP model [17] to create a well-structured                  code vectors, is crucial to addressing this issue.
+latent space that better matches the distribution of the en-               • We propose a novel method, SimVQ, which reparame-
+coder output. Nevertheless, the latent space defined by                      terizes the codebook vectors in VQ models via a linear
+an external pre-trained model limits the model’s ability to                  transformation with a learnable latent basis. This sim-
+generalize to diverse datasets and reaches a performance                     ple yet effective approach is highly adaptable and easy to
+plateau as the codebook size increases. These limitations                    implement, making it broadly applicable across various
+highlight the need for a more effective method to improve                    machine learning contexts.
+codebook utilization without compromising model capacity                   • We conduct an extensive evaluation of SimVQ across di-
+or relying on external models.                                               verse modalities, including image and audio with differ-
+    We critically assess prevalent methodologies and reveal                  ent model architectures. The results show that SimVQ
+that optimizing the latent space rather than individual code                 not only effectively addresses the representation collapse
+vectors is key to preventing representation collapse. Build-                 problem by achieving near-complete codebook utilization
+ing on this insight, we introduce a simple yet effective                     regardless of the codebook size, but also establishes new
+method, termed SimVQ, to directly update the latent space                    state-of-the-art performance. Furthermore, when scaling
+spanned by the codebook by linear transforming the code                      up the codebook size, SimVQ consistently delivers im-
+vectors via a learnable latent basis. Specifically, the vectors              proved results.
+in the codebook are reparameterized as a linear combination
+of the basis in the learnable linear layer W :                             2. Related Work
+           C ∈ RK×d ⇒ CW with W ∈ Rd×d ,                        (1)        VQ-VAE [29] is the pioneering work to encode data into
+                                                                           discrete representations. Building on these developments,
+where K denotes the codebook size and d represents the                     VQGAN [9] combines VQ-VAE with adversarial networks
+dimension of latent space. This reparameterization with                    to improve the perceptual quality of generated samples and
+linear transformation disentangles the optimization of the                 establish a fundamental quantization protocol in latent gen-
+codebook into two components: the coefficient matrix C                     erative models [21, 28, 34]. Many traditional VQ works
+and the basis of linear space W respectively. As illustrated               focus on training a better discrete representation rather
+in Fig. 1(b), by optimizing the basis matrix W , the latent                than codebook utilization to improve reconstruction perfor-
+space spanned by CW is rotated and stretched to match                      mance. For example, RVQ [15] and MoVQ [41] enhance
+encoder’s output feature. The entire codebook is updated                   the reconstruction details with multichannel quantization.
+jointly to prevent the representation collapse problem. The                However, these methods suffer from a critical issue of rep-
+simplicity of the proposed method makes it highly portable                 resentation collapse, as they struggle to scale the codebook
+
+
+                                                                       2
+size beyond 10k entries, limiting their scalability. In re-           and the codebook entries [29]:
+sponse to this challenge, several approaches have been pro-
+posed recently. DALLE [18] employs the gumbel-softmax                    k = arg min ∥ze − qj ∥22 = arg min ∥ze − δj C∥22 .     (2)
+                                                                                   j                        j
+trick [12] and stochastic sampling strategies to activate most
+codes during training. However, during inference, only a              The selected vector qk is then passed to the decoder gϕ to
+small subset of codes is utilized for quantization [38]. Some         reconstruct the input image.
+methods design complex optimization strategies to improve                To enable gradient propagation through the non-
+codebook utilization, such as stochastic quantization [26],           differentiable characteristic vector δk , the straight-through
+distribution penalty [30, 32] and codebook reset [40]. Huh            estimator (STE) [3] is applied. During the backward pass,
+et al. [11] proposes rescaling the vectors in the codebook            the gradient of zq = δk C is copied to ze as follows,
+during training to match the distributions in the latent space.
+VQGAN-FC [33] introduces a method to map latent vec-                                                                ∂zq
+                                                                               zq = sg(δk C − ze ) + ze ,       ⇒       =1      (3)
+tors into a lower-dimensional space followed by l2 normal-                                                          ∂ze
+ization to alleviate representation collapse. FSQ [16] ex-
+tends this idea by projecting representations into a reduced-         where sg is the stop gradient operator, ensuring the gradient
+dimensional space, where they are quantized into a small              for δk C is discarded during the backward pass.
+set of fixed values. LFQ [35], a variant of FSQ, uses bi-                The learning objective is the combination of a recon-
+nary values for quantized representations, thereby simpli-            struction loss and commitment loss that ensures that the en-
+fying the encoding process. While these methods improve               coder commits to an embedding and the encoder’s output
+the codebook utilization, they do so at the cost of model ca-         does not drift:
+pacity by significantly reducing the dimensionality of latent
+space (often to as low as 8), leading to worse performance            L = log p(x|zq ) + ∥sg(δk C) − ze ∥22 + β∥δk C − sg(ze )∥22 ,
+compared to vanilla VQ models when the codebook size                                                                          (4)
+is small and representation collapse is not severe. Addi-             where log p(x|zq ) is typically the mean squared error
+tionally, VQGAN-LC [42] proposes to initialize the code-              (MSE) loss ∥x − gϕ (zq )∥22 for image and audio data.
+book using features extracted from the pre-trained CLIP               3.2. Disjoint Optimization of Codebook
+model to avoid representation collapse. However, the re-
+liance on the pre-trained model limits the VQ model’s abil-           In VQ models, only the nearest code is selected and updated
+ity to generalize to diverse datasets and results in a perfor-        via gradient descent. Ideally, all codebook entries should
+mance plateau as the codebook size increases. In contrast,            be updated and utilized for decoding. However, experimen-
+our method, SimVQ, effectively addresses the representa-              tal evidence shows that only a small fraction of the code-
+tion collapse problem with a simple linear layer, without             book gets updated and utilized, leading to what is known as
+sacrificing model capacity or relying on external pre-trained         the representation collapse problem [22]. To investigate the
+models.                                                               root cause of this issue, we provide a theoretical analysis of
+                                                                      the optimization dynamics in VQ models.
+                                                                          Due to the use of the straight-through estimator (STE)
+                                                                      for gradient propagation, the codebook C can only be up-
+3. Representation Collapse in VQ Models                               dated through the gradient of the commitment loss, which
+                                                                      is defined as:
+3.1. Preliminaries
+                                                                                       Lcommit (C) = ∥ze − δk C∥22 .            (5)
+A vector quantized model is typically a reconstructive
+encoder-decoder architecture that includes a vector quanti-           The codebook C is updated according to the following
+zation layer to convert continuous representations into dis-          equation, where η is the learning rate:
+crete codes. For simplicity, we represent an image with a
+                                                                                                     ∂Lcommit (C (t) )
+                                                                                                                      
+single random variable x. Formally, the encoder fθ maps                         (t+1)       (t)
+                                                                             C      = C + ηEze                                  (6)
+the input image into a latent space, producing a continu-                                                 ∂C (t)
+ous representation ze = fθ (x) ∈ Rd . This representa-                                     h            i
+                                                                             = C (t) − ηEze δkT δk C (t) + ηEze δkT ze
+                                                                                                                       
+                                                                                                                                (7)
+tion is then quantized using a learnable codebook C =
+[q1 , . . . , qK ] ∈ RK×d , where qi is a codebook vector. We
+define δk ∈ {0, 1}1×K as a characteristic (one-hot) vector            where δkT δk is the Kronecker delta matrix, defined as:
+where only the k-th element is 1, such that qk = δk C ∈                                           (
+R1×d . The quantization layer selects the nearest codebook                              T           1 if i = j = k,
+                                                                                     (δk δk )ij =                               (8)
+vector qk by minimizing the Euclidean distance between ze                                           0 otherwise.
+
+                                                                  3
+                                                                                        Trajectories of Points Over Iterations                                                                                Trajectories of Points Over Iterations
+All vectors in C will be updated    and utilized if and only            3
+                                                                                                                                                                                 3
+
+if the expectation Eze δkT δk converges to the identity ma-              2                                                                                                        2
+
+
+trix. Unlike variational autoencoders (VAEs) [14], which                 1                                                                                                        1
+
+                                                                    x1   0                                                                                                   x1   0
+enforce a Gaussian distribution on the latent space via a                -1                                                 q1    q2    q3       q4    q5                         -1                                                               q1   q2       q3   q4   q5
+
+
+KL-divergence penalty, VQ models               ze towards
+                                       optimize
+                                                                                                                                                             x                                                                                                                       x
+                                                                         -2                                                 q6    q7    q8       q9    q10                                                                                         q6   q7       q8   q9   q10
+                                                                                                                                                                                  -2
+
+
+the selected codebook vectors Eze δkT δk C . At the same                 -3
+
+                                                                              -3   -2     -1        0          1       2                3               4        5
+                                                                                                                                                                                  -3
+
+                                                                                                                                                                                           -3       -2         -1         0       1            2             3             4                 5
+
+time, the selected codebook vectors are optimized towards                                                 x2                                                                                                                     x2
+
+
+
+the distribution of ze , resulting in the same selected sub-        Figure 2. (a): (left) The optimization trajectory of the objective
+set of vectors moving closer to ze , somewhat akin to               ∥x − q∥22 , which is the same as vanilla VQ. Only a small fraction
+a cocoon effect. However, this disjoint optimization of             of points are updated while others remain inactive. (b): (right) The
+the codebook
+            leads   to part of the codebook, specifically         optimization trajectory of the objective ∥x − qw∥22 with q frozen,
+(I − Eze δkT δk )C, remaining un-updated and underuti-              which is the same as SimVQ. All the points are updated towards
+lized once the optimization process begins. This phe-               targets x.
+nomenon occurs because the optimization focuses only on a
+subset of codebook vectors, leaving other vectors stagnant.                             Trajectories of Points Over Iterations                                                                  Norm of Projection Matrix w and Loss Over Iterations
+                                                                                                                                                                                                                                                                                         12
+
+
+    This analysis reveals the fundamental cause of represen-             3
+                                                                                                                                                                             40
+
+                                                                                                                                                                             35
+                                                                                                                                                                                                                                                                                         10
+                                                                         2
+
+tation collapse in VQ models: the disjoint optimization pro-                                                                                                                 30                                                                                                          8
+
+
+
+                                                                                                                                                                 Norm of w
+                                                                         1                                                                                                                                                            Norm of w with q & w unfrozen
+                                                                                                                                                                             25
+                                                                                                                                                                                                                                                                                              Loss
+                                                                                                                                                                                                                                      Norm of w with w unfrozen, q frozen
+
+cess that updates only a subset of codebook vectors. This           x1   0                                                                                                   20                                                       Loss with q & w unfrozen
+                                                                                                                                                                                                                                      Loss with w unfrozen, q frozen
+                                                                                                                                                                                                                                                                                         6
+
+
+                                                                         -1                                            q1    q2    q3       q4    q5                         15                                                       Loss without w                                     4
+
+insight forms the basis for our proposed solution, SimVQ,                -2                                            q6    q7    q8       q9   q10
+                                                                                                                                                         x
+                                                                                                                                                                             10
+                                                                                                                                                                                                                                                                                         2
+                                                                                                                                                                             5
+which aims to address this issue by optimizing the entire la-            -3
+                                                                                                                                                                             0
+                                                                                                                                                                                                                                                                                         0
+                                                                              -3   -2     -1       0       1       2              3               4          5                         0                 20          40               60                80                     100
+
+tent space spanned by the codebook, rather than individual                                              x2                                                                                                                Iteration
+
+
+
+code vectors.                                                       Figure 3. (a): (left) The optimization trajectory of the optimization
+                                                                    objective: ∥x − qw∥22 with both q and w unfrozen. (b): (right)
+4. Addressing Collapse with Latent Linear                           The Frobenius norm of the projection matrix w and loss curves.
+   Transformation                                                   The loss quickly converges to 0 with w almost unchanged.
+
+4.1. Reparameterize Codes with Latent Basis
+Let W = {w1 , . . . , wn } be a basis of a linear space.            for minimizing commitment loss, leading to the disjoint op-
+Any vector v in the space can be uniquely expressed as              timization problem where only the selected codes will be
+a linear combination of the basis vectors with coefficients         updated.
+c1 , . . . , cn ∈ R:                                                    In contrast, when the codebook is reparameterized as
+                                                                    CW , both the basis W and the coefficient matrix C con-
+             v = c1 w1 + · · · + cn wn = cW .            (9)
+                                                                    tribute to minimizing the commitment loss. The gradients
+                                                                     ∂L        ∂L
+Given the equivalence between v and cW in the linear                ∂W and ∂C can simultaneously reduce the loss. As a re-
+space, we can reparameterize each vector in the codebook            sult, the optimization of the reparameterized codebook can
+of VQ models with a new basis matrix W ∈ Rd×d . Specif-             be divided into three scenarios:
+ically, the codebook C = {c1 , . . . , cK } can be reparame-        • Updating C with W frozen: Only the selected codes
+terized as:                                                            adapt to the latent distribution of ze , as depicted on Fig.
+                                                                       1(a). The vanilla VQ is a special case with W = I.
+          {ĉ1 W , . . . , ĉN W } = ĈW ∈ RK×d .       (10)        • Updating W with C frozen: The entire codebook CW
+                                                                       adjusts to the latent distribution of ze . The basis matrix
+This reparameterization introduces two components: the                 W rotates and stretches the space as shown in Fig. 1(b).
+basis matrix W and the coefficient matrix Ĉ. In the fol-           • Updating both C and W : The selected subset of codes
+lowing, we will discuss the optimization of both the basis             moves towards ze while the space spanned by W under-
+matrix W and the coefficient matrix Ĉ. For simplicity, we             goes simultaneous rotation and stretching.
+slightly abuse C and Ĉ below.
+                                                                        To highlight the difference in optimization between
+4.2. Asymmetric Optimization Dynamics                               C and CW , we conduct a toy experiment in a two-
+                                                                    dimensional setting and visualize the optimization process
+While it is commonly accepted that multiplying two lin-             in Fig. 2 and Fig. 3.
+ear matrices is equivalent to a single linear layer, we ar-
+gue that the disjoint optimization problem of the codebook
+                                                                    4.2.1. Toy Examples
+in VQ models can be addressed by linear transformation.
+In vanilla VQ models, only the codebook C is responsible                      We randomly sample two target points x from Gaussian
+
+
+                                                                4
+Algorithm 1 Training Procedure for SimVQ                            4.3. Joint Optimization of the Codebook
+                                                       K×d
+  Input: Encoder fθ , Decoder gϕ , Codebook C ∈ R       ,           We propose SimVQ by simply using a learnable basis W ∈
+  Linear projector matrix Wψ , commitment weight β.                 Rd×d to reparameterize the codebook such that the code-
+  Output: Model parameters θ, ϕ, ψ and Codebook C.                  book is transformed into CW . The pseudo-code for this
+  Initialize Codebook with Gaussian distribution and                approach is provided in Algorithm 1. During training, we
+  freeze the parameter of Codebook C;                               optimize only the latent basis matrix W , while keeping
+  repeat                                                            the coefficient matrix C frozen. The commitment loss for
+     Draw x ∼ pdata (x);                                            SimVQ is defined as:
+     ze = fθ (x);
+     /* Replace qj in vanilla VQ with proposed qj Wψ .                         Lcommit (ze , qk ) = ∥ze − δk CW ∥22 .       (13)
+     Nearest code search: k = arg minj ∥ze − qj Wψ ∥22 ,
+     where qj ∈ C;                                                  The vanilla VQ model is a special case of SimVQ, where
+     Straight Through Estimation: zq = sg(qk Wψ − ze ) +            the linear basis matrix W is fixed as the identity matrix I.
+     ze ;                                                           The update for W with learning rate η is:
+     x̂ = gϕ (zq );
+                                                                                          ∂Lcommit (ze , qk )
+     Minimize       L(θ, ϕ, ψ)=MSE(x, x̂) + β∥ze −                    W (t+1) = W (t) − η                           (14)
+     sg(qk Wψ )∥22 + ∥sg(ze ) − qk Wψ ∥22 ;                                                    ∂W (t)
+                                                                      = (I − ηEze C δk δk C )W (t) + ηEze C T δkT ze .
+                                                                                  T T                            
+  until converged
+                                                                                                                    (15)
+                                                                                          
+distribution as follows:                                            The term E C T δkT δk C represents the expectation of the
+                                                            quadratic form, and simplifies to E[qkT qk ]. Since the codes
+             2      1 0                 −2   1     0                are randomly sampled from a Gaussian distribution, we
+ x1 ∼ N (        ,        ),   x2 ∼ N (    ,           ).
+             2      0 1                 −2   0     1                have:
+                                                                                E qkT qk = I, where q ∼ N (0, 1),
+                                                                                       
+                                                     (11)                                                                    (16)
+Then we initialize 10 learnable vectors q from a Gaussian
+distribution:                                                       which ensures that all elements of W are updated. As train-
+                                                                ing progresses, the latent basis W converges to:
+                   10         0     1 0
+              {qi }i=1 ∼ N (     ,         ),        (12)                             lim W (t) = Eze qkT ze
+                                                                                                            
+                                                                                                                           (17)
+                              0     0 1                                               t→∞
+
+During training with gradient descent, we introduce pertur-         Thus, in the limit:
+bation noise N (0, 0.01) to the targets. In Fig. 2(a), the
+optimization objective is similar to vanilla VQ: ∥x − q∥22 .                     lim qk W (t) = E qk qkT e = E [e]
+                                                                                                         
+                                                                                                                            (18)
+                                                                                t→∞
+Only the nearest points q4 and q10 are updated. In contrast,
+in Fig. 2(b), the optimization objective ∥x − qw∥22 is simi-        At convergence, the product qk W equals the nearest fea-
+lar to SimVQ with the points reparameterized by a learnable         ture.
+latent basis w and q frozen, resulting in the entire codebook
+{q}10i=1 being jointly updated.
+                                                                    4.4. Efficiency Analysis
+Remark 1. The simultaneous optimization of the latent ba-           SimVQ demonstrates greater efficiency than vanilla VQ due
+sis w and the coefficient matrix q may lead to the collapse.        to its asymmetric training strategy, wherein the codebook
+                                                                    C remains static and only the linear projection W is op-
+    We provide an example in Fig. 3(a) where the optimiza-          timized. This approach results in a significant reduction
+tion objective is ∥x − qw∥22 with q unfrozen this time. In          in memory usage during the gradient backpropagation pro-
+the training process, only the nearest point q1 and point           cess. In vanilla VQ, the memory cost for codebook opti-
+q10 move towards the target point, while other points re-           mization is O(Kd), where K is the number of vectors in
+main almost unchanged. We also visualize the loss curve             the codebook, and d is the dimension of each vector. In
+in Fig. 3(b). The optimization objective with both q and            our experiments, K = 65, 536 is much larger than d =
+w unfrozen converges quickly, where the norm of basis w             128. As the vocabulary size increases, the memory required
+is much smaller than the objective with q frozen. This in-          for backpropagation grows proportionally, significantly im-
+dicates that the disjoint optimization of the codebook per-         pacting resource consumption. In contrast, SimVQ’s mem-
+sists: q can directly commit to the loss and dominate the           ory cost for backpropagation is only O(d2 ) because the
+optimization process, with w being ignored, leading to the          codebook C is fixed, and only the linear layer W is up-
+collapse quickly.                                                   dated. This results in a constant memory requirement in
+
+
+                                                                5
+          Method                        Latent dim     Codebook size        Util↑     rFID↓    LPIPS↓     PSNR↑      SSIM↑
+          VQGAN [9]                         128            65,536           1.4%       3.74      0.17      22.20       70.6
+          VQGAN-EMA [19]                    128            65,536           4.5%       3.23      0.15      22.89       72.3
+          VQGAN-FC [33]                     128            65,536           1.4%       5.33      0.18      21.45       68.8
+          VQGAN-FC [33]                       8            65,536          100.0%      2.63      0.13      23.79       77.5
+          FSQ† [16]                           6            64,000          100.0%      2.80      0.13      23.63       75.8
+          LFQ [35]                           16            65,536          100.0%      2.88      0.13      23.60       77.2
+          VQGAN-LC-CLIP+ [42]               768            65,536          100.0%      2.40      0.13      23.98       77.3
+          SimVQ (ours)                      128            65,536          100.0%      2.24      0.12      24.15       78.4
+          SimVQ (ours)                      128           262,144          100.0%      1.99      0.11      24.68       80.3
+
+Table 1. Reconstruction performance on ImageNet-1k with a resolution of 128 × 128. All models are trained using images downsampled
+into 16 × 16 tokens. † Results are reproduced using the codebook size of [8, 8, 8, 5, 5, 5] to approximately match 65, 536. + Following
+VQGAN-LC, we extract CLIP features with the codebook frozen. The codebook utilization is calculated as the fraction of the codes that
+are activated at least once when encoding the validation set.
+
+
+backpropagation, independent of the vocabulary size. The                5.1.2. Implementation Details
+d × d scaling becomes particularly advantageous as K in-                To rigorously evaluate the proposed SimVQ, we reproduce
+creases in practical applications. This structural design min-          all the VQ models listed in Tab. 1 using the same archi-
+imizes the computational overhead and improves training                 tecture of VQGAN [9] with the quantization layer differ-
+efficiency, especially when dealing with large vocabularies.            ent only. Among the baselines, for VQGAN-FC [33], we
+                                                                        follow the original setting to reduce the dimension of the
+5. Experiments                                                          latent space to 8 followed by l2 normalization to improve
+                                                                        codebook utilization. For FSQ [16], we adopt a codebook
+To assess the efficacy and versatility of the proposed                  size of [8, 8, 8, 5, 5, 5, ] as recommended, to approximately
+SimVQ, we conduct experiments across both image and au-                 match the default codebook size. For VQGAN-LC [42],
+dio modalities. Subsequently, we analyze the learned linear             we follow them and leverage an external pre-trained CLIP
+layer to investigate the latent basis. The experimental con-            model to extract features of the training dataset in advance
+figurations are listed in Appendix 8.1.                                 for a well-defined latent space. All models are trained on
+                                                                        the ImageNet [7] dataset for 50 epochs with a batch size of
+5.1. Vision Modality                                                    256. Input images are processed at a resolution of 128×128
+5.1.1. Baselines                                                        pixels and downsampled by a factor of 8, yielding a feature
+                                                                        map of 16 × 16 × 128, where 128 is the dimension of the
+Our baseline selection focuses on methods that enhance                  latent space. We set the default codebook size to a large
+codebook utilization through architectural designs. We in-              number of 216 = 65536 rather than the traditional number
+clude VQGAN-FC [33], FSQ [16], LFQ [35] and VQGAN-                      8192 to highlight the representation collapse problem. Per-
+LC-CLIP [42] as our primary baselines, as they represent                formance is evaluated using rFID, LPIPS, PSNR, and SSIM
+the current state-of-the-art in improving reconstruction per-           metrics on the ImageNet validation set.
+formance through codebook architecture innovations. Tra-
+ditional VQ variants such as RVQ [15] and MoVQ [41] ad-                 5.1.3. Main Results
+dress fundamentally different technical challenges - they fo-           Tab. 1 presents the reconstruction performance of vari-
+cus on training better discrete representations, rather than            ous VQ models on image data. We make three key ob-
+enhancing codebook utilization to improve reconstruction                servations: 1) Traditional VQGAN models utilize only a
+performance like our work. Another important research di-               very small subset of the codebook, with a utilization rate
+rection explores optimization-based solutions, where meth-              of just 1.4%. Although VQGAN-EMA is proposed to im-
+ods like stochastic quantization [26], distribution penalty             prove codebook utilization, especially when the codebook
+[30, 32], and codebook reset [40] tackle codebook utiliza-              size scales up to 65k, it still suffers from severe representa-
+tion through sophisticated training strategies. Given our               tion collapse. 2) Recently proposed methods, such as LFQ,
+focus on architectural innovations in codebook design, we               FSQ, and VQGAN-FC, effectively improve codebook uti-
+evaluate SimVQ against methods that share this technical                lization to 100%. However, these methods require reducing
+foundation for a meaningful assessment of our contribu-                 the latent space to a very low dimension. For example, ap-
+tions.                                                                  plying VQGAN-FC to the standard latent dimension of 128
+
+
+                                                                    6
+            Method                                 Bandwidth                    Util↑        UTMOS↑         PESQ↑         STOI↑       V/UV F1↑
+            GT                                         -                          -          4.06/3.48         -             -             -
+            EnCodec [6]                             3.0kbps                       -          2.31/2.09     2.05/2.05     0.90/0.88     0.92/0.89
+            Vocos [24]                              3.0kbps                       -          3.53/3.06     2.40/2.19     0.92/0.90     0.94/0.91
+            SpeechTokenizer [39]                    3.0kbps                       -          3.56/3.02     1.93/1.74     0.88/0.84     0.93/0.89
+            WavTokenizer [13]                       0.9kbps             100/100%             3.74/3.43∗   2.01/2.26∗    0.89/0.89∗    0.92/0.92∗
+            SimVQ (ours)                            0.9kbps            100.0/100.0%          4.00/3.51    2.33/2.08     0.91/0.88     0.94/0.91
+            WavTokenizer [13]                      0.975kbps               68/-%              4.02∗ /-      2.39∗ /-      0.92∗ /-      0.94∗ /-
+            WavTokenizer [13]                      1.05kbps                27/-%              4.00∗ /-      2.36∗ /-      0.81∗ /-      0.94∗ /-
+            SimVQ (ours)                           0.975kbps             99.4/99.4%          4.03/3.52     2.42/2.15     0.92/0.88     0.94/0.92
+            SimVQ (ours)                            1.2kbps              99.4/99.0%          4.03/3.52     2.54/2.26     0.93/0.90     0.94/0.92
+            SimVQ (ours)                           1.35kbps              95.6/94.7%          4.03/3.53     2.61/2.31     0.93/0.90     0.95/0.93
+
+Table 2. Reconstruction performance on LibriTTS test-clean/test-other dataset. ∗ WavTokenizer is trained with a window size of 3 seconds.
+The bandwidth of 0.9kbps, 0.975kbps, 1.2kbps, 1.35kbps means the codebook size of 4096, 8192, 65536, 262144 respectively.
+
+
+ Method                   Codebook Size   Util↑     rFID↓   LPIPS↓     PSNR↑     SSIM↑       is typically the level of LLM’s vocabulary size. SimVQ
+ VQGAN-LC-CLIP† [42]           50,000     99.9%     2.75      0.13      23.8      58.4
+ VQGAN-LC-CLIP† [42]          100,000     99.9%     2.62      0.12      23.8      58.9       consistently improves performance as the codebook size in-
+ VQGAN-LC-CLIP† [42]          200,000     99.8%     2.66      0.12      23.9      59.2       creases. For instance, the rFID score decreases to 1.99, and
+ SimVQ                          1,024     100.0%    3.67      0.16      22.34     70.8
+ SimVQ                          8,192     100.0%    2.98      0.14      23.23     74.7
+                                                                                             SSIM surpasses 80.0. In contrast, while VQGAN-LC-CLIP
+ SimVQ                         65,536     100.0%    2.24      0.12      24.15     78.4       can keep high codebook utilization as increasing codebook
+ SimVQ                        262,144     100.0%    1.99      0.11      24.68     80.3
+                                                                                             size, it encounters performance degradation, with the rFID
+Table 3. Ablation study on the effect of various codebook sizes                              score worsening from 2.62 to 2.66 when the codebook size
+on ImageNet at a resolution of 128 × 128. † We directly copy the                             is increased from 100, 000 to 200, 000.
+reported results of VQGAN-LC from the original paper on Ima-
+geNet 256 × 256 resolution.                                                                  On the Codebook Optimization Strategy We investi-
+                                                                                             gate codebook initialization and the training of the linear
+ Initialization   Trainable       Util↑    rFID↓     LPIPS↓          PSNR↑      SSIM↑
+                                                                                             layer in Tab. 4. Our findings are as follows: 1) The code-
+   Gaussian         Yes         100.0%      2.31       0.12          24.04       77.2        book is robust to different initialization strategies, yielding
+   Uniform          No          100.0%      2.31       0.12          24.15       78.4
+   Gaussian         No          100.0%      2.24       0.12          24.15       78.4        similar results with both Gaussian and uniform initializa-
+                                                                                             tion. 2) When the codebook is updated during training,
+   Table 4. Ablation study of codebook optimization strategy.                                SimVQ continues to address the representation collapse is-
+                                                                                             sue, though with a slight degradation in performance.
+
+results in severe representation collapse and degraded re-                                   5.2. Audio Modality
+construction performance. Additionally, these models face
+                                                                                             5.2.1. Baselines and Implementation Details
+limitations in model capacity due to the low-dimensional
+latent space. While they achieve full codebook utilization,                                  We use the LibriTTS dataset [36] for audio-based VQ
+their reconstruction quality on rFID score lags significantly                                model training. The baselines such as Encodec [6], Vo-
+behind SimVQ. 3) VQGAN-LC-CLIP leverages an exter-                                           cos [24], and SpeechTokenizer [39] are based on residual
+nal pre-trained CLIP model to provide a well-defined latent                                  vector quantization method. Our SimVQ model adopts the
+space. However, VQGAN-LC relies on CLIP features pre-                                        same architecture as WavTokenizer [13] with the only modi-
+trained on much larger datasets than ImageNet, which intro-                                  fication being the replacement of their EMA codebook with
+duces generalization issues and a lower performance ceiling                                  our one linear layer reparameterization method. We train
+(degradation issue in Tab. 3). In contrast, SimVQ can be                                     SimVQ on LibriTTS-580h for 50 epochs with a batch size
+applied to a wide range of data types and achieves superior                                  of 64. Note that WavTokenizer is trained with a 3-second
+performance (rFID 2.40 vs. 2.24) without the limitations                                     window size for optimal performance, we train SimVQ us-
+imposed by a pre-trained feature extraction model.                                           ing a 1-second window to accelerate training. For objec-
+                                                                                             tive evaluation of the reconstructed audio, we follow Vocos
+5.1.4. Ablation Study                                                                        [24] and employ metrics such as UTMOS [23], PESQ [20],
+On the Codebook Size In Tab. 3, we explore the impact                                        STOI, and the F1 score for voiced/unvoiced classification
+of different codebook sizes, ranging from 1k to 262k, which                                  (V/UV F1). UTMOS is particularly valuable as it produces
+
+
+                                                                                         7
+                                                                                                                                                          Rank of W (Codebook Size = 65536)
+
+
+
+
+                 Rank of Latent Basis Matrix W                                                Frobenius Norm of Latent Basis Matrix W
+       130                                                                          250
+       128                                                                                                                                                             15                                                15
+       120                                                                          225
+                                                                                                                                                                       10                                                10
+                              Rank of W (Codebook Size = 65536)                     200
+       110
+
+
+
+
+                                                                   Frobenius Norm
+                              Rank of W (Codebook Size = 262144)
+                                                                                    175                                                                                 5                                                 5
+       100
+
+Rank
+                                                                                    150
+       90
+                                                                                                                                                                        0                                                 0
+                                                                                    125
+       80                                                                                                                                                               5                                                 5
+                                                                                    100
+       70                                                                                                      Norm of W (Codebook Size = 65536)
+                                                                                    75                                                                                 10                                                10
+                                                                                                               Norm of W (Codebook Size = 262144)
+       60                                                                           50                                                                                 15                                                15
+             0   10      20          30          40          50                           0      10       20          30          40          50
+                      Number of Epochs                                                                 Number of Epochs                                                          15     10    5   0    5    10    15             15   10      5    0     5       10   15
+                                                                                                                                                                                              Embedding z        Codebook z (Used)         Codebook z (Unused)
+
+Figure 4. (a):(left) The rank of latent basis matrix W over training
+epochs. (b):(right) The Frobenius norm of latent basis matrix W                                                                                         Figure 5. Visualization of the divergence between the encoder fea-
+over training epochs.                                                                                                                                   tures and codebook embeddings on a random subset of ImageNet
+                                                                                                                                                        validation dataset. The left figure is vanilla VQ model and the right
+                                                                                                                                                        one is SimVQ.
+scores highly correlated with human evaluations.
+                                                                                                                                                        5.4. Qualitative Evaluation
+5.2.2. Main Results
+                                                                                                                                                        We visualize the distribution of encoder features and code-
+Tab. 2 presents the reconstruction performance of various                                                                                               book embeddings in Fig. 5 and the frequency in Appendix
+VQ models on audio data. Baseline models using resid-                                                                                                   8.3. Compared to vanilla VQ models that most codebook
+ual vector quantization perform significantly worse than                                                                                                vectors are not unused, SimVQ can update the whole code-
+SimVQ, even when utilizing much larger bandwidths. De-                                                                                                  book and distribute the features evenly in the whole space.
+spite using the same architecture as WavTokenizer, our                                                                                                  We qualitatively compare the reconstruction quality of both
+model, which replaces the quantization layer with SimVQ,                                                                                                images and audio in Appendix 8.4. SimVQ can presreve
+achieves superior performance with a 1-second window size                                                                                               more details with an enlarged codebook size, such as “eyes”
+and maintains nearly 100% codebook utilization when scal-                                                                                               and “text”, which are challenging for vanilla VQ models.
+ing up to a size of 262,144. The consistent performance of
+the SimVQ model across both image and audio data demon-
+                                                                                                                                                        6. Discussion
+strates that SimVQ is a general method for addressing the
+representation collapse problem in VQ models and can be                                                                                                 VQ Performance and Generative Models Many gener-
+effectively applied across multiple modalities.                                                                                                         ative models [21, 25, 28, 34] utilize VQ models as a “tok-
+                                                                                                                                                        enizer” to obtain discrete tokens. While it is intuitive that
+5.3. Analysis                                                                                                                                           VQ reconstruction quality should impact generation perfor-
+                                                                                                                                                        mance, recent studies [35, 43] have revealed that the re-
+In Fig. 4(a), we plot the rank of the latent basis matrix over                                                                                          lationship is more nuanced: improved VQ reconstruction
+training epochs. Notably, SimVQ demonstrates the ability                                                                                                metrics do not necessarily translate to better generative out-
+to adaptively adjust the rank of the latent space. Specifi-                                                                                             comes. This complex relationship suggests that evaluating
+cally, when the codebook size increases from 65k to 262k,                                                                                               VQ models primarily through downstream generation tasks
+the rank of the latent basis matrix decreases more rapidly                                                                                              may not provide the most insightful assessment of their fun-
+and converges to a lower value. This observation suggests                                                                                               damental properties. Therefore, we focus on addressing the
+that a larger codebook can effectively alleviate the pressure                                                                                           critical issue of representation collapse in VQ models, aim-
+on the latent space dimensionality, allowing the model to                                                                                               ing to advance our understanding of their core representa-
+learn to represent data more efficiently. Additionally, de-                                                                                             tion learning mechanisms.
+spite the rank decreasing to a lower-rank space, SimVQ
+maintains 100% codebook utilization, highlighting its supe-                                                                                             7. Conclusion
+riority over VQGAN-FC, which struggles when increasing
+the latent dimension from 8 to 128. We also calculate the                                                                                               In this paper, we explore the representation collapse prob-
+Frobenius norm of the latent basis matrix, as shown in Fig.                                                                                             lem in VQ models. We conduct a theoretical analysis of
+4. The norm of a codebook size of 262k is slightly larger                                                                                               the optimization process in VQ models and propose a sim-
+than for 65k, indicating that a larger codebook can span a                                                                                              ple yet effective method, SimVQ, to address this issue. Our
+broader area in the linear space. For a comprehensive eval-                                                                                             method addresses the representation collapse by jointly op-
+uation, we also provide the reconstruction loss curve on the                                                                                            timizing the latent space through a linear transformation
+ImageNet validation dataset in Appendix 8.2. The results                                                                                                with one linear layer. Experimental results demonstrate
+consistently show that SimVQ achieves improved perfor-                                                                                                  that SimVQ outperforms previous approaches on both im-
+mance, further validating the effectiveness of our approach.                                                                                            age and audio datasets, highlighting its broad applicability
+
+
+                                                                                                                                                    8
+across diverse machine learning tasks.                                   [10] Zhangyang Gao, Cheng Tan, Jue Wang, Yufei Huang, Lirong
+                                                                              Wu, and Stan Z Li. Foldtoken: Learning protein lan-
+Acknowledgement                                                               guage via vector quantization and beyond. arXiv preprint
+                                                                              arXiv:2403.09673, 2024. 1
+This research was supported by the National Natu-                        [11] Minyoung Huh, Brian Cheung, Pulkit Agrawal, and Phillip
+ral Science Foundation of China (Grant No.62276245).                          Isola. Straightening out the straight-through estimator: Over-
+                                                                              coming optimization challenges in vector quantized net-
+                                                                              works. In Proceedings of the 40th International Conference
+References                                                                    on Machine Learning, pages 14096–14113. PMLR, 2023. 3
+ [1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ah-               [12] Eric Jang, Shixiang Gu, and Ben Poole. Categorical
+     mad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida,                 reparameterization with gumbel-softmax. In 5th Interna-
+     Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al.                  tional Conference on Learning Representations, ICLR 2017,
+     Gpt-4 technical report. arXiv preprint arXiv:2303.08774,                 Toulon, France, April 24-26, 2017, Conference Track Pro-
+     2023. 1                                                                  ceedings. OpenReview.net, 2017. 3
+ [2] Alexei Baevski, Yuhao Zhou, Abdelrahman Mohamed, and                [13] Shengpeng Ji, Ziyue Jiang, Xize Cheng, Yifu Chen, Minghui
+     Michael Auli. wav2vec 2.0: A framework for self-supervised               Fang, Jialong Zuo, Qian Yang, Ruiqi Li, Ziang Zhang, Xi-
+     learning of speech representations. In Advances in Neural In-            aoda Yang, et al. Wavtokenizer: an efficient acoustic discrete
+     formation Processing Systems, pages 12449–12460. Curran                  codec tokenizer for audio language modeling. arXiv preprint
+     Associates, Inc., 2020. 1                                                arXiv:2408.16532, 2024. 7
+ [3] Yoshua Bengio, Nicholas Léonard, and Aaron Courville.              [14] Diederik P. Kingma and Max Welling. Auto-encoding vari-
+     Estimating or propagating gradients through stochastic                   ational bayes. CoRR, abs/1312.6114, 2013. 4
+     neurons for conditional computation.          arXiv preprint        [15] Doyup Lee, Chiheon Kim, Saehoon Kim, Minsu Cho, and
+     arXiv:1308.3432, 2013. 3                                                 Wook-Shin Han. Autoregressive image generation using
+ [4] Zalán Borsos, Raphaël Marinier, Damien Vincent, Eugene                 residual quantization. 2022 IEEE/CVF Conference on Com-
+     Kharitonov, Olivier Pietquin, Matt Sharifi, Dominik Roblek,              puter Vision and Pattern Recognition (CVPR), pages 11513–
+     Olivier Teboul, David Grangier, Marco Tagliasacchi, and                  11522, 2022. 2, 6
+     Neil Zeghidour. Audiolm: A language modeling approach               [16] Fabian Mentzer, David Minnen, Eirikur Agustsson, and
+     to audio generation. IEEE/ACM Transactions on Audio,                     Michael Tschannen. Finite scalar quantization: VQ-VAE
+     Speech, and Language Processing, 31:2523–2533, 2023. 1                   made simple. In The Twelfth International Conference on
+ [5] Jake Bruce, Michael D Dennis, Ashley Edwards, Jack                       Learning Representations, 2024. 1, 3, 6
+     Parker-Holder, Yuge Shi, Edward Hughes, Matthew Lai,                [17] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+     Aditi Mavalankar, Richie Steigerwald, Chris Apps, Yusuf                  Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry,
+     Aytar, Sarah Maria Elisabeth Bechtle, Feryal Behbahani,                  Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen
+     Stephanie C.Y. Chan, Nicolas Heess, Lucy Gonzalez, Simon                 Krueger, and Ilya Sutskever. Learning transferable visual
+     Osindero, Sherjil Ozair, Scott Reed, Jingwei Zhang, Kon-                 models from natural language supervision. In Proceedings
+     rad Zolna, Jeff Clune, Nando De Freitas, Satinder Singh,                 of the 38th International Conference on Machine Learning,
+     and Tim Rocktäschel. Genie: Generative interactive environ-             pages 8748–8763. PMLR, 2021. 2
+     ments. In Proceedings of the 41st International Conference          [18] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott Gray,
+     on Machine Learning, pages 4603–4623. PMLR, 2024. 1                      Chelsea Voss, Alec Radford, Mark Chen, and Ilya Sutskever.
+ [6] Alexandre Défossez, Jade Copet, Gabriel Synnaeve, and                   Zero-shot text-to-image generation. In Proceedings of the
+     Yossi Adi. High fidelity neural audio compression. Transac-              38th International Conference on Machine Learning, pages
+     tions on Machine Learning Research, 2023. Featured Certi-                8821–8831. PMLR, 2021. 3
+     fication, Reproducibility Certification. 1, 7                       [19] Ali Razavi, Aaron van den Oord, and Oriol Vinyals. Gen-
+ [7] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li,                   erating diverse high-fidelity images with vq-vae-2. In Ad-
+     and Li Fei-Fei. Imagenet: A large-scale hierarchical image               vances in Neural Information Processing Systems. Curran
+     database. In 2009 IEEE Conference on Computer Vision and                 Associates, Inc., 2019. 1, 6
+     Pattern Recognition, pages 248–255, 2009. 6                         [20] A.W. Rix, J.G. Beerends, M.P. Hollier, and A.P. Hek-
+ [8] Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Ab-                     stra. Perceptual evaluation of speech quality (pesq)-a new
+     hishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil                      method for speech quality assessment of telephone networks
+     Mathur, Alan Schelten, Amy Yang, Angela Fan, et al. The                  and codecs. In 2001 IEEE International Conference on
+     llama 3 herd of models. arXiv preprint arXiv:2407.21783,                 Acoustics, Speech, and Signal Processing. Proceedings (Cat.
+     2024. 1                                                                  No.01CH37221), pages 749–752 vol.2, 2001. 7
+ [9] Patrick Esser, Robin Rombach, and Bjorn Ommer. Taming               [21] Robin Rombach, Andreas Blattmann, Dominik Lorenz,
+     transformers for high-resolution image synthesis. In Pro-                Patrick Esser, and Björn Ommer. High-resolution image
+     ceedings of the IEEE/CVF Conference on Computer Vision                   synthesis with latent diffusion models. In Proceedings of
+     and Pattern Recognition (CVPR), pages 12873–12883, 2021.                 the IEEE/CVF Conference on Computer Vision and Pattern
+     1, 2, 6                                                                  Recognition (CVPR), pages 10684–10695, 2022. 1, 2, 8
+
+
+                                                                     9
+[22] Aurko Roy, Ashish Vaswani, Arvind Neelakantan, and Niki             [35] Lijun Yu, Jose Lezama, Nitesh Bharadwaj Gundavarapu,
+     Parmar. Theory and experiments on vector quantized autoen-               Luca Versari, Kihyuk Sohn, David Minnen, Yong Cheng,
+     coders. arXiv preprint arXiv:1805.11063, 2018. 1, 3                      Agrim Gupta, Xiuye Gu, Alexander G Hauptmann, Boqing
+[23] Takaaki Saeki, Detai Xin, Wataru Nakata, Tomoki Ko-                      Gong, Ming-Hsuan Yang, Irfan Essa, David A Ross, and Lu
+     riyama, Shinnosuke Takamichi, and Hiroshi Saruwatari. Ut-                Jiang. Language model beats diffusion - tokenizer is key to
+     mos: Utokyo-sarulab system for voicemos challenge 2022.                  visual generation. In The Twelfth International Conference
+     ArXiv, abs/2204.02152, 2022. 7                                           on Learning Representations, 2024. 1, 3, 6, 8
+[24] Hubert Siuzdak. Vocos: Closing the gap between time-                [36] Heiga Zen, Viet Dang, Rob Clark, Yu Zhang, Ron J Weiss,
+     domain and fourier-based neural vocoders for high-quality                Ye Jia, Zhifeng Chen, and Yonghui Wu. Libritts: A corpus
+     audio synthesis. In The Twelfth International Conference on              derived from librispeech for text-to-speech. arXiv preprint
+     Learning Representations, 2024. 7                                        arXiv:1904.02882, 2019. 7
+[25] Peize Sun, Yi Jiang, Shoufa Chen, Shilong Zhang, Bingyue            [37] Dong Zhang, Shimin Li, Xin Zhang, Jun Zhan, Pengyu
+     Peng, Ping Luo, and Zehuan Yuan. Autoregressive model                    Wang, Yaqian Zhou, and Xipeng Qiu. SpeechGPT: Empow-
+     beats diffusion: Llama for scalable image generation. arXiv              ering large language models with intrinsic cross-modal con-
+     preprint arXiv:2406.06525, 2024. 1, 8                                    versational abilities. In Findings of the Association for Com-
+[26] Yuhta Takida, Takashi Shibuya, Weihsiang Liao, Chieh-                    putational Linguistics: EMNLP 2023, pages 15757–15773,
+     Hsin Lai, Junki Ohmura, Toshimitsu Uesaka, Naoki Murata,                 Singapore, 2023. Association for Computational Linguistics.
+     Shusuke Takahashi, Toshiyuki Kumakura, and Yuki Mitsu-                   1
+     fuji. SQ-VAE: Variational Bayes on discrete representation          [38] Jiahui Zhang, Fangneng Zhan, Christian Theobalt, and Shi-
+     with self-annealed stochastic quantization. In Proceedings               jian Lu. Regularized vector quantization for tokenized im-
+     of the 39th International Conference on Machine Learning,                age synthesis. In Proceedings of the IEEE/CVF Conference
+     pages 20987–21012. PMLR, 2022. 1, 3, 6                                   on Computer Vision and Pattern Recognition (CVPR), pages
+[27] Chaofan Tao, Qian Liu, Longxu Dou, Niklas Muennighoff,                   18467–18476, 2023. 3
+     Zhongwei Wan, Ping Luo, Min Lin, and Ngai Wong. Scaling             [39] Xin Zhang, Dong Zhang, Shimin Li, Yaqian Zhou, and
+     laws with vocabulary: Larger models deserve larger vocabu-               Xipeng Qiu. Speechtokenizer: Unified speech tokenizer for
+     laries. arXiv preprint arXiv:2407.13623, 2024. 1                         speech language models. In The Twelfth International Con-
+[28] Chameleon Team. Chameleon: Mixed-modal early-fusion                      ference on Learning Representations, 2024. 7
+     foundation models. arXiv preprint arXiv:2405.09818, 2024.           [40] Chuanxia Zheng and Andrea Vedaldi. Online clustered code-
+     1, 2, 8                                                                  book. In Proceedings of the IEEE/CVF International Con-
+[29] Aaron van den Oord, Oriol Vinyals, and koray kavukcuoglu.                ference on Computer Vision, pages 22798–22807, 2023. 1,
+     Neural discrete representation learning. In Advances in Neu-             3, 6
+     ral Information Processing Systems. Curran Associates, Inc.,        [41] Chuanxia Zheng, Guoxian Song, Tat-Jen Cham, Jianfei
+     2017. 1, 2, 3                                                            Cai, Dinh Q. Phung, and Linjie Luo. High-quality plu-
+[30] Tung-Long Vuong, Trung Le, He Zhao, Chuanxia Zheng,                      ralistic image completion via code shared vqgan. ArXiv,
+     Mehrtash Harandi, Jianfei Cai, and Dinh Phung. Vec-                      abs/2204.01931, 2022. 2, 6
+     tor quantized wasserstein auto-encoder. In Proceedings of           [42] Lei Zhu, Fangyun Wei, Yanye Lu, and Dong Chen. Scaling
+     the 40th International Conference on Machine Learning.                   the codebook size of vqgan to 100,000 with a utilization rate
+     JMLR.org, 2023. 1, 3, 6                                                  of 99%. ArXiv, abs/2406.11837, 2024. 1, 2, 3, 6, 7
+[31] Chengyi Wang, Sanyuan Chen, Yu Wu, Ziqiang Zhang,
+                                                                         [43] Yongxin Zhu, Bocheng Li, Hang Zhang, Xin Li, Linli Xu,
+     Long Zhou, Shujie Liu, Zhuo Chen, Yanqing Liu, Huam-
+                                                                              and Lidong Bing. Stabilize the latent space for image au-
+     ing Wang, Jinyu Li, et al. Neural codec language models
+                                                                              toregressive modeling: A unified perspective. In The Thirty-
+     are zero-shot text to speech synthesizers. arXiv preprint
+                                                                              eighth Annual Conference on Neural Information Processing
+     arXiv:2301.02111, 2023. 1
+                                                                              Systems, 2024. 8
+[32] Pan Xiao, Peijie Qiu, and Aristeidis Sotiras.            Sc-
+                                                                         [44] Yongxin Zhu, Dan Su, Liqiang He, Linli Xu, and Dong Yu.
+     vae: Sparse coding-based variational autoencoder. ArXiv,
+                                                                              Generative pre-trained speech language model with efficient
+     abs/2303.16666, 2023. 1, 3, 6
+                                                                              hierarchical transformer. In Proceedings of the 62nd An-
+[33] Jiahui Yu, Xin Li, Jing Yu Koh, Han Zhang, Ruoming Pang,
+                                                                              nual Meeting of the Association for Computational Linguis-
+     James Qin, Alexander Ku, Yuanzhong Xu, Jason Baldridge,
+                                                                              tics (Volume 1: Long Papers), pages 1764–1775, Bangkok,
+     and Yonghui Wu. Vector-quantized image modeling with im-
+                                                                              Thailand, 2024. Association for Computational Linguistics.
+     proved VQGAN. In International Conference on Learning
+                                                                              1
+     Representations, 2022. 1, 3, 6
+[34] Jiahui Yu, Yuanzhong Xu, Jing Yu Koh, Thang Luong, Gun-
+     jan Baid, Zirui Wang, Vijay Vasudevan, Alexander Ku, Yin-
+     fei Yang, Burcu Karagol Ayan, Ben Hutchinson, Wei Han,
+     Zarana Parekh, Xin Li, Han Zhang, Jason Baldridge, and
+     Yonghui Wu. Scaling autoregressive models for content-rich
+     text-to-image generation. Transactions on Machine Learn-
+     ing Research, 2022. Featured Certification. 1, 2, 8
+
+
+                                                                    10
+          Addressing Representation Collapse in Vector Quantized Models with
+                                  One Linear Layer
+                                               Supplementary Material
+8. Appendix                                                          8.2. Loss Curve
+8.1. Experimental Configurations                                                                            Reconstruction MSE Loss over iteration
+
+                                                                                                                                                        VQGAN
+Tab. 5 provides the experimental configurations for both             0.105                                                                              LFQ
+                                                                                                                                                        FSQ
+
+image and audio modalities utilized in this study. For the             0.1                                                                              VQGAN-FC
+                                                                                                                                                        VQGAN-LC
+
+image modality, the input size is specified as 128 × 128 × 3.        0.095                                                                              SimVQ w/ C unfrozen
+                                                                                                                                                        SimVQ-65536
+                                                                      0.09
+The batch size for images is set at 256. The model is trained                                                                                           SimVQ-262144
+
+                                                                     0.085
+
+for a total of 50 epochs. Each image is represented with              0.08
+
+a quantized sequence length of 16 × 16, dividing the in-             0.075
+                                                                                 SimVQ-262144
+put data into a grid of tokens. In terms of optimization, the
+                                                                             0       20k        40k   60k     80k   100k    120k   140k   160k   180k    200k      220k       240k
+
+AdamW optimizer is employed with a constant learning rate
+of 1e − 4, and no warmup epochs are implemented. The                 Figure 6. The loss curve over epochs of different models on the
+commitment coefficient for images is set to 1.0. The ad-             validation dataset.
+versarial coefficient for this modality is established at 0.1,
+affecting the training dynamics in the context of adversar-
+ial methodologies. Regarding data augmentation, a random             8.3. Codebook Distribution
+horizontal flip is applied to the image inputs, enhancing the
+robustness of the model.
+    The audio input size is defined as 24, 000 × 1, reflecting
+a one-dimensional audio signal sampled at a rate of 24, 000
+Hz (1 second). The batch size for audio data is set at 64. The
+model undergoes a training duration of 50 epochs. The op-
+timization settings remain consistent, utilizing the AdamW
+optimizer and a constant learning rate of 1e − 4 with no
+warmup epochs. The commitment coefficient for audio is
+set to 1000.0 and the adversarial coefficient is set at 1.0,
+which is the same as WavTokenizer.                                   Figure 7. The frequency of codebook on ImageNet validation set.
+
+ Config                         Image              Audio
+                                                                     8.4. Qualitative Cases
+ inputs                         pixels             window size
+ input size                     128 × 128 × 3      24,000 × 1        We provide image and audio cases of SimVQ with various
+ batch size                     256                64                codebook sizes below.
+ training epochs                50                 50
+ quantized sequence length      16 × 16            75
+ optimization
+ optimizer                      AdamW              AdamW
+ learning rate                  1e-4               1e-4
+ learning rate schedule         constant           constant
+ warmup epochs                  0                  0
+ commitment coefficient         1.0                1000.0
+ adversarial coefficient        0.1                1.0
+ data augmentations
+ random horizontal flip         true               false
+
+   Table 5. Experimental configurations on image and audio.
+
+
+
+
+                                                                 1
+Origin   vanilla VQ 65,536      SimVQ 1,024          SimVQ 8,192          SimVQ 65,536   SimVQ 262,144
+
+
+
+
+                Figure 8. Image reconstruction samples with different codebook sizes.
+
+                                                 2
+Figure 9. The spectrogram of audio reconstruction samples with different codebook sizes.
+
+
+
+
+Figure 10. The waveform of audio reconstruction samples with different codebook sizes.
+
+
+
+
+                                           3
+

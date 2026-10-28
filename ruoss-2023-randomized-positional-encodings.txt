@@ -1,0 +1,882 @@
+                                                                    Randomized Positional Encodings
+                                                               Boost Length Generalization of Transformers
+
+                                             Anian Ruoss∗1             Grégoire Delétang∗1          Tim Genewein1                Jordi Grau-Moya1
+
+
+                                         Róbert Csordás†2                 Mehdi Bennani1              Shane Legg1                    Joel Veness1
+
+
+                                                               Abstract
+                                             Transformers have impressive generalization
+                                             capabilities on tasks with a fixed context length.
+
+
+
+
+arXiv:2305.16843v1 [cs.LG] 26 May 2023
+                                             However, they fail to generalize to sequences
+                                             of arbitrary length, even for seemingly sim-
+                                             ple tasks such as duplicating a string. More-
+                                             over, simply training on longer sequences is
+                                             inefficient due to the quadratic computation
+                                             complexity of the global attention mechanism.
+                                             In this work, we demonstrate that this failure
+                                             mode is linked to positional encodings being
+                                             out-of-distribution for longer sequences (even
+                                             for relative encodings) and introduce a novel
+                                             family of positional encodings that can over-
+                                             come this problem. Concretely, our random-
+                                             ized positional encoding scheme simulates the
+                                             positions of longer sequences and randomly
+                                             selects an ordered subset to fit the sequence’s
+                                             length. Our large-scale empirical evaluation of      Figure 1: Test-time evaluation with longer inputs.
+                                             6000 models across 15 algorithmic reasoning          The standard positional encoding vector has values
+                                             tasks shows that our method allows Transform-        larger than those observed during training. Our ap-
+                                             ers to generalize to sequences of unseen length      proach avoids this problem by assigning a random (or-
+                                             (increasing test accuracy by 12.0% on average).      dered) positional encoding vector using the full range
+                                                                                                  of possible test positions to each training example.
+                                         1    Introduction
+                                         Transformers are emerging as the new workhorse
+                                                                                                  kens in the input sequence, it is limited by its lack
+                                         of machine learning as they underpin many recent
+                                                                                                  of positional awareness. Thus, the input sequence
+                                         breakthroughs, including sequence-to-sequence
+                                                                                                  is generally augmented with positional encodings
+                                         modeling (Vaswani et al., 2017), image recog-
+                                                                                                  to inject position information into the computation.
+                                         nition (Dosovitskiy et al., 2021), and multi-task
+                                                                                                  However, current approaches only consider posi-
+                                         learning (Reed et al., 2022). However, recent
+                                                                                                  tions up to the maximum training sequence length
+                                         work (Delétang et al., 2023) demonstrated that
+                                                                                                  N , and thus all the positions N + 1, . . . , M for test
+                                         Transformers fail to generalize to longer sequences
+                                                                                                  sequences of length up to M will appear out-of-
+                                         on seemingly simple tasks such as binary addition.
+                                                                                                  distribution during evaluation (top of Fig. 1).
+                                         Thus, while certain problems can be solved without
+                                         length generalization, algorithmic reasoning gener-
+                                                                                                  This work We introduce a novel family of ran-
+                                         ally requires this ability, similar to many real-world
+                                                                                                  domized positional encodings, which significantly
+                                         settings such as online or continual learning.
+                                                                                                  improves Transformers’ length generalization ca-
+                                            While the Transformer’s attention mechanism
+                                                                                                  pabilities on algorithmic reasoning tasks. Our ap-
+                                         can recognize complex relationships amongst to-
+                                                                                                  proach is compatible with any existing positional
+                                            *
+                                              Equal contribution. 1 DeepMind. 2 The Swiss AI      encoding scheme and augments the existing meth-
+                                         Lab, IDSIA, USI & SUPSI. † Work performed while the
+                                         author was at DeepMind. Correspondence to {anianr,       ods by subsampling an ordered set of positions
+                                         gdelt}@deepmind.com.                                     from a much larger range of positions than those
+observed during training or evaluation (i.e., up        2022), which are a special case of our family of ran-
+to L ≫ M ; bottom of Fig. 1). Thus, over the            domized positional encodings. We also note that
+course of training, the Transformer will learn to       the necessity of feature and position randomization
+handle very large positional encodings and, there-      for length generalization has been discussed in the
+fore no longer encounter out-of-distribution inputs     context of graph neural networks, which subsume
+during evaluation. Importantly, our method leaves       Transformers (Ibarz et al., 2022; Sato et al., 2021).
+in-domain generalization performance unaffected         Finally, Liu et al. (2020b) proposed to model the
+and is also significantly more efficient than the       position information as a continuous dynamical
+naive approach of simply training the Transformer       system in an effort to handle sequences longer than
+on longer sequences. Our main contributions are:        those seen during training time.
+                                                           Our work is also related to the research area
+    • A novel family of positional encoding             on improving the systematic (length) generaliza-
+      schemes that significantly improves the length    tion capabilities of Transformers (Ontañón et al.,
+      generalization capabilities of Transformers,      2022), which includes approaches investigating em-
+      while leaving their in-domain generalization      bedding scaling or early stopping (Csordás et al.,
+      performance unaffected.                           2021), adaptive computation time (Dehghani et al.,
+                                                        2019), geometric attention with directional posi-
+    • A large-scale empirical evaluation on a wide      tional encodings and gating (Csordás et al., 2022),
+      range of algorithmic reasoning tasks showing      and hierarchical reinforcement learning (Liu et al.,
+      the superiority of our method over prior work     2020a). Such length generalization studies are of-
+      (an increase of the test accuracy by 12.0% on     ten conducted in the context of formal language
+      average and up to 43.5% on certain tasks).        theory, and we evaluate our method on the recent
+    • An open-source implementation of our              benchmark by Delétang et al. (2023), which unifies
+      method, available at https://github.              a large body of work on Transformers’ capability
+      com/deepmind/randomized_                          to recognize formal languages (Ackerman and Cy-
+      positional_encodings.                             benko, 2020; Bhattamishra et al., 2020; Ebrahimi
+                                                        et al., 2020; Hahn, 2020; Hao et al., 2022; Merrill,
+2    Related Work                                       2019; Merrill and Sabharwal, 2022).
+
+Our work is most closely related to the growing         3   Randomized Positional Encodings
+line of research on Transformers’ positional encod-
+                                                        Unlike RNNs (Elman, 1990), which are unrolled
+ings. The first approaches simply added a trans-
+                                                        over tokens one step at a time, Transformers pro-
+formation of the tokens’ positions, e.g., scaled si-
+                                                        cess large chunks of the input sequence in parallel
+nusoids (Vaswani et al., 2017) or learned embed-
+                                                        via global attention (Vaswani et al., 2017). As a
+dings (Gehring et al., 2017), to the embeddings
+                                                        result, Transformers do not need to “remember”
+of the input sequence. Dai et al. (2019) subse-
+                                                        previous tokens, but they do have to break the
+quently showed that computing the attention (at
+                                                        permutation-invariance of the attention mechanism.
+every layer) using the relative distances between
+                                                        To that end, the embeddings of the input sequence
+the key and query vectors improves the modeling
+                                                        are generally augmented with positional encodings.
+of long-term (inter-context) dependencies. Simi-
+                                                        For example, the vanilla Transformer adds the fol-
+larly, Su et al. (2021) proposed to inject position
+                                                        lowing positional encodings to the embedded input
+information by rotating the key-query products ac-
+                                                        sequence before passing it to the attention layers:
+cording to their relative distances. Finally, Press
+et al. (2022) improved the length generalization
+                                                                                                  !
+                                                                                          pos
+on natural language processing tasks by adding                  PE(pos, 2i) = sin             2i     , (1)
+a constant bias to each key-query attention score                                    10000 dmodel
+                                                                                                   !
+(proportional to their distance). However, as our ex-                                     pos
+periments in Section 4 will show, these approaches         PE(pos, 2i + 1) = cos              2i     , (2)
+                                                                                     10000 dmodel
+fail at length generalization on algorithmic reason-
+ing tasks, which is precisely the goal of our work.     where pos is the token’s position in the sequence,
+   A concurrent work developed randomized               dmodel ∈ N is the dimension of the input embed-
+learned positional encodings (Li and McClelland,        ding, and i ∈ {1, 2, . . . , dmodel /2}.
+   While positional encodings generally succeed               ing as they are resampled at every step). However,
+at inducing the required positional information               since we maintain the order of the encodings, the
+for sequences of fixed length, they are one of the            Transformer can still learn to extract the relevant
+main failure modes preventing length generaliza-              positional information from the subsampled encod-
+tion. Concretely, for a Transformer with standard             ings. Indeed, we validate the necessity of ordering
+positional encodings trained on a curriculum of se-           the sampled positions in our ablation study in Ap-
+quences of maximum length N , test sequences of               pendix B.1. Thus, the success of our encoding
+length M > N will shift the distribution of the re-           scheme offers an interesting insight into the induc-
+sultant positional encodings away from those seen             tive biases of the Transformer architecture.
+in training, with the shift getting increasingly large           As we will show in Section 4, our randomized
+as M grows. To address this, we propose a random-             encodings trained only on lengths up to N perform
+ized encoding scheme, which relies only on order              the same on sequences of length M as prior ap-
+information, and can be expected to generalize up             proaches trained on lengths up to M . Therefore,
+to sequences of length M , where N < M ≤ L,                   our method demonstrates that Transformers can be
+with a configurable hyperparameter L.                         efficiently trained on short sequences as long as
+                                                              (i) the longer sequences share the same structure
+Randomized positional encodings We assume                     and (ii) the longer positions are observed during
+that each training step will perform a step of loss           training. Moreover, as the running time of global
+minimization on a batch of data of fixed size. Let            attention is O(ℓ2 ) for sequence length ℓ, our en-
+U(S) denote the discrete uniform distribution over            coding scheme is significantly faster than directly
+set S, and let Pk := {S ⊆ {1, . . . , L} | |S| = k}.          training a model on long sequences. Furthermore,
+For each training step, we first sample a random              we also note that our randomized positional en-
+length n ∼ U({1, . . . , N }) (following Delétang             coding scheme significantly boosts length general-
+et al., 2023) and then a random set of indices I ∼            ization while leaving the in-domain generalization
+U(Pn ). We then sort I in ascending order, such               performance largely unaffected (see Fig. 4).
+that I = {i1 , . . . , in } for i1 < i2 < · · · < in , not-      The main limitation of our approach is that the
+ing that I is sampled without replacement. Finally,           maximum test sequence length M has to be known
+we compute our randomized positional encoding                 in advance to choose L ≫ M . However, our
+for token 1 ≤ j ≤ N as RPE(j, ·) := PE(ij , ·).               method is compatible with a wide range of val-
+At test time, when processing a sequence of length            ues for L (see Appendix B.1), and we note that this
+M > N , we use the same procedure but for all to-             is a much weaker assumption than that required
+ken positions 1 ≤ j ≤ M . The intuition behind our            for the naive approach of simply training on longer
+method is to preserve the known good properties of            sequences. However, note that if L is chosen to
+relative encoding but in a way that is independent            be much larger than N or M , it is theoretically
+of the maximum training length N and thus allows              unlikely for the model to encounter enough unique
+generalization to longer sequences at test time.              indices during training, likely leading to poor per-
+   When applying our randomized positional en-                formance (both in- and out-of-distribution).
+coding scheme, we subsample the extended posi-
+tions only once per batch and not individually for            4   Experimental Evaluation
+every sequence. For the sin / cos (Vaswani et al.,
+2017), learned (Gehring et al., 2017), and RoPE               Problem setup We closely follow the experi-
+encodings (Su et al., 2021), we apply our method              ment setup of Delétang et al. (2023) and eval-
+as described above, i.e., we directly replace the             uate our method on a wide range of algo-
+original token positions with their sampled counter-          rithmic reasoning tasks such as modular arith-
+part. For the relative encoding (Dai et al., 2019), we        metic, reversing/duplicating a string, binary ad-
+compute the relative distances between the sampled            dition/multiplication, and bucket sort. The tasks
+positions instead of the original positions. Finally,         are derived from formal language recognition and
+for ALiBi (Press et al., 2022), we sample the bias            thus grouped according to the Chomsky hierar-
+values from the set of extended positions.                    chy (Chomsky, 1956), which partitions languages
+   As a consequence, our tokens’ positional encod-            into regular (R), context-free, context-sensitive
+ings are no longer directly related to their exact            (CS), and recursively enumerable. Regular tasks
+position (the encodings even change during train-             can be solved by a finite-state automaton (FSA), de-
+Table 1: Accuracy (in percentage) averaged over all test lengths and maximized over 10 random seeds and 3 learning
+rates. The random accuracy is 50%, except for M ODULAR A RITHMETIC (S IMPLE ), C YCLE NAVIGATION, B UCKET
+S ORT, and M ODULAR A RITHMETIC, where it is 20%. Our randomized method increases the test accuracy by
+12.0% on average. The randomized learned encodings (denoted with ⋆) are equivalent to label-based encodings (Li
+and McClelland, 2022). † denotes permutation-invariant tasks, which can be solved without positional information.
+
+                                                                                                                 Randomized (Ours)
+Level   Task                              None   sin / cos   Relative   ALiBi   RoPE    Learned   sin / cos   Relative   ALiBi   RoPE    Learned⋆
+        E VEN PAIRS                       50.4       50.9       96.4     67.3    51.0      50.7      100.0      100.0     81.5   100.0       97.5
+        M ODULAR A RITHMETIC (S IMPLE )   20.1       20.5       21.8     24.2    21.6      20.2       25.7       28.1     21.2    25.5       21.1
+R
+        PARITY C HECK†                    51.9       50.5       51.8     51.7    51.3      50.3       52.6       52.2     50.3    52.3       52.6
+        C YCLE NAVIGATION†                61.9       26.3       23.0     37.6    23.6      24.2       59.0       58.8     29.8    73.6       49.7
+
+        S TACK M ANIPULATION              50.3       50.1       53.6     57.5    51.2      49.2       72.8       77.9     70.6    68.2       69.1
+        R EVERSE S TRING                  52.8       50.6       58.3     62.3    51.9      50.7       75.6       95.1     77.1    69.9       52.9
+DCF
+        M ODULAR A RITHMETIC              31.0       28.3       30.3     32.5    25.1      25.1       33.8       34.9     31.3    32.7       31.9
+        S OLVE E QUATION                  20.1       21.0       23.0     25.7    23.1      20.4       24.5       28.1     22.0    24.5       22.1
+
+        D UPLICATE S TRING                52.8       50.7       51.7     51.3    50.9      50.8       72.4       75.1     68.9    68.9       53.0
+        M ISSING D UPLICATE               52.5       51.3       54.0     54.3    56.5      51.0       52.5      100.0     79.7    88.7       52.7
+        O DDS F IRST                      52.8       51.6       52.7     51.4    51.3      50.6       65.9       69.3     64.7    65.6       52.7
+CS      B INARY A DDITION                 50.1       49.8       54.3     51.4    50.4      49.8       64.4       64.5     56.2    60.2       61.7
+        B INARY M ULTIPLICATION           49.9       50.1       52.2     51.0    50.2      49.6       52.1       50.1     50.5    51.7       51.9
+        C OMPUTE S QRT                    50.2       50.1       52.4     50.9    50.5      50.2       52.5       53.3     51.2    52.3       52.0
+        B UCKET S ORT†                    23.7       30.1       91.9     38.8    30.6      25.9      100.0      100.0     99.6    99.6       99.5
+
+
+
+
+terministic context-free (DCF) tasks can be solved                         use the same hyperparameters as Delétang et al.
+by an FSA with access to a deterministic stack, and                        (2023) and provide the full experiment setup in
+CS tasks can be solved by an FSA with access to a                          Appendix A. We make our code publicly avail-
+bounded tape. Note that the relation to the Chom-                          able at https://github.com/deepmind/
+sky hierarchy is largely irrelevant for our work and                       randomized_positional_encodings.
+only included for completeness. We evaluate our
+method on Delétang et al. (2023)’s benchmark as                            Comparison to prior work We compare our
+it is currently out of reach for Transformers and                          method to a wide range of positional encodings:
+clearly demonstrates their failure to generalize on                        none, sin / cos (Vaswani et al., 2017), relative (Dai
+algorithmic reasoning tasks. We refer interested                           et al., 2019), ALiBi (Press et al., 2022), RoPE (Su
+readers to the original paper for more details.                            et al., 2021), learned (Gehring et al., 2017), and
+                                                                           label-based (Li and McClelland, 2022). Note that
+   We consider the encoder-only model of the orig-                         the label encodings proposed by Li and McClelland
+inal seq-to-seq Transformer (Vaswani et al., 2017),                        (2022) are equivalent to randomized learned posi-
+as used in popular pre-trained language models                             tional encodings and thus subsumed by our method.
+such as BERT (Devlin et al., 2019) or Gopher (Rae                          We instantiate our randomized positional encoding
+et al., 2021). Thus, for tasks that require a multi-                       scheme with all the above encodings and show the
+token output sequence y (e.g., duplicating a string),                      average test accuracy in Table 1 (with performance
+we pad the input sequence with |y| empty tokens                            curves over test lengths in Appendix B.2). We ob-
+and compute the entire Transformer output from                             serve that our randomized versions significantly
+the padded sequence (i.e., we do not use autoregres-                       increase the test accuracy across most tasks (by
+sive sampling). We train the model on sequences                            12.0% on average and up to 43.5%). In particular,
+of length sampled uniformly from U(1, N ), with                            the randomized relative encoding solves tasks that
+N = 40, and evaluate it on sequences of length                             were previously out of reach for prior work (e.g.,
+{N + 1, . . . , M }, with M = 500. We set the max-                         R EVERSE S TRING or M ISSING D UPLICATE).
+imum position L = 2048 (and visualize the im-
+pact of other values on the performance in Ap-                             Efficiency comparison We now show that our
+pendix B.1). We report the accuracy averaged over                          method allows us to train a model on short se-
+all unseen sequence lengths, i.e., N + 1, . . . , M ,                      quences and obtain a test accuracy above 90%,
+for the best-performing model out of 10 differ-                            roughly 35.4 times faster than the naive approach
+ent parameter initialization seeds and three learn-                        of training a model on longer sequences. To that
+ing rates 1 × 10−4 , 3 × 10−4 , 5 × 10−4 . We                              end, we train the randomized relative encodings on
+                        1.0                                                    thetic datasets since they showed clear and some-
+
+
+
+Average test accuracy
+                        0.9                                                    what surprising limitations of Transformer architec-
+                        0.8                                                    tures (Delétang et al., 2023). However, the general-
+                        0.7                                                    izability of our approach to other tasks and domains
+                                          Random relative (ours) on U(1, 40)   remains an open question, and additional research,
+                        0.6
+                                          Relative on U(1, 500)                such as evaluation on SCAN (Lake and Baroni,
+                        0.5
+                              0   1000      2000         3000       4000       2018), CFQ (Keysers et al., 2020), COGS (Kim
+                                         Training time (s)
+                                                                               and Linzen, 2020), or the Long Range Arena (Tay
+                                                                               et al., 2021), is necessary to understand its potential
+Figure 2: Average accuracy over unseen test lengths                            in real-world applications. Second, our approach
+on the M ISSING D UPLICATE task over training time
+                                                                               introduces a new hyperparameter – the maximum
+(seconds) for two models: (i) our randomized relative
+positional encoding with a maximum training sequence
+                                                                               sequence position L. Although our experiments
+length of 40, and (ii) the classical relative positional                       in Appendix B.1 show that our method’s perfor-
+encoding but with a maximum training length of 500.                            mance is largely unaffected by the precise value of
+                                                                               L, practitioners may still have to tune the param-
+                                                                               eter depending on their specific problem domains.
+sequences up to length 40 and the classical relative                           Third, we only isolate and ameliorate one failure
+positional encoding (Dai et al., 2019) on sequences                            mode of Transformer length generalization on syn-
+up to length 500 and show the test accuracy (aver-                             thetic datasets. However, there are other factors
+aged over lengths 41 to 500) in Fig. 2 over training                           contributing to poor length generalization, such
+time (in seconds). Our model obtains a strong test                             as attention becoming less peaked for longer se-
+accuracy significantly faster due to the quadratic                             quences (Chiang and Cholak, 2022). Overall, we
+cost (in terms of sequence length) of global atten-                            believe that our study’s limitations offer several
+tion, which means that our model trains at 168.4                               interesting directions for future research.
+steps per second compared to 22.1 steps per second
+for the naive approach (on a NVIDIA V100 GPU).                                 Acknowledgements
+
+5                        Conclusion                                            We thank Chris Cundy, Elliot Catt, Kevin Li, Lau-
+                                                                               rent Orseau, Marcus Hutter, Petar Veličković, Vin-
+We introduced a novel family of positional encod-                              cent Dutordoir, and the anonymous reviewers for
+ings that significantly improves the length gener-                             their helpful feedback.
+alization capabilities of Transformers. Our po-
+sitional encodings are based on the insight that
+conventional positional encodings will be out-of-                              References
+distribution when increasing the sequence length.                              Joshua Ackerman and George Cybenko. 2020. A
+Thus, to overcome this issue, we randomly sample                                 survey of neural networks and formal languages.
+our encodings from a wider range than the lengths                                arXiv:2006.01338.
+seen at test time while keeping the order. Our large-                          Satwik Bhattamishra, Kabir Ahuja, and Navin Goyal.
+scale empirical evaluation demonstrates that our                                 2020. On the ability and limitations of transformers
+method significantly outperforms prior work in                                   to recognize formal languages. In Proceedings of the
+terms of length generalization while offering supe-                              2020 Conference on Empirical Methods in Natural
+                                                                                 Language Processing.
+rior computational performance over the naive ap-
+proach of training the model on longer sequences.                              David Chiang and Peter Cholak. 2022. Overcoming a
+                                                                                 theoretical limitation of self-attention. In Proceed-
+Limitations                                                                      ings of the 60th Annual Meeting of the Association
+                                                                                 for Computational Linguistics.
+While our work shows promising results in improv-
+                                                                               Noam Chomsky. 1956. Three models for the description
+ing the generalization capabilities of Transform-                                of language. IRE Trans. Inf. Theory.
+ers to sequences of arbitrary length, some limita-
+tions must be considered. First, our evaluation is                             Róbert Csordás, Kazuki Irie, and Jürgen Schmidhuber.
+                                                                                 2021. The devil is in the detail: Simple tricks im-
+confined to synthetic algorithmic reasoning tasks,                               prove systematic generalization of transformers. In
+which may not fully capture the complexity and                                   Proceedings of the 2021 Conference on Empirical
+diversity of natural language. We focused on syn-                                Methods in Natural Language Processing.
+Róbert Csordás, Kazuki Irie, and Jürgen Schmidhuber.       Borja Ibarz, Vitaly Kurin, George Papamakarios, Kyria-
+  2022. The neural data router: Adaptive control flow        cos Nikiforou, Mehdi Bennani, Róbert Csordás, An-
+  in transformers improves systematic generalization.        drew Joseph Dudzik, Matko Bosnjak, Alex Vitvitskyi,
+  In The Tenth International Conference on Learning          Yulia Rubanova, Andreea Deac, Beatrice Bevilacqua,
+  Representations.                                           Yaroslav Ganin, Charles Blundell, and Petar Velick-
+                                                             ovic. 2022. A generalist neural algorithmic learner.
+Zihang Dai, Zhilin Yang, Yiming Yang, Jaime G. Car-          In Learning on Graphs Conference, LoG 2022, 9-12
+  bonell, Quoc Viet Le, and Ruslan Salakhutdinov.            December 2022, Virtual Event.
+  2019. Transformer-xl: Attentive language models
+  beyond a fixed-length context. In Proceedings of         Daniel Keysers, Nathanael Schärli, Nathan Scales,
+  the 57th Conference of the Association for Computa-        Hylke Buisman, Daniel Furrer, Sergii Kashubin,
+  tional Linguistics.                                        Nikola Momchev, Danila Sinopalnikov, Lukasz
+                                                             Stafiniak, Tibor Tihon, Dmitry Tsarkov, Xiao Wang,
+                                                             Marc van Zee, and Olivier Bousquet. 2020. Measur-
+Mostafa Dehghani, Stephan Gouws, Oriol Vinyals,
+                                                             ing compositional generalization: A comprehensive
+ Jakob Uszkoreit, and Lukasz Kaiser. 2019. Univer-
+                                                             method on realistic data. In 8th International Confer-
+ sal transformers. In 7th International Conference on
+                                                             ence on Learning Representations.
+ Learning Representations.
+                                                           Najoung Kim and Tal Linzen. 2020. COGS: A compo-
+Grégoire Delétang, Anian Ruoss, Jordi Grau-Moya, Tim         sitional generalization challenge based on semantic
+  Genewein, Li Kevin Wenliang, Elliot Catt, Chris            interpretation. In Proceedings of the 2020 Confer-
+  Cundy, Marcus Hutter, Shane Legg, Joel Veness, and         ence on Empirical Methods in Natural Language
+  Pedro A. Ortega. 2023. Neural networks and the             Processing.
+  chomsky hierarchy. In The Eleventh International
+  Conference on Learning Representations.                  Diederik P. Kingma and Jimmy Ba. 2015. Adam: A
+                                                             method for stochastic optimization. In 3rd Interna-
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and                tional Conference on Learning Representations.
+   Kristina Toutanova. 2019. BERT: pre-training of
+                                                           Brenden M. Lake and Marco Baroni. 2018. General-
+   deep bidirectional transformers for language under-
+                                                             ization without systematicity: On the compositional
+   standing. In Proceedings of the 2019 Conference
+                                                             skills of sequence-to-sequence recurrent networks.
+   of the North American Chapter of the Association
+                                                             In Proceedings of the 35th International Conference
+   for Computational Linguistics: Human Language
+                                                             on Machine Learning.
+  Technologies,.
+                                                           Yuxuan Li and James L. McClelland. 2022. Systematic
+Alexey Dosovitskiy, Lucas Beyer, Alexander                   generalization and emergent structures in transform-
+  Kolesnikov, Dirk Weissenborn, Xiaohua Zhai,                ers trained on structured tasks. arXiv:2210.00400.
+  Thomas Unterthiner, Mostafa Dehghani, Matthias
+  Minderer, Georg Heigold, Sylvain Gelly, Jakob            Qian Liu, Shengnan An, Jian-Guang Lou, Bei Chen,
+  Uszkoreit, and Neil Houlsby. 2021. An image                Zeqi Lin, Yan Gao, Bin Zhou, Nanning Zheng, and
+  is worth 16x16 words: Transformers for image               Dongmei Zhang. 2020a. Compositional generaliza-
+  recognition at scale. In 9th International Conference      tion by learning analytical expressions. In Advances
+  on Learning Representations.                               in Neural Information Processing Systems 33.
+                                                           Xuanqing Liu, Hsiang-Fu Yu, Inderjit S. Dhillon, and
+Javid Ebrahimi, Dhruv Gelda, and Wei Zhang. 2020.
+                                                             Cho-Jui Hsieh. 2020b. Learning to encode position
+   How can self-attention networks recognize dyck-n
+                                                             for transformer with continuous dynamical model. In
+   languages? In Findings of the Association for Com-
+                                                             Proceedings of the 37th International Conference on
+   putational Linguistics.
+                                                             Machine Learning.
+Jeffrey L. Elman. 1990. Finding structure in time. Cogn.   William Merrill. 2019. Sequential neural networks as
+   Sci.                                                      automata. arXiv:1906.01615.
+
+Jonas Gehring, Michael Auli, David Grangier, Denis         William Merrill and Ashish Sabharwal. 2022. Log-
+  Yarats, and Yann N. Dauphin. 2017. Convolutional           precision transformers are constant-depth uniform
+  sequence to sequence learning. In Proceedings of the       threshold circuits. arXiv:2207.00729.
+  34th International Conference on Machine Learning.
+                                                           Santiago Ontañón, Joshua Ainslie, Zachary Fisher, and
+                                                             Vaclav Cvicek. 2022. Making transformers solve
+Michael Hahn. 2020. Theoretical limitations of self-         compositional tasks. In Proceedings of the 60th An-
+  attention in neural sequence models. Trans. Assoc.         nual Meeting of the Association for Computational
+  Comput. Linguistics.                                       Linguistics (Volume 1: Long Papers).
+Yiding Hao, Dana Angluin, and Robert Frank. 2022.          Ofir Press, Noah Smith, and Mike Lewis. 2022. Train
+  Formal language recognition by hard attention trans-       short, test long: Attention with linear biases enables
+  formers: Perspectives from circuit complexity. Trans.      input length extrapolation. In The Tenth International
+  Assoc. Comput. Linguistics.                                Conference on Learning Representations.
+Jack W. Rae, Sebastian Borgeaud, Trevor Cai, Katie
+   Millican, Jordan Hoffmann, H. Francis Song, John
+  Aslanides, Sarah Henderson, Roman Ring, Susan-
+   nah Young, Eliza Rutherford, Tom Hennigan, Ja-
+   cob Menick, Albin Cassirer, Richard Powell, George
+  van den Driessche, Lisa Anne Hendricks, Mari-
+   beth Rauh, Po-Sen Huang, Amelia Glaese, Jo-
+   hannes Welbl, Sumanth Dathathri, Saffron Huang,
+  Jonathan Uesato, John Mellor, Irina Higgins, Antonia
+   Creswell, Nat McAleese, Amy Wu, Erich Elsen, Sid-
+   dhant M. Jayakumar, Elena Buchatskaya, David Bud-
+   den, Esme Sutherland, Karen Simonyan, Michela Pa-
+   ganini, Laurent Sifre, Lena Martens, Xiang Lorraine
+   Li, Adhiguna Kuncoro, Aida Nematzadeh, Elena
+   Gribovskaya, Domenic Donato, Angeliki Lazaridou,
+  Arthur Mensch, Jean-Baptiste Lespiau, Maria Tsim-
+   poukelli, Nikolai Grigorev, Doug Fritz, Thibault Sot-
+   tiaux, Mantas Pajarskas, Toby Pohlen, Zhitao Gong,
+   Daniel Toyama, Cyprien de Masson d’Autume, Yujia
+   Li, Tayfun Terzi, Vladimir Mikulik, Igor Babuschkin,
+  Aidan Clark, Diego de Las Casas, Aurelia Guy,
+   Chris Jones, James Bradbury, Matthew Johnson,
+   Blake A. Hechtman, Laura Weidinger, Iason Gabriel,
+  William S. Isaac, Edward Lockhart, Simon Osindero,
+   Laura Rimell, Chris Dyer, Oriol Vinyals, Kareem
+  Ayoub, Jeff Stanway, Lorrayne Bennett, Demis Hass-
+   abis, Koray Kavukcuoglu, and Geoffrey Irving. 2021.
+   Scaling language models: Methods, analysis & in-
+   sights from training gopher. arXiv:2112.11446.
+Scott E. Reed, Konrad Zolna, Emilio Parisotto,
+  Sergio Gómez Colmenarejo, Alexander Novikov,
+  Gabriel Barth-Maron, Mai Gimenez, Yury Sulsky,
+  Jackie Kay, Jost Tobias Springenberg, Tom Eccles,
+  Jake Bruce, Ali Razavi, Ashley Edwards, Nicolas
+  Heess, Yutian Chen, Raia Hadsell, Oriol Vinyals,
+  Mahyar Bordbar, and Nando de Freitas. 2022. A
+  generalist agent. Trans. Mach. Learn. Res.
+Ryoma Sato, Makoto Yamada, and Hisashi Kashima.
+  2021. Random features strengthen graph neural net-
+  works. In Proceedings of the 2021 SIAM Interna-
+  tional Conference on Data Mining.
+Jianlin Su, Yu Lu, Shengfeng Pan, Bo Wen, and Yunfeng
+   Liu. 2021. Roformer: Enhanced transformer with
+   rotary position embedding. arXiv:2104.09864.
+
+Yi Tay, Mostafa Dehghani, Samira Abnar, Yikang Shen,
+   Dara Bahri, Philip Pham, Jinfeng Rao, Liu Yang,
+   Sebastian Ruder, and Donald Metzler. 2021. Long
+   range arena : A benchmark for efficient transform-
+   ers. In 9th International Conference on Learning
+   Representations.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+  Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz
+  Kaiser, and Illia Polosukhin. 2017. Attention is all
+  you need. In Advances in Neural Information Pro-
+  cessing Systems 30.
+A     Experimental Details                                    1.0
+                                                                                                             1024
+We use the experiment suite proposed by Delétang              0.9                                            2048
+                                                                                                             4096
+et al. (2023), which consists of 15 algorith-
+                                                       Accuracy
+                                                              0.8                                            8192
+mic reasoning tasks and is publicly available
+at       https://github.com/deepmind/                         0.7
+neural_networks_chomsky_hierarchy                             0.6
+under the Apache 2.0 License. The tasks do not
+consist of fixed-size datasets but define training            0.5
+                                                                    0   100      200      300          400      500
+and testing distributions from which one can                                    Sequence length
+sample continuously. We train the models for                            (a) R EVERSE S TRING (DCF)
+2 000 000 steps with a batch size of 128, which cor-
+responds to 256 000 000 (potentially non-unique)              1.0
+training examples. At test time, we evaluate
+a single batch of size 500 for every sequence                 0.9
+length in {41, . . . , 500}, which corresponds to
+                                                       Accuracy
+                                                              0.8
+230 000 testing examples. We use the Adam
+                                                              0.7                                            1024
+optimizer (Kingma and Ba, 2015) with gradient                                                                2048
+clipping and sweep over three learning rates:                 0.6                                            4096
+1 × 10−4 , 3 × 10−4 , and 5 × 10−4 . Furthermore,                                                            8192
+for each task and positional encoding, we use 10              0.5
+                                                                    0   100      200      300          400      500
+different parameter initialization random seeds.                                Sequence length
+   We consider the encoder-only Transformer ar-                         (b) M ISSING D UPLICATE (CS)
+chitecture (Vaswani et al., 2017), with 5 blocks
+of 8 heads each and dmodel = 64, which cor-            Figure 3: Sweep over the maximum position L for our
+                                                       randomized relative positional encodings. The test accu-
+responds to 249 026 parameters (270 146 in the
+                                                       racy (averaged over unseen sequence lengths) is largely
+case of relative and randomized relative posi-         unaffected by the concrete value of L (for reasonably
+tional encodings). We run every task-encoding-         small values of L), showing the stability of our method.
+hyperparameter triplet on a single NVIDIA V100         However, if L is much larger than the maximum train-
+GPU from our internal cluster. As a result,            ing (N ) or testing (M ) sequence length, we expect the
+we used 15 (tasks) · 13 (positional encodings) ·       performance to degrade since it the model is unlikely to
+3 (learning rates) · 10 (seeds) = 5850 GPU-units       encounter enough unique indices during training time.
+for the results in Tables 1, 4 and 5 and Fig. 4.
+For the results in Fig. 2, we used an additional
+2 (positional encodings) · 3 (learning rates) ·        shows that the test accuracy (averaged over all un-
+10 (seeds) = 60 GPU-units. Finally, for Fig. 3, we     seen sequence lengths) is largely unaffected by the
+used 4 (maximum positions)·3 (learning rates)·         value of L on the R EVERSE S TRING and M ISSING
+10 (seeds) = 120 GPU-units, yielding a grand to-       D UPLICATE tasks. As a consequence, a practi-
+tal of 6030 GPU-units. We report all running times     tioner wanting to apply our method will not have
+in Table 2 and observe that our method induces a       to carry out extensive tuning of this parameter (as
+negligible computational overhead.                     long as it is larger than the maximum evaluation
+                                                       sequence length M , but not unreasonably large).
+B     Additional Results                                  Next, we investigate the performance of our ran-
+                                                       domized sin / cos positional encoding with and
+B.1    Ablation Study
+                                                       without sorting of the subsampled positions. Note
+In this section, we conduct an ablation study over     that this experiment is meant as a “sanity-check”
+the two main components of our method: (i) the         since we do not expect the Transformer to perform
+maximum sampling position L, and (ii) the sorting      well without order information. Table 3 shows the
+of the subsampled positions.                           test accuracy (averaged over all unseen sequence
+   We train the randomized relative positional en-     lengths) for the two versions of our method. We
+coding for a wide range of different maximum po-       observe that sorting the positions is crucial, as it
+sitions L: 1024, 2048, 4096, and 8192. Figure 3        increases the test accuracy by 15.7% on average
+    Table 2: Mean and standard deviation of the running times (in hours) for all the positional encodings and tasks.
+
+                                                                                                                                                        Randomized (Ours)
+Level   Task                                   None        sin / cos      Relative        ALiBi          RoPE       Learned        sin / cos       Relative       ALiBi           RoPE      Learned⋆
+        PARITY C HECK†                    0.86 ± 0.17   0.87 ± 0.17     1.63 ± 0.28   0.87 ± 0.17   1.41 ± 0.24   0.90 ± 0.18   0.92 ± 0.18     1.75 ± 0.29   0.94 ± 0.19    1.66 ± 0.31   1.12 ± 0.23
+        R EVERSE S TRING                  1.17 ± 0.21   1.18 ± 0.22     2.61 ± 0.39   1.17 ± 0.22   2.01 ± 0.35   1.23 ± 0.23   1.24 ± 0.23     2.75 ± 0.41   1.27 ± 0.24    2.42 ± 0.43   1.62 ± 0.32
+R
+        C YCLE NAVIGATION†                0.86 ± 0.17   0.87 ± 0.17     1.62 ± 0.27   0.86 ± 0.17   1.41 ± 0.25   0.91 ± 0.18   0.92 ± 0.18     1.75 ± 0.29   0.94 ± 0.19    1.66 ± 0.31   1.12 ± 0.22
+        E VEN PAIRS                       0.86 ± 0.17   0.87 ± 0.17     1.63 ± 0.27   0.86 ± 0.17   1.41 ± 0.24   0.91 ± 0.18   0.92 ± 0.18     1.75 ± 0.29   0.95 ± 0.19    1.65 ± 0.31   1.12 ± 0.22
+
+        S TACK M ANIPULATION              8.09 ± 0.97   8.00 ± 0.82     9.50 ± 0.89   8.07 ± 0.94   8.87 ± 0.84   8.46 ± 0.84   8.47 ± 0.88    10.04 ± 0.96   8.55 ± 0.90   10.61 ± 1.58   9.58 ± 1.12
+        M ODULAR A RITHMETIC              5.48 ± 0.63   5.55 ± 0.67     6.32 ± 0.81   5.50 ± 0.65   6.07 ± 0.69   5.69 ± 0.65   5.66 ± 0.64     6.56 ± 0.70   5.69 ± 0.65    6.41 ± 0.84   5.92 ± 0.80
+DCF
+        B INARY M ULTIPLICATION           1.83 ± 0.33   1.83 ± 0.30     2.86 ± 0.43   1.84 ± 0.31   2.32 ± 0.39   2.24 ± 0.35   2.23 ± 0.35     3.13 ± 0.43   2.24 ± 0.35    3.21 ± 0.51   2.88 ± 0.46
+        B INARY A DDITION                 1.83 ± 0.32   1.82 ± 0.31     2.89 ± 0.42   1.81 ± 0.32   2.34 ± 0.39   2.22 ± 0.35   2.22 ± 0.35     3.17 ± 0.44   2.24 ± 0.35    3.29 ± 0.62   2.90 ± 0.49
+
+        B INARY A DDITION                 1.83 ± 0.32   1.82 ± 0.31     2.89 ± 0.42   1.81 ± 0.32   2.34 ± 0.39   2.22 ± 0.35   2.22 ± 0.35     3.17 ± 0.44   2.24 ± 0.35    3.29 ± 0.62   2.90 ± 0.49
+        C OMPUTE S QRT                    1.39 ± 0.24   1.40 ± 0.25     2.20 ± 0.34   1.40 ± 0.25   1.86 ± 0.30   1.73 ± 0.29   1.72 ± 0.29     2.43 ± 0.37   1.74 ± 0.30    2.53 ± 0.41   2.23 ± 0.38
+        S OLVE E QUATION                  5.60 ± 0.65   5.60 ± 0.67     6.41 ± 0.68   5.63 ± 0.66   6.14 ± 0.68   5.74 ± 0.65   5.78 ± 0.66     6.69 ± 0.76   5.83 ± 0.69    6.50 ± 0.80   6.01 ± 0.84
+CS      D UPLICATE S TRING                1.58 ± 0.28   1.59 ± 0.28     4.10 ± 0.54   1.58 ± 0.27   2.71 ± 0.40   1.64 ± 0.28   1.65 ± 0.29     4.24 ± 0.54   1.67 ± 0.29    3.18 ± 0.49   2.05 ± 0.38
+        M ODULAR A RITHMETIC (S IMPLE )   0.99 ± 0.19   1.00 ± 0.19     1.74 ± 0.29   0.99 ± 0.19   1.51 ± 0.26   1.03 ± 0.20   1.05 ± 0.20     1.87 ± 0.31   1.06 ± 0.21    1.74 ± 0.31   1.23 ± 0.23
+        M ISSING D UPLICATE               0.88 ± 0.17   0.90 ± 0.18     1.64 ± 0.27   0.88 ± 0.17   1.43 ± 0.26   0.93 ± 0.19   0.94 ± 0.19     1.78 ± 0.30   0.97 ± 0.19    1.66 ± 0.30   1.15 ± 0.23
+        O DDS F IRST                      1.17 ± 0.22   1.19 ± 0.22     2.61 ± 0.38   1.17 ± 0.22   2.00 ± 0.31   1.23 ± 0.23   1.24 ± 0.23     2.74 ± 0.40   1.26 ± 0.23    2.40 ± 0.39   1.59 ± 0.29
+        B UCKET S ORT†                    1.17 ± 0.23   1.18 ± 0.22     2.61 ± 0.43   1.16 ± 0.22   2.01 ± 0.34   1.22 ± 0.23   1.24 ± 0.23     2.74 ± 0.40   1.25 ± 0.23    2.40 ± 0.41   1.60 ± 0.30
+
+
+
+
+Table 3: Accuracy (in percentage) averaged over all test                                             based (Li and McClelland, 2022). Here, we pro-
+lengths and maximized over 10 seeds and 3 learning                                                   vide additional results for these experiments, as
+rates for our randomized sin / cos positional encoding
+                                                                                                     well as a comparison to the geometric attention and
+with and without sorting of the subsampled positions.
+                                                                                                     directional encodings of Csordás et al. (2022).
+                                                           Randomized sin / cos
+                                                                                                        We recall that Table 1 showed the test accuracy
+Level     Task                                            w/o Sorting          w/ Sorting            maximized over the 10 parameter initialization
+          E VEN PAIRS                                                  50.4           100.0          seeds and the three different learning rates. We
+          M ODULAR A RITHMETIC (S IMPLE )                              20.0            25.7          reported the maximum following the experiment
+R
+          PARITY C HECK†                                               52.2            52.6
+          C YCLE NAVIGATION†                                           59.3            59.0          setup in Delétang et al. (2023), which investigates
+          S TACK M ANIPULATION                                         50.4             72.8
+                                                                                                     whether an architecture is capable of solving a task
+DCF
+          R EVERSE S TRING                                             52.8             75.6         at all (and not on average). However, we also re-
+          M ODULAR A RITHMETIC                                         31.0             33.8
+          S OLVE E QUATION                                             20.2             24.5
+                                                                                                     port the means and standard deviations (over the
+                                                                                                     random seeds) in Table 4 for the best-performing
+          D UPLICATE S TRING                                           52.8            72.4
+          M ISSING D UPLICATE                                          53.1            52.5
+                                                                                                     learning rate. We observe that our randomized posi-
+          O DDS F IRST                                                 52.8            65.9          tional encoding also significantly outperform their
+CS        B INARY A DDITION                                            50.0            64.4
+          B INARY M ULTIPLICATION                                      49.9            52.1          original counterparts on average. We visualize the
+          C OMPUTE S QRT                                               50.2            52.5          test accuracy per sequence length in Fig. 4.
+          B UCKET S ORT†                                               23.7           100.0
+                                                                                                         We highlight the case of learned positional en-
+                                                                                                      codings, which fail to beat the random accuracy
+and up to 76.3% on certain tasks. In fact, without                                                    baseline (cf. Tables 1 and 4). This is because the
+sorting, our approach fails to beat the (baseline) ran-                                               columns of the embedding matrix corresponding
+dom accuracy on all but the C YCLE NAVIGATION                                                         to the positions that are larger than the maximum
+task, which is permutation-invariant (i.e., it can                                                    training length N are not learned during training
+be solved without positional information). This                                                       and are thus entirely random. In contrast, our ran-
+confirms our intuition that the Transformer only                                                      domized version of the learned encodings consid-
+needs to know the relative order of the positional                                                    ers all possible embedding columns during training
+encodings (and not their exact values), but that it                                                   and thus achieves non-trivial to strong length gen-
+fails to solve tasks when presented with positional                                                   eralization on most tasks.
+encodings whose order does not correspond to the                                                        Finally, we also compare our method to a variant
+tokens’ positions.                                                                                   of the Neural Data Router (NDR) (Csordás et al.,
+                                                                                                     2022), which was developed to improve the sys-
+B.2        Comparison to Prior Work                                                                  tematic generalization capabilities of Transformers.
+In Section 4, we compared our method to                                                              We only consider the most related aspects of the
+a wide range of positional encodings: none,                                                          NDR architecture, i.e., the geometric attention and
+sin / cos (Vaswani et al., 2017), relative (Dai et al.,                                              the directional encoding (we do not use gating or
+2019), ALiBi (Press et al., 2022), RoPE (Su et al.,                                                  shared layers). Table 5 compares the test accuracy
+2021), learned (Gehring et al., 2017), and label-                                                    of geometric attention and directional encodings
+Table 4: Means and standard deviations (computed over random seeds) of the score (accuracy averaged over all
+test lengths) for the results of the main experiment (see Table 1). The random accuracy is 50%, except for C YCLE
+NAVIGATION, B UCKET S ORT, and the modular arithmetic tasks, where it is 20%. We denote permutation-invariant
+tasks, which can be solved without positional information, with †. Numbers in bold are the best performers, per task.
+These results underline the superiority of our method, and especially when applied to relative positional encodings.
+
+                                                                                                                                                       Randomized (Ours)
+Level   Task                                        None      sin / cos        Relative       ALiBi        RoPE      Learned        sin / cos    Relative       ALiBi          RoPE     Learned⋆
+        E VEN PAIRS                          50.1 ± 0.1     50.4 ± 0.2      67.6 ± 15.3   59.8 ± 3.2   50.4 ± 0.3   50.4 ± 0.2    99.7 ± 0.3    99.6 ± 0.6   71.4 ± 5.6   100.0 ± 0.0   96.2 ± 0.7
+        M ODULAR A RITHMETIC (S IMPLE )      20.0 ± 0.0     20.2 ± 0.2       20.7 ± 0.5   23.2 ± 0.9   20.8 ± 0.5   20.1 ± 0.1    24.2 ± 1.4    24.9 ± 1.7   20.8 ± 0.3    23.5 ± 1.6   20.2 ± 0.4
+R
+        PARITY C HECK†                       50.4 ± 0.8     50.3 ± 0.2       50.4 ± 0.6   50.5 ± 0.6   50.4 ± 0.4   50.0 ± 0.1    51.1 ± 1.3    51.4 ± 0.5   50.0 ± 0.2    50.4 ± 1.0   50.6 ± 0.9
+        C YCLE NAVIGATION†                  33.9 ± 10.5     23.8 ± 1.4       21.7 ± 0.8   31.1 ± 3.8   22.3 ± 0.9   21.0 ± 1.2   30.3 ± 10.7    45.9 ± 9.9   26.3 ± 2.4   52.9 ± 15.3   31.9 ± 8.2
+
+        S TACK M ANIPULATION                 50.2 ± 0.1     47.3 ± 1.9       50.1 ± 3.3   51.0 ± 8.0   49.6 ± 3.0   44.9 ± 3.7    69.2 ± 3.2    71.7 ± 4.7   69.5 ± 1.1    66.0 ± 2.0   66.1 ± 2.5
+        R EVERSE S TRING                     52.7 ± 0.1     50.4 ± 0.1       54.2 ± 1.5   56.3 ± 2.6   51.2 ± 0.3   50.4 ± 0.2    72.9 ± 1.6    77.1 ± 6.6   75.1 ± 1.3    67.7 ± 1.1   52.7 ± 0.2
+DCF
+        M ODULAR A RITHMETIC                 31.0 ± 0.1     24.3 ± 2.2       26.1 ± 2.0   28.1 ± 3.4   24.0 ± 2.4   22.3 ± 1.5    29.6 ± 4.6    28.8 ± 5.5   29.3 ± 1.6    28.6 ± 3.9   30.3 ± 2.6
+        S OLVE E QUATION                     20.1 ± 0.0     20.9 ± 0.2       21.9 ± 0.7   23.6 ± 1.9   21.9 ± 0.6   20.2 ± 0.2    23.6 ± 0.5    25.4 ± 1.8   21.1 ± 0.7    22.3 ± 1.6   21.1 ± 0.7
+
+        D UPLICATE S TRING                   52.7 ± 0.1     50.4 ± 0.2       51.0 ± 0.4   51.0 ± 0.2   50.4 ± 0.2   50.4 ± 0.2    69.0 ± 2.9    73.1 ± 1.5   67.9 ± 1.4    67.1 ± 2.0   52.8 ± 0.1
+        M ISSING D UPLICATE                  51.4 ± 1.0     50.1 ± 0.6       51.1 ± 1.1   53.5 ± 0.4   53.9 ± 1.6   50.1 ± 0.4    50.4 ± 1.5    91.4 ± 9.8   75.2 ± 3.4    73.2 ± 1.2   51.2 ± 1.4
+        O DDS F IRST                         52.7 ± 0.1     51.3 ± 0.2       51.5 ± 0.5   51.1 ± 0.2   50.8 ± 0.2   50.5 ± 0.1    62.5 ± 2.0    65.9 ± 1.6   62.2 ± 1.4    62.9 ± 1.3   52.7 ± 0.1
+CS      B INARY A DDITION                    49.4 ± 0.3     47.3 ± 3.8       51.7 ± 1.3   48.5 ± 3.6   47.8 ± 5.4   48.9 ± 0.8    61.2 ± 1.7    62.0 ± 1.1   54.3 ± 1.5    57.4 ± 1.2   59.9 ± 1.3
+        B INARY M ULTIPLICATION              49.8 ± 0.0     48.8 ± 1.0       50.2 ± 3.5   49.9 ± 2.3   49.6 ± 0.6   48.7 ± 1.7    51.8 ± 0.2    39.1 ± 7.1   49.2 ± 1.2    45.7 ± 6.6   51.6 ± 0.2
+        C OMPUTE S QRT                       50.2 ± 0.0     50.1 ± 0.0       51.5 ± 0.4   50.5 ± 0.2   50.3 ± 0.1   50.1 ± 0.1    51.9 ± 0.5    52.4 ± 0.6   51.1 ± 0.1    51.8 ± 0.3   51.0 ± 0.8
+        B UCKET S ORT†                       23.7 ± 0.0     25.6 ± 2.6       83.4 ± 6.6   29.3 ± 6.7   23.6 ± 3.8   20.7 ± 2.9    99.3 ± 0.4    99.4 ± 0.3   98.8 ± 0.7    99.3 ± 0.3   98.9 ± 0.4
+
+
+
+
+Table 5: Accuracy (in %) averaged over all test lengths                                                which shows a 2D projection of activations onto the
+for geometric attention with directional encoding.                                                     first two principal components when evaluating on
+                                                                                                       sequences of length 40 (i.e., the maximum training
+                                                    Max                     Avg ± SD
+Level   Task                              Table 1    Geometric            Table 4   Geometric
+                                                                                                       length N , shown in blue) and length 150 (i.e., the
+        E VEN PAIRS
+        M ODULAR A RITHMETIC (S IMPLE )
+                                           100.0
+                                            28.1
+                                                           100.0
+                                                            43.6
+                                                                   100.0 ± 0.0
+                                                                    24.9 ± 1.7
+                                                                                    94.5 ± 8.8
+                                                                                    27.2 ± 8.2
+                                                                                                       generalization regime, shown in orange), using the
+R
+        PARITY C HECK†
+        C YCLE NAVIGATION†
+                                            52.6
+                                            73.6
+                                                            52.4
+                                                            41.3
+                                                                    51.4 ± 0.5
+                                                                   52.9 ± 15.3
+                                                                                    51.6 ± 0.6
+                                                                                    32.9 ± 4.7
+                                                                                                       same transformation. While the activations of our
+        S TACK M ANIPULATION                 77.9           58.3    71.7 ± 4.7      55.6 ± 2.3
+                                                                                                       randomized relative encoding strongly overlap for
+DCF
+        R EVERSE S TRING
+        M ODULAR A RITHMETIC
+                                             95.1
+                                             34.9
+                                                            65.2
+                                                            36.5
+                                                                    77.1 ± 6.6
+                                                                    30.3 ± 2.6
+                                                                                    59.3 ± 3.2
+                                                                                    32.8 ± 2.8
+                                                                                                       the training and the generalization regimes in all
+        S OLVE E QUATION                     28.1           31.7    25.4 ± 1.8      28.5 ± 2.0
+                                                                                                       layers, the standard relative encoding leads to out-
+        D UPLICATE S TRING
+        M ISSING D UPLICATE
+                                            75.1
+                                           100.0
+                                                            58.6
+                                                            64.4
+                                                                    73.1 ± 1.5
+                                                                    91.4 ± 9.8
+                                                                                     54.9 ± 1.6
+                                                                                     60.3 ± 2.3
+                                                                                                       of-distribution activations for sequence length 150
+                                                                    65.9 ± 1.6       58.1 ± 2.6
+CS
+        O DDS F IRST
+        B INARY A DDITION
+                                            69.3
+                                            64.5
+                                                            64.2
+                                                            54.9    62.0 ± 1.1       53.5 ± 1.5
+                                                                                                       in layers 3 and 4. We obtained qualitatively similar
+        B INARY M ULTIPLICATION             50.1            53.6    51.8 ± 0.2      52.1 ± 2.5
+        C OMPUTE S QRT                      53.3            54.1    52.4 ± 0.6       52.3 ± 0.9        results for the sin / cos and learned encodings.
+        B UCKET S ORT†                     100.0            78.3    99.5 ± 0.3      57.7 ± 11.4
+                                                                                                          To compute the results in Fig. 5, we generated
+                                                                                                       30 sequences of length 40 and 150 respectively,
+                                                                                                       on the R EVERSE S TRING task and passed them
+with the best results from Table 1 (for the maxi-
+                                                                                                       through a well-trained model with either relative
+mum) and Table 4 (for the mean). We observe that
+                                                                                                       or randomized relative encodings. For each layer
+our randomized positional encodings outperform
+                                                                                                       shown, we fitted a (non-whitened) 2D PCA on the
+the geometric attention overall (with a 9.7% higher
+                                                                                                       activations obtained from sequence length 40 and
+maximum test accuracy on average) but not on all
+                                                                                                       projected all activations from sequence length 150
+tasks. In particular, geometric attention performs
+                                                                                                       into two dimensions using the same transforma-
+substantially better on M ODULAR A RITHMETIC
+                                                                                                       tions (yielding 30 × 40 and 30 × 150 activation-
+(S IMPLE ), which has an inherent locality bias, i.e.,
+                                                                                                       datapoints per layer). The random relative encod-
+numbers closer to the operation symbols are gen-
+                                                                                                       ing (our method) attains an average accuracy of 1.0
+erally more relevant, which can be captured by
+                                                                                                       and 0.994 on the 30 sequences of length 40 and
+“radiating outwards” as geometric attention does.
+                                                                                                       150, respectively. The standard relative encoding
+                                                                                                       (the baseline) attains an average accuracy of 1.0 on
+B.3        Analysis
+                                                                                                       sequence-length 40 and 0.596 on length 150, indi-
+Analyzing the activations As illustrated in                                                            cating the model’s failure to generalize well under
+Fig. 1, the main intuition behind our random-                                                          the standard relative encoding.
+ized encodings is that they do not lead to out-
+of-distribution activations when evaluating on se-                                                     Analyzing the attention matrices We also ana-
+quences longer than the maximal training length.                                                       lyze the attention matrices learned with the relative
+We confirm this intuition in our analysis in Fig. 5,                                                   positional encoding and our corresponding random-
+           1.0                                                                1.0                                                                       1.0
+           0.9                                                                0.8                                                                       0.9
+
+
+   Accuracy                                                           Accuracy                                                                  Accuracy
+           0.8                                                                                                                                          0.8
+                                                                              0.6
+           0.7                                                                                                                                          0.7
+           0.6                                                                0.4                                                                       0.6
+           0.5                                                                0.2                                                                       0.5
+                  0        100      200      300      400    500                     0      100     200      300         400           500                     0     100     200      300        400    500
+                                   Sequence length                                                 Sequence length                                                          Sequence length
+
+                               (a) E VEN PAIRS (R)                               (b) M ODULAR A RITHMETIC (S IMPLE ) (R)                                              (c) PARITY C HECK (R)
+
+           1.0                                                                1.0                                                                       1.0
+
+           0.8                                                                0.9                                                                       0.9
+
+
+   Accuracy                                                           Accuracy                                                                  Accuracy
+                                                                              0.8                                                                       0.8
+           0.6
+                                                                              0.7                                                                       0.7
+           0.4                                                                0.6                                                                       0.6
+           0.2                                                                0.5                                                                       0.5
+                  0        100      200      300      400    500                     0      100     200      300         400           500                     0     100     200      300        400    500
+                                   Sequence length                                                 Sequence length                                                          Sequence length
+
+                          (d) C YCLE NAVIGATION (R)                                      (e) S TACK M ANIPULATION (DCF)                                             (f) R EVERSE S TRING (DCF)
+
+       1.0                                                                1.0                                                                       1.0
+                                                                                                                      NONE
+                                                                                                                      SIN_COS
+       0.8                                                                0.8                                         RELATIVE                      0.9
+                                                                                                                      ALIBI
+                                                                                                                      ROTARY
+
+Accuracy                                                           Accuracy                                                                  Accuracy
+                                                                                                                      LEARNT                        0.8
+       0.6                                                                0.6                                         NOISY_SIN_COS
+                                                                                                                      NOISY_RELATIVE                0.7
+                                                                                                                      NOISY_ALIBI
+       0.4                                                                0.4                                         NOISY_ROTARY
+                                                                                                                                                    0.6
+                                                                                                                      NOISY_LEARNT
+
+       0.2                                                                0.2                                                                       0.5
+              0          100       200      300      400    500                  0         100     200      300        400         500                     0        100     200      300      400      500
+                                  Sequence length                                                 Sequence length                                                          Sequence length
+
+                      (g) M ODULAR A RITHMETIC (DCF)                                      (h) S OLVE E QUATION (DCF)                                               (i) D UPLICATE S TRING (CS)
+
+           1.0                                                                1.0                                                                       1.0
+           0.9                                                                0.9                                                                       0.9
+
+
+   Accuracy                                                           Accuracy                                                                  Accuracy
+           0.8                                                                0.8                                                                       0.8
+           0.7                                                                0.7                                                                       0.7
+           0.6                                                                0.6                                                                       0.6
+           0.5                                                                0.5                                                                       0.5
+                  0        100      200      300      400    500                     0      100     200      300         400           500                     0     100     200      300        400    500
+                                   Sequence length                                                 Sequence length                                                          Sequence length
+
+                         (j) M ISSING D UPLICATE (CS)                                         (k) O DDS F IRST (CS)                                                 (l) B INARY A DDITION (CS)
+
+           1.0                                                                1.0                                                                       1.0
+           0.9                                                                0.9                                                                       0.8
+
+   Accuracy                                                           Accuracy                                                                  Accuracy
+           0.8                                                                0.8
+                                                                                                                                                        0.6
+           0.7                                                                0.7
+           0.6                                                                0.6                                                                       0.4
+
+           0.5                                                                0.5                                                                       0.2
+                  0        100      200      300      400    500                     0      100     200      300         400           500                     0     100     200      300        400    500
+                                   Sequence length                                                 Sequence length                                                          Sequence length
+
+                      (m) B INARY M ULTIPLICATION (CS)                                      (n) C OMPUTE S QRT (CS)                                                   (o) BUCKET S ORT (CS)
+
+Figure 4: Performance curves on all tasks for all the positional encodings. The dashed vertical red line is the
+training range, meaning that sequences to the right have not been seen during training and thus measure length
+generalization. The sequences to the left of the dashed line visualize the in-domain generalization performance.
+                                  (a) Relative positional encoding (Dai et al., 2019).
+
+
+
+
+                                  (b) Randomized relative positional encoding (ours).
+
+
+
+
+Figure 5: 2D PCA projections of the activations of the initial embeddings and the encoder layers for 30 sequences on
+the R EVERSE S TRING task. For sequence-lengths beyond the training length (shown in orange), the standard relative
+encoding clearly leads to out-of-distribution activations for layers 3 and 4 compared to those obtained with the
+maximum training length (shown in blue). In contrast, our randomized version does not lead to out-of-distribution
+activations for sequences longer than the maximum training length, confirming the intuition in Fig. 1.
+
+
+ized version on the R EVERSE S TRING task. To that
+end, we follow Csordás et al. (2022) and visualize
+the maximum over the 8 attention matrices (one
+per head) for each of the 5 layers in Fig. 6. We
+compare the attention matrices for sequences of
+length 40 (i.e., the maximum training length) and
+150 (i.e., significantly longer than the maximum
+training length). For length 40, both encodings pro-
+duce a noticeable X pattern, which corresponds to
+the reversal of the string. However, for length 150,
+the pattern only remains visible for our randomized
+encodings while it breaks down for the original
+version, indicating the failure to generalize.
+       Layer 1                 Layer 2                    Layer 3                    Layer 4               Layer 5
+
+
+
+
+                          (a) Relative (baseline) with a sequence of length 40 (in-distribution).
+
+
+
+       Layer 1                 Layer 2                    Layer 3                    Layer 4               Layer 5
+
+
+
+
+                       (b) Relative (baseline) with a sequence of length 150 (out-of-distribution).
+
+
+
+       Layer 1                 Layer 2                    Layer 3                    Layer 4               Layer 5
+
+
+
+
+                  (c) Randomized relative (our method) with a sequence of length 40 (in-distribution).
+
+
+
+       Layer 1                 Layer 2                    Layer 3                    Layer 4               Layer 5
+
+
+
+
+                 (d) Randomized relative (our method) with sequence of length 150 (out-of-distribution).
+
+Figure 6: Analysis of the attention matrices for the relative and randomized relative positional encodings on the
+R EVERSE S TRING task using sequences of length 40 (i.e., maximum training length) and 150 (i.e., beyond training
+lengths). We visualize the maximum over the 8 heads per layer (following Csordás et al., 2022) and observe a clear
+X pattern, which corresponds to the reversal of the sequence. Our randomized relative encodings maintain that
+pattern on longer sequences, while it breaks down for the standard relative encoding.
+

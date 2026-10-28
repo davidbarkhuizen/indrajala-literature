@@ -1,0 +1,1263 @@
+Understanding and Improving Length Generalization
+in Recurrent Models
+12
+
+12
+
+Ricardo Buitrago Ruiz and Albert Gu
+1
+
+Machine Learning Department, Carnegie Mellon University
+
+arXiv:2507.02782v2 [cs.LG] 12 Oct 2025
+
+2
+
+Cartesia AI
+ricardo.ruiz@cartesia.ai, agu@cs.cmu.edu
+Abstract
+Recently, recurrent models such as state space models and linear attention have become popular due to their linear complexity in the sequence length. Thanks to their recurrent nature, in principle they can process arbitrarily long
+sequences, but their performance sometimes drops considerably beyond their training context lengths—i.e. they fail to
+length generalize. In this work, we provide comprehensive empirical and theoretical analysis to support the unexplored
+states hypothesis, which posits that models fail to length generalize when during training they are only exposed to a
+limited subset of the distribution of all attainable states (i.e. states that would be attained if the recurrence was applied
+to long sequences). Furthermore, we investigate simple training interventions that aim to increase the coverage of the
+states that the model is trained on, e.g. by initializing the state with Gaussian noise or with the final state of a different input sequence. With only 500 post-training steps (∼ 0.1% of the pre-training budget), these interventions enable
+length generalization for sequences that are orders of magnitude longer than the training context (e.g. 2𝑘 −→ 128𝑘) and
+show improved performance in long context tasks, thus presenting a simple and efficient way to enable robust length
+generalization in general recurrent models.
+
+1
+
+Introduction
+
+Recurrent architectures like state space models (Dao and Gu 2024; Gu and Dao 2023; Gu, Goel, and Ré 2022; J. T. Smith,
+Warrington, and Linderman 2023) and linear attention variants (Katharopoulos et al. 2020; Bo Peng, Alcaide, et al. 2023;
+Yang, B. Wang, Shen, et al. 2024; Yang, B. Wang, Y. Zhang, et al. 2024) compress the previous context of a sequence into
+a state, with each output depending on previous tokens only through the state. In addition to matching the performance
+of Transformers (Vaswani et al. 2017) across many tasks, the recurrent mechanism brings two benefits: the ability to
+efficiently process long sequences thanks to its linear complexity, and the capacity to easily process tokens beyond their
+training context by simply rolling out the state. Nevertheless, in practice these benefits are often unrealized, given that
+their performance can drop considerably when the sequence length exceeds their training context (Ben-Kish et al. 2024;
+Waleffe et al. 2024; Ye et al. 2025; Yuan et al. 2024). This naturally leads to two questions: (1) why do these models fail to
+length generalize? and (2) how can we efficiently enable length generalization across several recurrent models?
+Recently, some works have studied the length generalization of Mamba (Dao and Gu 2024) and have proposed solutions
+such as forcing the model to forget previous context (Yingfa Chen et al. 2024) or skipping tokens in the state update to
+reduce the effective context of the processed sequence (Ben-Kish et al. 2024; Ye et al. 2025). However, these methods require
+changing the internal mechanism of Mamba and might not be easily transferable to other architectures. Other works have
+linked length generalization to state capacity and overfitting (Yingfa Chen et al. 2024; S. Wang 2024), proposing training
+on longer sequences and with Truncated Backpropagation Through Time (TBTT) (Sutskever 2013; Williams and J. Peng
+1990) as a way to enable length generalization. In this work, we reason about the distribution of states that the model is
+trained on to introduce a precise hypothesis that explains why recurrent models fail to length generalize. Moreover, we
+perform comprehensive interventions that elucidate on what distributions recurrent models need to be trained to enable
+length generalization.
+
+1
+
+(a) Mamba-1 Perplexity.
+
+(b) Mamba-2 Perplexity.
+
+(c) GLA Perplexity.
+
+(d) Mamba-1 EffRem𝑇 (𝑡) (𝑇 = 8192).
+
+(e) Mamba-2 EffRem𝑇 (𝑡) (𝑇 = 8192).
+
+(f) GLA EffRem𝑇 (𝑡) (𝑇 = 2048).
+
+Figure 1: (Top) Perplexity as a function of token position on the Pile validation dataset (Gao et al. 2020) for the official
+Mamba-1 and Mamba-2 checkpoints trained with context 𝑇 = 2048, as well as for Gated Linear Attention (GLA) models
+trained with context 𝑇 = 512. In dashed lines, we show the same models post-trained with State Passing (SP), which is
+an intervention that initializes the state with the final state of a different sequence (see Section 4.1). State Passing is a
+simple technique that enables length generalization across several recurrent architectures. Mamba-2 and GLA are posttrained for 500 steps and Mamba-1 is post-trained for 1000 steps. A similar plot for RWKV-v6 (Bo Peng, Goldstein, et al.
+2024) is shown in Figure 10. (Bottom) Effective Remembrance for recurrent models and their State Passing post-trained
+counterparts. Effective Remembrance at time 𝑡 roughly measures the impact of the tokens at positions [0, 𝑡) on the output
+of the model at a later position 𝑇 , with 0 indicating no impact (no “effective remembrance” of tokens [0, 𝑡)) and 1 indicating
+maximal impact (see Section 3.4 for a precise definition). The baseline models are disproportionately affected by tokens
+that are very far away in the past, indicating that they are not correctly handling the recent context. State Passing fixes
+this behavior.
+
+More concretely, we propose the unexplored states hypothesis, which suggests that models fail to length generalize
+when their recurrence applied to long sequences produces state distributions that have not been explored
+during training. We support this hypothesis through several experiments and additionally introduce Effective Remembrance, a novel metric that measures the impact of previous parts of the context in the output of the model. We find out
+that models that fail to length generalize are disproportionately impacted by the initial tokens of the sequence, suggesting that these models overfit to states produced early in the sequence when they are trained on short contexts with a
+zero-initialized fixed state.
+Based on these findings, we explore training interventions that modify the initial state to expose the models to a wider
+range of state distributions (which is equivalent to starting from some given initial context). We investigate techniques
+such as TBTT and additionally propose new ones that are directly motivated by our hypothesis, such as initializing the
+state with some type of Gaussian noise. Through a comprehensive comparison of these interventions, we conclude that
+the key to length generalization is training on initial states that are similar to the states that the model attains when
+processing long sequences—in particular, training on long sequences (directly or indirectly through TBTT) is not always
+necessary. In our experiments, with as little as 500 post-training steps (∼ 0.1% of the pre-training budget) we enable length
+
+2
+
+generalization from 2k training contexts to sequences of length 128k at validation. Furthermore, the interventions enable
+length extrapolation in long context tasks such as BABILong (Kuratov et al. 2024), passkey retrieval (Mohtashami and
+Jaggi 2023) and synthetic copying (Jelassi et al. 2024); and also change the curves of the Effective Remembrance metric so
+that the model no longer overfits to the states of early parts of the sequence.
+Our study argues that length generalization in recurrent models is expected to be readily achievable through
+simple training interventions. This simplifies the process of comparing new recurrent architectures by allowing researchers to primarily focus on their in-length performance, which we consider particularly significant in light of the
+recent proliferation of newly proposed recurrent architectures (Arora et al. 2024; Beck et al. 2024; De et al. 2024; Katsch
+2023; Liu et al. 2024; Ma et al. 2024; Bo Peng, Alcaide, et al. 2023; Sun, Dong, et al. 2023; Sun, X. Li, et al. 2024; Yang,
+Kautz, and Hatamizadeh 2024; Yang, B. Wang, Shen, et al. 2024; Yang, B. Wang, Y. Zhang, et al. 2024). As a whole, our contributions bring new theoretical insights on the behavior of stateful models and simple empirical techniques to improve
+recurrent models at large.
+
+2
+
+Preliminaries
+
+2.1
+
+Notation
+
+Given a sequence 𝑥 = (𝑥 0, 𝑥 1, ..., 𝑥𝑇 ) we will use 𝑥𝑠:𝑡 to refer to the subset of the sequenceÎ(𝑥𝑠 , 𝑥𝑠+1, ..., 𝑥𝑡 ). Additionally, for
+any sequence 𝑥 we will use 𝑥 × to denote the multiplication of elements of 𝑥, i.e. 𝑥 × = 𝑇𝑖=0 𝑥𝑖 . For convenience, if 𝑠 > 𝑡,
+× = 1.
+we will define 𝑥𝑠:𝑡
+
+2.2
+
+Recurrent Models
+
+The core of both Mamba and Mamba-2 is a state space model (SSM), which is a transformation of a 1-dimensional sequence
+𝑥 ∈ R𝑇 → 𝑦 ∈ R𝑇 through an implicit latent state ℎ ∈ R (𝑇 ,𝑁 ) . In its general form, it can be written as:
+ℎ𝑡 = 𝐴𝑡 ℎ𝑡 −1 + 𝐵𝑡 𝑥𝑡
+
+(1a)
+
+𝑦𝑡 = 𝐶𝑡𝑇 ℎ𝑡
+
+(1b)
+
+where 𝐴𝑡 ∈ R (𝑁 ,𝑁 ) , 𝐵𝑡 ∈ R (𝑁 ,1) , and 𝐶𝑡 ∈ R (𝑁 ,1) . The output 𝑦𝑡 depends on the past history 𝑥 0:𝑡 only through the state
+ℎ𝑡 . Thus, in autoregressive models ℎ𝑡 maintains a compressed representation of the past 𝑥 0:𝑡 which is useful to predict the
+next token. Equation 1a is valid for 𝑡 ∈ [0,𝑇 ]. For 𝑡 = 0, it is also necessary to define ℎ −1 , which we denote by initial state.
+In the standard implementations of Mamba, the state ℎ −1 is initialized with zeros ℎ −1 = 0. Note that this is equivalent to
+starting to predict the sequence 𝑦0:𝑇 without any previous context.
+Throughout this work, we use the term “recurrent models” to refer to architectures that accept a formulation like the one
+presented in Equation 1, which includes most modern recurrent models like Linear Attention (Katharopoulos et al. 2020),
+RWKV (Bo Peng, Alcaide, et al. 2023), Retnet (Sun, Dong, et al. 2023) and Gated Linear Attention (Yang, B. Wang, Shen,
+et al. 2024), to name a few. The difference between the architectures mostly resides in the parametrization of 𝐴𝑡 , 𝐵𝑡 and
+𝐶𝑡 ; and in how they are obtained from the inputs. We note that some modern recurrent architectures do not accept a
+formulation like Equation 1 (e.g. xLSTM (Beck et al. 2024)); we hypothesize that they would exhibit a similar behavior
+but we leave them outside the scope of this work. We refer to Yang, B. Wang, Y. Zhang, et al. (2024) for an overview of
+modern recurrent models.
+
+3
+
+Analyzing the Length Generalization Failure of Recurrent Models
+
+In this section, we identify training conditions under which models fail to length generalize and explain this behavior
+through our proposed unexplored states hypothesis.
+
+3.1
+
+Definition of Length Generalization
+
+First, we provide a concrete definition for position-wise perplexity—i.e, the average perplexity that the model achieves at
+each position in the sequence.
+
+3
+
+(a) Mamba-2 45m
+
+(b) Mamba-2 85m
+
+(c) Mamba-2 125m
+
+(d) GLA 70m
+
+Figure 2: Position-wise perplexities for Mamba-2 (Dao and Gu 2024) and GLA (Yang, B. Wang, Shen, et al. 2024) trained
+from scratch with different context lengths 𝑇 on the Pile (Gao et al. 2020). The longer the training context, the better the
+length generalization. The 45m model is trained for 22.5B tokens (25x Chinchilla laws), the 70m and 85m are trained for
+34B tokens (20x Chinchilla Laws), and the 125 model is trained for 25B tokens (10x Chinchilla Laws).
+
+Definition 3.1 (Position-wise Perplexity). Let 𝑞(·|𝑐) be the next token probabilities of an autoregressive sequential model
+given a context 𝑐, and let D be a distribution over sequences. We define the position-wise perplexity at position 𝑡 as the
+perplexity that the autoregressive model achieves at position 𝑡:
+Position-wise Perplexity(𝑡) = exp 𝐸𝑥∼D [− log 𝑞(𝑥𝑡 |𝑥 0:𝑡 −1 )]
+Position-wise perplexities can easily be computed in a dataset
+simply by averaging the typical perplexity by sequence position.
+These values serve to define length generalization:
+Definition 3.2 (Length Generalization). Let M be an autoregressive sequential model trained with context 𝑇train , [0,𝑇 ] an
+interval with 𝑇 > 𝑇train , and D a distribution over sequences. Let
+𝑝 ★ be the minimum position-wise perplexity that M achieves on
+[0,𝑇train ], and let 𝑡 ★ be the position where it is achieved. Then,
+M is said to length generalize in [0,𝑇 ] if the position-wise perplexities for 𝑡 ∈ [𝑡 ★,𝑇 ] are smaller or equal than 𝑝 ★.
+
+3.2 Short Training Contexts Impede Length Figure 3: Position-wise perplexities of a Mamba-2 85m
+model trained for different number of tokens with a
+Generalization
+In this subsection we show the results for models trained from
+scratch with different training contexts. In Figure 2 it can be seen
+that when the training context length is too short, the models’
+perplexities diverge for positions after the context length. Additionally, the larger the model, the longer the context needed
+to length generalize. Based on these results, we conclude that
+the longer the training context, the better the length generalization. Details on the training recipe and model configurations are
+given in Section B.1.
+
+context of 1024 on the Pile (Gao et al. 2020). 2.5x means
+that the model is trained for 2.5 times what Chinchilla
+scaling laws dictate for that model size. Thus, the
+checkpoints correspond to a range between 4.25B and
+34B tokens. In this case, the failure to length generalize occurs after training for more than 7.5x Chinchilla
+laws.
+
+3.3 Training for Many Tokens Impedes Length
+Generalization
+In the previous subsection we trained models for several times what Chinchilla scaling laws dictate, which is typical to
+maximize their performance. Now, we will study whether the failure to length generalize also occurs when training for
+fewer tokens. Figure 3 shows the position-wise perplexity of a Mamba-2 model at different checkpoints during training,
+
+4
+
+showing that the model needs to be trained for at least 7.5x Chinchilla scaling laws to fail to length generalize. Thus,
+extended training hinders length generalization.
+We note that, in addition to short contexts and extended training, other hyperparameters also influence length generalization in our experiments. For example, in Section E we observe that having an extended learning rate warm-up period
+hinders length generalization. This indicates that there is a complex relationship between length generalization and training recipes. In Section 4 we will show that there are inexpensive training interventions that enable length generalization,
+removing the need to carefully tune the training recipe to achieve generalization.
+
+3.4
+
+Effective Remembrance: a Metric to Understand How Sequence Models Process Context
+
+Sequence models would perform reasonably well on long sequences if they only used a sliding context window of length
+equal to the training context to predict each output, as this would be equivalent to processing sequences of the same
+length as those seen during training. This is the mechanism of some architectures like Sliding Window Attention (Beltagy,
+Peters, and Cohan 2020). However, recurrent models use the the full context for their predictions (indeed, there is not
+a straightforward way to eliminate previous parts of the sequence from the state). Consequently, their failure to length
+generalize arises because their handling of recent context is compromised by having already processed earlier parts of the
+sequence.
+To analyze this phenomenon further, we propose comparing the outputs of the model when it is given the full context,
+and the output when it is given only a recent context. Concretely, given a context 𝑥 0:𝑇 , an autoregressive model predicts a
+vector of probabilities for the next token position, 𝑞(·|𝑥 0:𝑇 ) ∈ R | V | , where |V | is the vocabulary size. We propose Effective
+Remembrance as a measure to understand how the output of different partial contexts 𝑥𝑡 :𝑇 differs from the output of the
+full context.
+Definition 3.3 (Effective Remembrance). Given an autoregressive model which outputs probabilities 𝑞(·|context) over a
+vocabulary V, an input sequence 𝑥 0:𝑇 and a distance between probability distributions 𝑑, we define the Effective Remembrance for 𝑡 ∈ [0,𝑇 ] as:
+EffRem𝑇 (𝑡) = 𝑑 (𝑞(·|𝑥 0:𝑇 ), 𝑞(·|𝑥𝑡 :𝑇 ))
+(2)
+Unless otherwise stated, we will use total variation1 𝑑 = TV as a distance between distributions:
+TV(𝑞(·), 𝑞 ′ (·)) =
+
+1 ∑︁
+|𝑞(𝑥) − 𝑞(𝑥 ′ )|
+2 𝑥∈V
+
+(3)
+
+Additionally, we will present the values of Effective Remembrance averaged over a dataset. We note that Effective Remembrance is applicable to all autoregressive sequence models, not just recurrent ones.
+Effective Remembrance can be understood as how much the past tokens 𝑥 0:𝑡 −1 influence the output at time𝑇 . If EffRem𝑇 (𝑡) =
+0, this means that the predictions using 𝑥𝑡 :𝑇 and using 𝑥 0:𝑇 are the same, meaning that the model does not “effectively
+remember” any of the past tokens 𝑥 0:𝑡 −1 . Conversely, if EffRem𝑇 (𝑡) is high, the model is substantially influenced by the
+tokens 𝑥 0:𝑡 −1 , since removing them from the context changes the prediction significantly. Naturally, for distribution such
+as text we would expect EffRem𝑇 (𝑡) ≈ 0 for 𝑡 ≪ 𝑇 (tokens that are very far away from 𝑇 barely have an effect on the
+prediction), and EffRem𝑇 (𝑡) −→ 1 when 𝑡 −→ 𝑇 .2
+Figure 1 shows the Effective Remembrance of several recurrent models, using 𝑇 four times larger than the training context
+(8192 for Mamba and 2048 for GLA). Models that fail to length generalize are substantially affected by far away tokens.
+Indeed, the 1.3b Mamba-2 model has high values of EffRem𝑇 (𝑡) for small 𝑡, indicating that its outputs strongly depend
+on the initial tokens (in other words, if the initial tokens were not included for the prediction, the output would be very
+different). Therefore, the failure to length generalize is linked to the model depending too much on the initial tokens and
+overfitting to the states that arise when processing the early parts of the sequence without previous context (i.e. with a
+fixed zero-initialized state).
+1 In Section G we perform an ablation on the choice of the distance metric for Effective Remembrance and conclude that the shape of the curve
+
+EffRem𝑇 (𝑡 ) is very similar when using total variation, the Jensen-Shannon distance or cosine similarity.
+2 Note that because total variation is bounded between 0 and 1, 0 ≤ EffRem (𝑡 ) ≤ 1.
+𝑇
+
+5
+
+3.5
+
+The Distribution of States Changes Over Time
+
+We can gain further insights into why recurrent models fail
+to length generalize by studying statistics of the distribution
+of the state over time. Concretely, if we have a distribution of
+sequences of arbitrary length 𝑋 , we can study the distribution of the state at time 𝑡, D𝑡 := ℎ𝑡 (𝑋 0:𝑡 ), where ℎ𝑡 (𝑥) refers
+to rolling out the state recurrence (e.g. Equation 1a) on 𝑥.
+In Figure 4 we show that the norm of the state of Mamba2 130m increases over time. In particular, after the training
+context the model encounters states with a distribution different from training.
+We already note that the problem with length generalization
+is not necessarily related to having large norms in the state;
+rather, it is due to having states whose distribution change after the training context: the State Passing intervention (Section 4.1) achieves length generalization but has a higher norm
+in the state at almost all positions (Figure 1). In Section C we
+show that this change in distribution is due to specific speFigure 4: Norm of the full state of the Mamba-2 130m ofcific layers and heads of the state.
+ficial checkpoints versus the sequence position 𝑡 (ℎ𝑡 in the
+notation of Section 2.2). The norm is taken across all ele3.6 Unexplored States Hypothesis
+ments of the state in all layers. The Mamba-2 130m postInspired by our previous empirical findings, in this subsec- trained with State Passing (Section 4.1) produces states
+tion we arrive at a hypothesis to understand length general- whose standard deviation do not significantly change afization based on the distribution of the state. At time 𝑡, re- ter the training context 𝑇 = 2048. In contrast, the official
+current models take an input 𝑥𝑡 and the recurrent state ℎ𝑡 to Mamba-2 checkpoint reaches a standard deviation almost
+output the prediction 𝑦𝑡 . That is, we can write 𝑦𝑡 = 𝑓 (𝑥𝑡 , ℎ𝑡 ) twice as large at position 𝑡 = 8192 than the one at position
+for some function 𝑓 . Therefore, the key to length general- 𝑡 = 2048.
+ization is understanding on which distributions of states and
+inputs the function 𝑓 has good performance.
+For many tasks, we can assume that the distribution of inputs
+at time 𝑡 does not change much after the initial tokens (for example, in text, we expect that the marginal distribution of
+tokens at two different positions 𝑡 and 𝑡 ′ should not be too different). Thus, we can focus on the distribution of the state.
+In particular, we are interested in the distribution of attainable states, that is, the ones that the model would produce when
+processing a sequence.
+Again, we denote by D𝑡 := ℎ𝑡 (𝑋 0:𝑡 ) the distribution of the state at time 𝑡. When a model is trained with a context length
+of 𝑇 , it is exposed to state distributions D𝑡 for 0 ≤ 𝑡 < 𝑇 , however it is never exposed to distributions D𝑡 ′ for 𝑡 ′ ≥ 𝑇 . If
+the distribution D𝑡 ′ is different to the ones seen during training, the model is not guaranteed to have good performance.
+Based on this insight, we present our hypothesis for why models fail to length generalize:
+Unexplored states hypothesis: Recurrent models fail to length generalize when they are trained only on a subset of all
+attainable state distributions—i.e. on a subset of the states that would be attained if the state recurrence was rolled out indefinitely. When trained for long enough, the model overfits to this subset and performs poorly on long sequences because it
+encounters unexplored state distributions.
+This hypothesis explains the previous behavior we have observed. When the training context 𝑇 is short, the model overfits
+to a limited number of distributions D𝑡 for 0 ≤ 𝑡 < 𝑇 , which can be different to the distribution of the states attained after
+rolling out the recurrence on long sequences. Conversely, if the training context 𝑇 is increased, the model is trained on a
+wider range on distributions and is more likely to perform well on the distribution of attainable states.
+
+6
+
+(a) Mamba-2 370m.
+
+(b) Mamba-2 780m.
+
+(c) Mamba-2 1.3b.
+
+Figure 5: Position-wise perplexity of official Mamba-2 models (Base) and our four interventions that are applied to these
+models with 100 post-training steps. For the State Passing and TBTT interventions, 100 steps is enough to enable length
+generalization in 32k length sequences for all models. The interventions modify the initial state of the recurrent models,
+thus facilitating the exploration of a wider range of states. They sample an initial state from distributions that progressively
+get closer to the true distribution of attainable states: (1) Random Noise samples from a Gaussian distribution with fixed
+variance; (2) Fitted Noise samples from a Gaussian distribution with mean and variance calibrated to the final states
+seen during training; (3) State Passing uses the final state of a different sequence as initial state; and (4) TBTT splits a
+sequence into several chunks and uses the final state of the previous chunk as initial state. State Passing directly samples
+from the distribution of attainable states and together with TBTT has the best performance, supporting the unexplored
+states hypothesis. For State Passing, the results for Mamba-1 and Gated Linear Attention are also shown in Figure 1.
+
+4
+
+Training Interventions to Enable Length Generalization
+
+In the previous section, we verified that training with long sequences enables length generalization, which is in agreement with the unexplored states hypothesis. In this section, we further support this hypothesis by showing that length
+generalization is also achieved when the model is exposed to initial states that are similar to attainable states—in other
+words, training with long sequences is sufficient but not necessary for generalization. To do so, we propose four different
+interventions to initialize the state and study the generalization performance of recurrent models post-trained with those
+interventions.
+
+4.1
+
+SSM Equations For a Non-Zero Initial State
+
+First of all, we will derive the equations for an SSM whose initial state is not zero initialized. Assuming ℎ −1 ≠ 0, we can
+unroll Equation 1a to have:
+ℎ𝑡 =
+
+𝑡
+∑︁
+
+×
+×
+𝐴𝑠+1:𝑡
+𝐵𝑠 𝑥𝑠 + 𝐴0:𝑡
+ℎ −1
+
+(4a)
+
+𝑠=0
+
+𝑦𝑡 = 𝐶𝑡𝑇
+
+𝑡
+∑︁
+
+×
+×
+ℎ −1
+𝐴𝑠+1:𝑡
+𝐵𝑠 𝑥𝑠 + 𝐶𝑡𝑇 𝐴0:𝑡
+
+(4b)
+
+𝑠=0
+× ℎ
+Thus, an SSM that is initialized with ℎ −1 ≠ 0 differs from a zero-initialized SSM only in additive factors of 𝐴0:𝑡
+−1 and
+𝑇
+×
+𝐶𝑡 𝐴0:𝑡 ℎ −1 in the final state and output, respectively. As we mentioned in Section 2.2, most recurrent models can be
+formulated using Equation 1, and thus Equation 4 is valid for them. An explicit derivation of the formula is given in
+Section H.
+
+4.2
+
+Intervention 1: Random Noise
+
+For the first intervention, we initialize all the values of the state by sampling independently from a Gaussian N (0, 𝜎 2 ).
+We post-train the official Mamba-2 checkpoints for 100 steps with this technique (∼ 0.02% of the pre-training budget)
+
+7
+
+and show the results in Figure 5 (dashed red line). This simple method slightly improves the generalization of the 370m
+model, but does not work for the 780m and 1.3b models. We believe the reason why this method does not work is that
+the distribution of attainable states of the Mamba-2 model is very different from an IID Gaussian with same mean and
+variance in all layers, especially for large model sizes. Thus, even though this non-zero initialization exposes the model to
+more state distributions, they are not realistic and do not cover the distribution of attainable states, which explains why
+it does not fix length generalization. More details on the post-training procedure are given in Section B.2.
+An ablation on the impact of 𝜎 is shown in Section F. We also note that the random initial state is applied only in training,
+while a zero-initialized state is used for validation. Introducing noise in validation significantly degrades the model’s
+performance on the first tokens.
+
+4.3
+
+Intervention 2: Fitted Noise
+
+For the second intervention, we initialize the state from a distribution that resembles attainable states more closely. To
+do so, we sample from a Gaussian distribution with mean and standard deviation fitted to the final states seen during
+training. More concretely, during training for each layer 𝑙 and head 𝑖 we dynamically compute the mean and variance of
+the final states using a moving average with 𝛽 = 0.1:
+𝜇 (𝑙𝑖 ) ← (1 − 𝛽)Mean(ℎ𝑇(𝑙𝑖 ) ) + 𝛽𝜇 (𝑙𝑖 )
+𝜎2
+
+(𝑙𝑖 )
+
+← (1 − 𝛽)Variance(ℎ𝑇(𝑙𝑖 ) ) + 𝛽𝜎 2
+
+(5)
+(𝑙𝑖 )
+
+(6)
+
+where the Mean and Variance are taken across the head dimension and state expansion dimension 𝑁 . Then, at each
+training step the valuesof the initial
+ state of the layer 𝑙 and head 𝑖 are sampled independently from a Gaussian with the
+(𝑙𝑖 )
+(𝑙𝑖
+)
+2
+updated parameters N 𝜇 , 𝜎
+.
+We apply this intervention by post-training the official Mamba-2 models for 100 steps (∼ 0.02% of the pre-training budget)
+and present the results in Figure 5 (dashed orange line). This approach significantly enhances the generalization of the
+370m and 780m models but still fails to correct the 1.3b model. We hypothesize that this is because independent sampling
+does not generate realistic states for the 1.3b model: as the model size increases, the states likely become more complex,
+with stronger dependencies between values. As in the previous intervention, we note that Gaussian state initialization is
+used only during training.
+
+4.4
+
+Intervention 3: State Passing
+
+In this intervention, we initialize the state to the final state of a different sequence (for convenience, we shuffle all the
+sequences and use the final states of the previous batch during training). Note that this is equivalent to sampling an initial
+state directly from the distribution of attainable states. Additionally, we want the model to perform well on sequences
+with no prior context. To achieve this, we implement a dropout mechanism that randomly zero-initializes the state with
+a probability of 𝑝 = 0.1.
+The results for this intervention are shown in Figure 5 (dashed blue line). With only 100 steps (∼ 0.02% of the pretraining budget), this intervention enables length generalization, which supports our hypothesis that the failure to length
+generalize is due to the model not being trained on attainable state distributions.
+In Figure 1, we also apply this techniques to enable length generalization in both Mamba-1 and GLA. Additionally, we
+show the results for Effective Remembrance in these intervened models. The Effective Remembrance values are smaller
+than the baseline, especially for 𝑡 ≪ 𝑇 , suggesting that the intervened models are not substantially affected by far away
+tokens and correctly model the recent context. Interestingly, the Effective Remembrance curves for the Mamba models
+and GLA models have different shapes. In GLA, the tokens that are more than 512 positions away from 𝑇 have a small
+impact on the output, but the model is extremely affected by tokens that are just 512 positions apart (we recall that 512 is
+the training context length for the GLA models we are evaluating).
+Additionally, in Figure 4 we show that a model post-trained with State Passing produces states whose distributions do not
+seem to significantly change over time, which sheds light into how this intervention achieves length generalization: the
+state update mechanism is modified so that the distribution of attainable states does not change much after the training
+context.
+
+8
+
+4.5
+
+Intervention 4: Truncated Backpropagation Through Time (TBTT)
+
+For the fourth intervention we use Truncated Backpropagation Through Time (TBTT) (Sutskever 2013; Williams and J.
+Peng 1990). This method consists in splitting a long sequence into smaller chunks, and for each chunk using the final
+state of the previous chunk as initial state.3 Even though the gradient propagation is stopped between chunks, the model
+still learns to model a sequence based on some previous context (initial state).
+A comparison with the rest of the interventions is shown in Figure 5 (purple dashed line). It is worth noting that this
+method achieves very similar performance to State Passing, thus indicating that they key for length generalization is
+exploring attainable state distributions, not necessarily processing (chunked) long sequences.
+
+5
+
+Performance of Interventions on Long Context Tasks
+
+In the previous section we showed that the fitted noise, State Passing and TBTT interventions help length generalization
+on the Pile (Gao et al. 2020). As we mentioned in Section 3.4, length generalization would also be possible if the model
+only used the last 𝑇 tokens of a sequence to output its prediction (where 𝑇 is the training context). However, this is not
+a desirable behavior, as the model would fail in tasks that require reasoning over tokens that are more than 𝑇 positions
+apart. Additionally, length generalization was measured using perplexity, but no other metrics were explored. Thus, an
+important question remains: Are these interventions truly effective in tasks that require reasoning over sequences longer than
+the training context 𝑇 ? In this section, we answer affirmatively by showing results on three long context tasks.
+
+5.1
+
+Long Context Reasoning: BABILong benchmark
+
+BABILong (Kuratov et al. 2024) is a challenging benchmark which tests both the common sense understanding of a model
+as well as its ability to capture long range dependencies in text. In Figure 6, it can be observed that State Passing enhances
+the length extrapolation capabilities of the model in both the few shot and finetuned settings (we recall that the model
+is trained and finetuned on sequences of length 2048). Therefore, State Passing is not only useful in fixing the diverging perplexity of established language models, but also in enhancing their ability to solve long context reasoning tasks.
+
+(a) Few Shot.
+
+(b) Finetuned.
+
+Figure 6: Few shot and finetuned performance for the BABILong benchmark (Kuratov et al. 2024) of a Mamba-2 780m
+model under three settings. Base corresponds to the official checkpoint; State Passing is the official checkpoint posttrained with State Passing on the Pile (see Section 4.1); and TBTT corresponds to the official checkpoint finetuned with
+Truncated Backpropagation Through Time on the Pile (see Section 4.5). The State Passing and TBTT interventions
+significantly improve the baseline in both the few shots and finetuned settings, achieving reasonable performance in
+sequences up to length 256𝑘 despite only being trained with a context of 2𝑘. More finetuning details on Section B.3
+.
+
+9
+
+(a) 370m zero shot.
+
+(b) 370m finetuned.
+
+(c) 370m finetuned with fitted noise.
+
+(d) 780m zero shot.
+
+(e) 780m finetuned.
+
+(f) 780m finetuned with fitted noise.
+
+Figure 7: Performance on the passkey retrieval task (Mohtashami and Jaggi 2023) of the official Mamba-2 checkpoints under three settings: (left) zero shot, (middle) standard finetuning, (right) finetuning with fitted noise. Finetuning with fitted
+noise enables solving the passkey task on sequences at least twice as long than with standard finetuning. Additionally,
+although the models are finetuned with sequences of length 2048, the fitted noise intervention solves tasks that require
+leveraging dependencies between tokens that are more than 2048 positions apart. More details on finetuning are given in
+Section B.4.
+
+5.2
+
+Long Context Passkey Retrieval
+
+The passkey retrieval task (Mohtashami and Jaggi 2023) requires the model to retrieve a 5-digit passkey inserted at a given
+depth of a long context. In Figure 8 we present results for two Mamba-2 model sizes under three different settings: zero
+shot evaluation, standard finetuning with context length 𝑇 = 2048 and finetuning with the fitted noise intervention, also
+with 𝑇 = 2048 (see Section B.4 for why we use the fitted intervention in this task). The models finetuned with fitted noise
+are capable of handling relationships between tokens that are much more than 2k positions apart. Moreover, they achieve
+better performance on much harder tasks; in particular the 780m achieves perfect accuracy on sequences of length 256k.
+We provide more details on the tasks and finetuning recipe on Section B.4.
+
+5.3
+
+Synthetic Copying
+
+The synthetic copying task (Jelassi et al. 2024) consists in copying an arbitrary sequence of tokens. In Table 1 we present
+the results for a Mamba-2 model that is trained from scratch, and we show that using State Passing during training greatly
+improves length generalization in sequences more than three times longer. Thus, State Passing helps the model solve long
+context tasks that are harder than those seen during training.
+ARCHITECTURE
+
+CHARACTER ACCURACY
+
+Mamba-2
+Mamba-2 + State Passing
+
+0.27 ± 0.03
+0.47 ± 0.11
+
+Table 1: Length generalization results for the synthetic copying task (Jelassi et al. 2024), which consists of copying an
+arbitrary sequence of tokens. The models have 45 million parameters, are initialized randomly and trained on 1 million
+sequences of length between 50 and 100. They are evaluated on sequences of length 300. The State Passing intervention
+greatly improves length generalization.
+3 From an implementation point of view, the difference with State Passing is that TBTT does not shuffle the sequences and requires carefully setting
+up the dataloader sampler so that the final state of a chunk is used as initial state for the next chunk.
+
+10
+
+6
+
+Related Work
+
+Length generalization in Mamba through changes in the state update mechanism. Some works have proposed
+changing the internal computation of Mamba, for example by updating the state of Mamba only on some selected tokens—
+which is equivalent to shortening the effective context (Ben-Kish et al. 2024; Ye et al. 2025; Yuan et al. 2024), by forcing the
+model to forget previous context (Yingfa Chen et al. 2024), or by calibrating the discretization modules of Mamba (Azizi
+et al. 2025). While these methods show increased performance in tasks like passkey retrieval and document retrieval
+(Mohtashami and Jaggi 2023; Rajpurkar, Jia, and Liang 2018), a downside is that they change the internal state update
+mechanism and might be hard to transfer to architectures different to Mamba. In contrast, our interventions do not
+change the implementation of the architecture and are applicable to several recurrent models.
+Length generalization in SSMs and overfitting to short sequences. Some other works link the failure to length
+generalize of SSMs with state overparametrization and overfitting to short sequences. S. Wang (2024) identifies that
+zero-initialized recurrent models struggle with length generalization, provides a theoretical analysis that links length
+generalization with polynomial extrapolation, and proposes pre-training models with State Passing and TBTT (Sutskever
+2013; Williams and J. Peng 1990) to enable length generalization. Yingfa Chen et al. (2024) shows that training models
+for longer sequences enables length generalization and argues that the failure to length generalize is due to the model
+being overparametrized for its training context and not learning to forget past tokens. We build upon these insights
+to propose the unexplored states hypothesis as a precise explanation for why recurrent models fail to generalize. We
+focus on the distribution of the states and specify on which distributions the model needs to be trained to enable length
+generalization—namely, distributions that are close to the distribution of final states—reaching the conclusion that training
+on long sequences or with TBTT is not always necessary.
+
+7
+
+Conclusion and Future Work
+
+This work presents an empirical and theoretical study of the length generalization of recurrent models. We introduce
+the unexplored states hypothesis, which states that the failure to length generalize is due to the model not being trained
+on the distribution of the states that would be attained if its recurrence was applied to long sequences. Besides bringing
+important insights about the states and the behavior of recurrent models through tools like Effective Remembrance, this
+works also presents simple and general tools to enable length generalization for general recurrent architectures.
+We mention several directions for future work. Firstly, while our work mostly focuses on length generalization in tasks
+related to text modeling, a further study of length extrapolation in other distributions with long range dependencies would
+be insightful. Secondly, we chose Mamba, Mamba-2, Gated Linear Attention and RWKV-v6 as a representative subset
+of modern recurrent architectures, but it would be interesting to analyze the training interventions on other recurrent
+architectures, for example on time invariant models like S4 (Gu, Goel, and Ré 2022) or hybrid models (Arora et al. 2024;
+De et al. 2024; Lieber et al. 2024; Ren et al. 2024)).
+
+Acknowledgements
+RBR was supported by the “la Caixa” Foundation (ID 100010434). The fellowship code is LCF/BQ/EU22/11930090. We
+thank Aakash Lahoti for assistance with the synthetic copying experiment.
+
+Impact Statement
+This paper presents work whose goal is to advance the field of Machine Learning. There are many potential societal
+consequences of our work, none which we feel must be specifically highlighted here.
+
+References
+[1]
+
+Simran Arora, Sabri Eyuboglu, Michael Zhang, Aman Timalsina, Silas Alberti, Dylan Zinsley, James Zou, Atri
+Rudra, and Christopher Ré. “Simple linear attention language models balance the recall-throughput tradeoff”. In:
+arXiv:2402.18668 (2024).
+
+11
+
+[2]
+
+[3]
+
+[4]
+
+[5]
+[6]
+
+[7]
+
+[8]
+
+[9]
+
+[10]
+[11]
+[12]
+
+[13]
+
+[14]
+[15]
+
+[16]
+
+Seyedarmin Azizi, Souvik Kundu, Mohammad Erfan Sadeghi, and Massoud Pedram. “MambaExtend: A TrainingFree Approach to Improve Long Context Extension of Mamba”. In: The Thirteenth International Conference on Learning Representations. 2025. url: https://openreview.net/forum?id=LgzRo1RpLS.
+Aniruddh Bansal, Ari Schwarzschild, Ethan Borgnia, Zayne Emam, Furong Huang, Micah Goldblum, and Tom Goldstein. “End-to-end algorithm synthesis with recurrent networks: Extrapolation without overthinking”. In: Advances
+in Neural Information Processing Systems. Vol. 35. 2022, pp. 20232–20242.
+Maximilian Beck, Korbinian Pöppel, Markus Spanring, Andreas Auer, Oleksandra Prudnikova, Michael K Kopp,
+Günter Klambauer, Johannes Brandstetter, and Sepp Hochreiter. “xLSTM: Extended Long Short-Term Memory”. In:
+The Thirty-eighth Annual Conference on Neural Information Processing Systems. 2024. url: https://openreview.
+net/forum?id=ARAxPPIAhq.
+Iz Beltagy, Matthew E. Peters, and Arman Cohan. “Longformer: The Long-Document Transformer”. In: arXiv:2004.05150
+(2020).
+Assaf Ben-Kish, Itamar Zimerman, Shady Abu-Hussein, Nadav Cohen, Amir Globerson, Lior Wolf, and Raja Giryes.
+DeciMamba: Exploring the Length Extrapolation Potential of Mamba. 2024. arXiv: 2406.14528 [cs.LG]. url: https:
+//arxiv.org/abs/2406.14528.
+Stella Biderman, Hailey Schoelkopf, Quentin Gregory Anthony, Herbie Bradley, Kyle O’Brien, Eric Hallahan, Mohammad Aflah Khan, Shivanshu Purohit, USVSN Sai Prashanth, Edward Raff, et al. “Pythia: A suite for analyzing
+large language models across training and scaling”. In: International Conference on Machine Learning. PMLR. 2023,
+pp. 2397–2430.
+Sid Black, Stella Biderman, Eric Hallahan, Quentin Anthony, Leo Gao, Laurence Golding, Horace He, Connor Leahy,
+Kyle McDonell, Jason Phang, Michael Pieler, USVSN Sai Prashanth, Shivanshu Purohit, Laria Reynolds, Jonathan
+Tow, Ben Wang, and Samuel Weinbach. “GPT-NeoX-20B: An Open-Source Autoregressive Language Model”. In:
+Proceedings of the ACL Workshop on Challenges & Perspectives in Creating Large Language Models. 2022. url: https:
+//arxiv.org/abs/2204.06745.
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom
+Henighan, Rewon Child, Aditya Ramesh, Daniel Ziegler, Jeffrey Wu, Clemens Winter, Chris Hesse, Mark Chen,
+Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess, Jack Clark, Christopher Berner, Sam McCandlish, Alec
+Radford, Ilya Sutskever, and Dario Amodei. “Language Models are Few-Shot Learners”. In: Advances in Neural Information Processing Systems. Ed. by H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin. Vol. 33. Curran
+Associates, Inc., 2020, pp. 1877–1901. url: https://proceedings.neurips.cc/paper_files/paper/2020/file/
+1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf.
+Shouyuan Chen, Sherman Wong, Liangjian Chen, and Yuandong Tian. Extending Context Window of Large Language
+Models via Positional Interpolation. 2023. arXiv: 2306.15595 [cs.CL]. url: https://arxiv.org/abs/2306.15595.
+Shouyuan Chen, Sherman Wong, Liangjian Chen, and Yuandong Tian. Extending Context Window of Large Language
+Models via Positional Interpolation. 2023. arXiv: 2306.15595 [cs.CL]. url: https://arxiv.org/abs/2306.15595.
+Yingfa Chen, Xinrong Zhang, Shengding Hu, Xu Han, Zhiyuan Liu, and Maosong Sun. Stuffed Mamba: State Collapse
+and State Capacity of RNN-Based Long-Context Modeling. 2024. arXiv: 2410.07145 [cs.CL]. url: https://arxiv.
+org/abs/2410.07145.
+Yukang Chen, Shengju Qian, Haotian Tang, Xin Lai, Zhijian Liu, Song Han, and Jiaya Jia. “LongLoRA: Efficient
+Fine-tuning of Long-Context Large Language Models”. In: The Twelfth International Conference on Learning Representations. 2024. url: https://openreview.net/forum?id=6PmJoRfdaK.
+Tri Dao and Albert Gu. “Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured
+State Space Duality”. In: International Conference on Machine Learning (ICML). 2024.
+Soham De, Samuel L Smith, Anushan Fernando, Aleksandar Botev, George Cristian-Muraru, Albert Gu, Ruba
+Haroun, Leonard Berrada, Yutian Chen, Srivatsan Srinivasan, Guillaume Desjardins, Arnaud Doucet, David Budden,
+Yee Whye Teh, Razvan Pascanu, Nando De Freitas, and Caglar Gulcehre. “Griffin: Mixing gated linear recurrences
+with local attention for efficient language models”. In: arXiv [cs.LG] (Feb. 2024). url: http://arxiv.org/abs/
+2402.19427.
+Yiran Ding, Li Lyna Zhang, Chengruidong Zhang, Yuanyuan Xu, Ning Shang, Jiahang Xu, Fan Yang, and Mao
+Yang. LongRoPE: Extending LLM Context Window Beyond 2 Million Tokens. 2024. arXiv: 2402.13753 [cs.CL]. url:
+https://arxiv.org/abs/2402.13753.
+
+12
+
+[17]
+
+[18]
+[19]
+[20]
+[21]
+
+[22]
+
+[23]
+
+[24]
+[25]
+
+[26]
+
+[27]
+[28]
+
+[29]
+[30]
+
+[31]
+
+[32]
+
+Leo Gao, Stella Biderman, Sid Black, Laurence Golding, Travis Hoppe, Charles Foster, Jason Phang, Horace He,
+Anish Thite, Noa Nabeshima, Shawn Presser, and Connor Leahy. “The Pile: An 800GB Dataset of Diverse Text for
+Language Modeling”. In: arXiv preprint arXiv:2101.00027 (2020).
+Aaron Grattafiori et al. The Llama 3 Herd of Models. 2024. arXiv: 2407.21783 [cs.AI]. url: https://arxiv.org/
+abs/2407.21783.
+Albert Gu and Tri Dao. “Mamba: Linear-Time Sequence Modeling with Selective State Spaces”. In: arXiv preprint
+arXiv:2312.00752 (2023).
+Albert Gu, Karan Goel, and Christopher Ré. “Efficiently Modeling Long Sequences with Structured State Spaces”.
+In: The International Conference on Learning Representations (ICLR). 2022.
+Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford, Diego
+de Las Casas, Lisa Anne Hendricks, Johannes Welbl, Aidan Clark, Tom Hennigan, Eric Noland, Katie Millican,
+George van den Driessche, Bogdan Damoc, Aurelia Guy, Simon Osindero, Karen Simonyan, Erich Elsen, Oriol
+Vinyals, Jack W. Rae, and Laurent Sifre. “Training compute-optimal large language models”. In: Proceedings of the
+36th International Conference on Neural Information Processing Systems. NIPS ’22. New Orleans, LA, USA: Curran
+Associates Inc., 2024. isbn: 9781713871088.
+Samy Jelassi, David Brandfonbrener, Sham M. Kakade, and Eran Malach. “Repeat After Me: Transformers are Better
+than State Space Models at Copying”. In: Proceedings of the 41st International Conference on Machine Learning. Ed.
+by Ruslan Salakhutdinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and Felix
+Berkenkamp. Vol. 235. Proceedings of Machine Learning Research. PMLR, 21–27 Jul 2024, pp. 21502–21521. url:
+https://proceedings.mlr.press/v235/jelassi24a.html.
+Angelos Katharopoulos, Apoorv Vyas, Nikolaos Pappas, and Francois Fleuret. “Transformers are RNNs: Fast autoregressive transformers with linear attention”. In: International Conference on Machine Learning. PMLR, 2020,
+pp. 5156–5165.
+T. Katsch. “Gateloop: Fully data-controlled linear recurrence for sequence modeling”. In: arXiv abs/2311.01927
+(2023).
+Amirhossein Kazemnejad, Inkit Padhi, Karthikeyan Natesan Ramamurthy, Payel Das, and Siva Reddy. The Impact
+of Positional Encoding on Length Generalization in Transformers. 2023. arXiv: 2305.19466 [cs.CL]. url: https:
+//arxiv.org/abs/2305.19466.
+Yuri Kuratov, Aydar Bulatov, Petr Anokhin, Ivan Rodkin, Dmitry Igorevich Sorokin, Artyom Sorokin, and Mikhail
+Burtsev. “BABILong: Testing the Limits of LLMs with Long Context Reasoning-in-a-Haystack”. In: The Thirtyeight Conference on Neural Information Processing Systems Datasets and Benchmarks Track. 2024. url: https : / /
+openreview.net/forum?id=u7m2CG84BQ.
+Tianle Li, Ge Zhang, Quy Duc Do, Xiang Yue, and Wenhu Chen. Long-context LLMs Struggle with Long In-context
+Learning. 2024. arXiv: 2404.02060 [cs.CL]. url: https://arxiv.org/abs/2404.02060.
+Opher Lieber, Barak Lenz, Hofit Bata, Gal Cohen, Jhonathan Osin, Itay Dalmedigos, Erez Safahi, Shaked Meirom,
+Yonatan Belinkov, Shai Shalev-Shwartz, Omri Abend, Raz Alon, Tomer Asida, Amir Bergman, Roman Glozman,
+Michael Gokhman, Avashalom Manevich, Nir Ratner, Noam Rozen, Erez Shwartz, Mor Zusman, and Yoav Shoham.
+Jamba: A Hybrid Transformer-Mamba Language Model. 2024. arXiv: 2403.19887 [cs.CL]. url: https://arxiv.
+org/abs/2403.19887.
+Bo Liu, Rui Wang, Lemeng Wu, Yihao Feng, Peter Stone, and Qiang Liu. Longhorn: State Space Models are Amortized
+Online Learners. 2024. arXiv: 2407.14207 [cs.LG]. url: https://arxiv.org/abs/2407.14207.
+Xuezhe Ma, Xinyi Yang, Weizhu Xiong, Bing Chen, Li Yu, Hongwei Zhang, Jonathan May, Luke Zettlemoyer, Omer
+Levy, and Chunting Zhou. “Megalodon: Efficient LLM Pretraining and Inference with Unlimited Context Length”.
+In: arXiv preprint arXiv:2404.08801 (2024).
+Amirkeivan Mohtashami and Martin Jaggi. “Random-Access Infinite Context Length for Transformers”. In: Thirtyseventh Conference on Neural Information Processing Systems. 2023. url: https://openreview.net/forum?id=
+7eHn64wOVy.
+Bo Peng, Eric Alcaide, Quentin Anthony, Alon Albalak, Samuel Arcadinho, Stella Biderman, Huanqi Cao, Xin Cheng,
+Michael Chung, Matteo Grella, Kranthi Kiran GV, Xuzheng He, Haowen Hou, Jiaju Lin, Przemyslaw Kazienko, Jan
+Kocon, Jiaming Kong, Bartlomiej Koptyra, Hayden Lau, Krishna Sri Ipsit Mantri, Ferdinand Mom, Atsushi Saito,
+Guangyu Song, Xiangru Tang, Bolun Wang, Johan S. Wind, Stanislaw Wozniak, Ruichong Zhang, Zhenyuan Zhang,
+Qihang Zhao, Peng Zhou, Qinghua Zhou, Jian Zhu, and Rui-Jie Zhu. RWKV: Reinventing RNNs for the Transformer
+Era. 2023. arXiv: 2305.13048 [cs.CL]. url: https://arxiv.org/abs/2305.13048.
+
+13
+
+[33]
+
+[34]
+
+[35]
+
+[36]
+
+[37]
+
+[38]
+
+[39]
+[40]
+
+[41]
+[42]
+
+[43]
+
+[44]
+
+[45]
+[46]
+
+[47]
+[48]
+
+[49]
+
+Bo Peng, Daniel Goldstein, Quentin Anthony, Alon Albalak, Eric Alcaide, Stella Biderman, Eugene Cheah, Xingjian
+Du, Teddy Ferdinan, Haowen Hou, Przemysław Kazienko, Kranthi Kiran GV, Jan Kocoń, Bartłomiej Koptyra, Satyapriya
+Krishna, Ronald McClelland Jr., Jiaju Lin, Niklas Muennighoff, Fares Obeid, Atsushi Saito, Guangyu Song, Haoqin
+Tu, Cahya Wirawan, Stanisław Woźniak, Ruichong Zhang, Bingchen Zhao, Qihang Zhao, Peng Zhou, Jian Zhu, and
+Rui-Jie Zhu. Eagle and Finch: RWKV with Matrix-Valued States and Dynamic Recurrence. 2024. arXiv: 2404.05892
+[cs.CL]. url: https://arxiv.org/abs/2404.05892.
+Bowen Peng, Jeffrey Quesnelle, Honglu Fan, and Enrico Shippole. “YaRN: Efficient Context Window Extension of
+Large Language Models”. In: The Twelfth International Conference on Learning Representations. 2024. url: https:
+//openreview.net/forum?id=wHBfxhZu1u.
+Ofir Press, Noah Smith, and Mike Lewis. “Train Short, Test Long: Attention with Linear Biases Enables Input Length
+Extrapolation”. In: International Conference on Learning Representations. 2022. url: https://openreview.net/
+forum?id=R8sQPpGCv0.
+Pranav Rajpurkar, Robin Jia, and Percy Liang. “Know What You Don‘t Know: Unanswerable Questions for SQuAD”.
+In: Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Papers).
+Ed. by Iryna Gurevych and Yusuke Miyao. Melbourne, Australia: Association for Computational Linguistics, July
+2018, pp. 784–789. doi: 10.18653/v1/P18-2124. url: https://aclanthology.org/P18-2124/.
+Liliang Ren, Yang Liu, Yadong Lu, Yelong Shen, Chen Liang, and Weizhu Chen. Samba: Simple Hybrid State Space
+Models for Efficient Unlimited Context Language Modeling. 2024. arXiv: 2406.07522 [cs.CL]. url: https://arxiv.
+org/abs/2406.07522.
+Jimmy T.H. Smith, Andrew Warrington, and Scott Linderman. “Simplified State Space Layers for Sequence Modeling”. In: The Eleventh International Conference on Learning Representations. 2023. url: https://openreview.net/
+forum?id=Ai8Hw3AXqks.
+Yu Sun, Li Dong, Shaohan Huang, Shuming Ma, Yaru Xia, Jing Xue, Jianfeng Wang, and Furu Wei. “Retentive
+Network: A Successor to Transformer for Large Language Models”. In: arXiv preprint arXiv:2307.08621 (2023).
+Yu Sun, Xinhao Li, Karan Dalal, Jiarui Xu, Arjun Vikram, Genghan Zhang, Yann Dubois, Xinlei Chen, Xiaolong
+Wang, Sanmi Koyejo, Tatsunori Hashimoto, and Carlos Guestrin. Learning to (Learn at Test Time): RNNs with Expressive Hidden States. 2024. arXiv: 2407.04620 [cs.LG]. url: https://arxiv.org/abs/2407.04620.
+Ilya Sutskever. “Training Recurrent Neural Networks”. Ph.D. Thesis. Toronto, Ontario, Canada: University of Toronto,
+2013.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, and
+Illia Polosukhin. “Attention is all you need”. In: Proceedings of the 31st International Conference on Neural Information Processing Systems. NIPS’17. Long Beach, California, USA: Curran Associates Inc., 2017, pp. 6000–6010. isbn:
+9781510860964.
+Vijay Veerabadran, Srinivas Ravishankar, Yuan Tang, Ritik Raina, and Virginia de Sa. “Adaptive recurrent vision
+performs zero-shot computation scaling to unseen difficulty levels”. In: Advances in Neural Information Processing
+Systems. Vol. 36. 2023, pp. 18132–18145.
+Roger Waleffe, Wonmin Byeon, Duncan Riach, Brandon Norick, Vijay Korthikanti, Tri Dao, Albert Gu, Ali Hatamizadeh,
+Sudhakar Singh, Deepak Narayanan, Garvit Kulshreshtha, Vartika Singh, Jared Casper, Jan Kautz, Mohammad
+Shoeybi, and Bryan Catanzaro. “An empirical study of Mamba-based language models”. In: arXiv [cs.LG] (June
+2024). url: http://arxiv.org/abs/2406.07887.
+Shida Wang. LongSSM: On the Length Extension of State-space Models in Language Modelling. 2024. arXiv: 2406.
+02080 [cs.CL]. url: https://arxiv.org/abs/2406.02080.
+Jason Weston, Antoine Bordes, Sumit Chopra, and Tomás Mikolov. “Towards AI-Complete Question Answering:
+A Set of Prerequisite Toy Tasks”. In: 4th International Conference on Learning Representations, ICLR 2016, San Juan,
+Puerto Rico, May 2-4, 2016, Conference Track Proceedings. Ed. by Yoshua Bengio and Yann LeCun. 2016. url: http:
+//arxiv.org/abs/1502.05698.
+Ronald J. Williams and Jing Peng. “An Efficient Gradient-Based Algorithm for On-Line Training of Recurrent Network Trajectories”. In: Neural Computation 2.4 (1990), pp. 490–501. doi: 10.1162/neco.1990.2.4.490.
+Guangxuan Xiao, Yuandong Tian, Beidi Chen, Song Han, and Mike Lewis. “Efficient Streaming Language Models
+with Attention Sinks”. In: The Twelfth International Conference on Learning Representations. 2024. url: https://
+openreview.net/forum?id=NG7sS51zVF.
+Songlin Yang, Jan Kautz, and Ali Hatamizadeh. Gated Delta Networks: Improving Mamba2 with Delta Rule. 2024.
+arXiv: 2412.06464 [cs.CL]. url: https://arxiv.org/abs/2412.06464.
+
+14
+
+[50]
+[51]
+
+[52]
+
+[53]
+
+[54]
+[55]
+
+[56]
+
+Songlin Yang, Bailin Wang, Yikang Shen, Rameswar Panda, and Yoon Kim. “Gated Linear Attention Transformers
+with Hardware-Efficient Training”. In: Proceedings of ICML. 2024.
+Songlin Yang, Bailin Wang, Yu Zhang, Yikang Shen, and Yoon Kim. “Parallelizing Linear Transformers with the Delta
+Rule over Sequence Length”. In: The Thirty-eighth Annual Conference on Neural Information Processing Systems. 2024.
+url: https://openreview.net/forum?id=y8Rm4VNRPH.
+Zhifan Ye, Kejing Xia, Yonggan Fu, Xin Dong, Jihoon Hong, Xiangchi Yuan, Shizhe Diao, Jan Kautz, Pavlo Molchanov,
+and Yingyan Celine Lin. “LongMamba: Enhancing Mamba’s Long-Context Capabilities via Training-Free Receptive
+Field Enlargement”. In: Proceedings of the International Conference on Learning Representations (ICLR). 2025.
+Danlong Yuan, Jiahao Liu, Bei Li, Huishuai Zhang, Jingang Wang, Xunliang Cai, and Dongyan Zhao. “ReMamba:
+Equip Mamba with effective long-sequence modeling”. In: arXiv [cs.CL] (Aug. 2024). url: http://arxiv.org/abs/
+2408.15496.
+Biao Zhang and Rico Sennrich. “Root Mean Square Layer Normalization”. In: Advances in Neural Information Processing Systems 32. Vancouver, Canada, 2019. url: https://openreview.net/references/pdf?id=S1qBAf6rr.
+Liang Zhao, Xiachong Feng, Xiaocheng Feng, Weihong Zhong, Dongliang Xu, Qing Yang, Hongtao Liu, Bing Qin,
+and Ting Liu. “Length Extrapolation of Transformers: A Survey from the Perspective of Positional Encoding”. In:
+Findings of the Association for Computational Linguistics: EMNLP 2024. Ed. by Yaser Al-Onaizan, Mohit Bansal, and
+Yun-Nung Chen. Miami, Florida, USA: Association for Computational Linguistics, Nov. 2024, pp. 9959–9977. doi:
+10.18653/v1/2024.findings-emnlp.582. url: https://aclanthology.org/2024.findings-emnlp.582/.
+Dawei Zhu, Nan Yang, Liang Wang, Yifan Song, Wenhao Wu, Furu Wei, and Sujian Li. PoSE: Efficient Context Window
+Extension of LLMs via Positional Skip-wise Training. 2024. arXiv: 2309.10400 [cs.CL]. url: https://arxiv.org/
+abs/2309.10400.
+
+15
+
+Table 2: Model configurations and training hyperparameters for our experiments. The learning rates follow the values of
+previous works (Biderman et al. 2023; Brown et al. 2020).
+
+A
+
+Architecture
+
+Params
+
+n_layers
+
+d_model
+
+n_heads / d_head
+
+d_state
+
+Learning Rate
+
+Batch Size
+
+Mamba-1
+
+130m
+350m
+
+24
+48
+
+768
+1024
+
+-
+
+16
+16
+
+6e-4
+3e-4
+
+0.5M tokens
+0.5M tokens
+
+Mamba-2
+
+45m
+85m
+130m
+350m
+780m
+1.3b
+
+12
+12
+24
+48
+48
+48
+
+512
+768
+768
+1024
+1536
+2048
+
+8 / 64
+12 / 64
+12 / 64
+16 / 64
+16 / 96
+32 / 64
+
+128
+128
+128
+128
+128
+128
+
+1e-3
+1e-3
+6e-4
+3e-4
+2.5e-4
+2e-4
+
+0.5M tokens
+0.5M tokens
+0.5M tokens
+0.5M tokens
+0.5M tokens
+0.5M tokens
+
+GLA
+
+70m
+120m
+360m
+
+6
+6
+20
+
+512
+768
+1024
+
+4 / 128
+4 / 182
+4 / 256
+
+-
+
+1e-3
+6e-4
+3e-4
+
+0.5M tokens
+0.5M tokens
+0.5M tokens
+
+Extended Related Work
+
+Length generalization in Transformers. In order to length generalize, Transformers face the added difficulty of handling positional encoding, which is not easily extendable beyond the training context (Zhao et al. 2024). To deal with this
+issue, some works have proposed several position interpolation techniques (S. Chen et al. 2023a; Ding et al. 2024; Kazemnejad et al. 2023; Bowen Peng et al. 2024; Zhu et al. 2024). Other works have proposed finetuning with sparse attention to
+allow more efficient length generalization (Yukang Chen et al. 2024; Mohtashami and Jaggi 2023), or they have developed
+methods to maintain a fixed-size sliding window for the KV cache (Xiao et al. 2024). These methods are bespoke to the
+usage and architecture and not always achieve good performance in long context tasks (S. Chen et al. 2023b; T. Li et al.
+2024; Press, N. Smith, and Lewis 2022). In contrast, recurrent models can in principle extend beyond their training context
+by simply rolling out the state recurrence. In this work, we show that there are simple and general interventions to enable
+length generalization in recurrent models, thus fully leveraging their benefits.
+Algorithmic extrapolation. Some works have evaluated recurrent models on algorithmic tasks that are harder to solve
+than the ones the model has been trained on, and they have proposed training modifications that prevent the model from
+overfitting to the simpler training tasks (Bansal et al. 2022; Veerabadran et al. 2023). In particular, Bansal et al. (2022)
+proposes Incremental Progress Training, which reuses states from previous iterations of the task to discourage the model
+from learning iteration-specific behaviours, which is simlar to why the TBTT intervention works in text. While there are
+some differences in the tasks (e.g. in these algorithmic extrapolation tasks the state should converge to a fix point), some
+of the techniques used are similar. This work presents the unexplored states hypothesis and a framework to reason about
+length generalization based on the distribution of states, which helps understand why these interventions work. We leave
+it as future work to study them in a broader set of cases.
+
+B
+
+Training recipes
+
+B.1
+
+Pre-training Language Models
+
+For the experiments in Section 3, we train on the Pile (Gao et al. 2020) with the EleutherAI/gpt-neox-20b4 tokenizer
+(Black et al. 2022). For the learning rate, we use cosine scheduling with warmup in the 10% first training steps, a peak
+learning rate given by Table 2 and a decay to 1𝑒 − 5. The gradients are clipped to 1.0 and no dropout is used. Additionally,
+we also follow the improved training recipe of Grattafiori et al. (2024), with an Adam optimizer with 𝛽 1 = 0.9 and 𝛽 2 = 0.95,
+weight decay scheduling with a peak of 0.01, RMSNorm (B. Zhang and Sennrich 2019) instead of LayerNorm and no linear
+biases. For Mamba-1 and Mamba-2 we use a training context of 2048 and for GLA we use a context of 512. Depending on
+the experiment, the models are trained for several times what Chinchilla scaling laws dictate (Hoffmann et al. 2024), see
+Figure 2 and Figure 3.
+4 https://huggingface.co/EleutherAI/gpt-neox-20b
+
+16
+
+B.2
+
+Post-training Interventions on the Pile
+
+For the post-training interventions of Section 4, we use the same recipe as for model pre-training (section B.1) yet using
+a peak learning rate that is ten times smaller than the one given in Table 2. We post-train for 100 steps.
+
+B.3
+
+Babilong Finetuning
+
+The models are evaluated on the tasks [qa1, qa2, qa3, qa4, qa5, qa6, qa7, qa8, qa9, qa10] of the benchmark, and finetuned
+on such tasks for one epoch using facts and questions from the BABI training dataset (Weston et al. 2016). In the finetuned
+setting, all the models are finetuned on BABILong without State Passing nor TBTT, thus the benefits of having a State
+Passing or TBTT finetuned checkpoint are not lost when finetuning again for this task.
+
+B.4
+
+Passkey Retrieval Finetuning
+
+Contrary to typical language modeling datasets, the distribution of tokens in the passkey task is not stationary. This is
+why we show results for the fitted noise intervention, as it does not require using the final state of the sequence (i.e., right
+after revealing the passkey), which might not be appropriate as the initial state.
+We finetune the official Mamba-2 checkpoints on the passkey retrieval task using the same procedure as section B.1, this
+time for 1000 steps and using a peak learning rate ten times smaller than the one given in Table 2. In order to finetune,
+we mask all the tokens in the sequence that do not correspond to the passkey, trim the filler sentence to have a uniform
+batch size, and sample a different passkey depth between 0 and 1 for each sample. Additionally, we add a period after
+the passkey (“.”) because we observed that occasionally models failed because they repeated the passkey several times
+consecutively (i.e. for a passkey of 12345, the output contained 12345123451234512345...). An example of a sample from
+the dataset is shown in Figure 8.
+There is an important info hidden inside a lot of irrelevant text. Find it and memorize them. I will quiz you about the important information there.
+is green. The sky is blue. The sun is yellow. Here we go. There and back again. The grass is green. The sky is blue. The sun is yellow. Here we go.
+There and back again. The grass is green. The sky is blue. The sun is yellow. Here we go. There and back again. The grass is green. The sky is blue.
+The sun is yellow. Here we go. There and back again. The
+The pass key is 3327. Remember it. 3327 is the pass key.
+The grass is green. The sky is blue. The sun is yellow. Here we go. There and back again. The grass is green. The sky is blue. The sun is yellow. Here
+we go. There and back again. The grass is green. The sky is blue. The sun is yellow. Here we go. There and back again. The grass is green. The sky is
+blue. The sun is yellow. Here we go. There and back again.
+What is the pass key? The pass key is 3327.
+
+Figure 8: Sample of the passkey retrieval task (Mohtashami and Jaggi 2023) with length 256 and depth 0.5.
+
+C
+
+Distribution of the State at Given Heads and Layers Over Time
+
+Figure 9 shows the standard deviation of certain heads of the Mamba-2 state as a function of time. In the official checkpoint,
+the standard deviations increase after the context length, thus producing a distribution shift which explains why the model
+fails to length generalize. In contrast, the State Passing intervention fixes this issue by producing states whose standard
+deviations are more stable after the training context.
+
+D
+
+Position-wise Perplexity for RWKV-v6
+
+Figure 10 shows the position-wise perplexity of a RWKV-v6 model (Bo Peng, Goldstein, et al. 2024) trained from scratch
+with a context of 𝑇 = 256 and post-trained with State Passing. When the training context is too short, the RWKV-v6 model
+fails to length generalize (as we discussed in Section 3.2), whereas the State Passing intervention (Section 4.1) achieves
+length generalization.
+
+17
+
+Figure 9: Standard deviation of parts of the state of the Mamba-2 130m official checkpoint versus the sequence position
+𝑡 (ℎ𝑡 in the notation of Section 2.2). As in the case of Figure 4, the model post-trained with State Passing produces states
+whose standard deviations are more stable than the baseline across time. The layers and heads are selected based on which
+had more variation across time, the majority of other heads in the baseline model do not exhibit this abnormal behavior.
+Thus, the distribution shift that is observed in Figure 4 is only due to specific heads in the state. Sometimes, the State
+Passing intervention generates states with a higher standard deviation than the pre-trained model (see Layer 4, Head 2
+and Layer 6, Head 4). Thus, we note that the solution to length generalization is not avoiding large standard deviations
+in the state; but rather having states whose distribution do not significantly change after the training context.
+
+Figure 10: Position-wise perplexity of a RWKV-v6 70m model (Bo Peng, Goldstein, et al. 2024) pre-trained from scratch
+for 35B tokens and post-trained with State Passing for 250m tokens on The Pile (Gao et al. 2020) (see B for details). It
+exhibits a similar behavior to the models shown in Figure 1: when pre-trained in a short context for many tokens it fails
+to length generalize, but post-training with a small amount of steps with State Passing enables length generalization.
+
+18
+
+Figure 11: Mamba-2 45m trained on a context of 𝑇 = 1024 with two different warm-up periods of the learning rate
+scheduler (10% and 25% refer to having a warm-up period that lasts 10% and 25% of the full training, respectively). An
+increased warm-up period hinders performance beyond the training context, demonstrating the impact of the training
+recipe for length generalization. The models are trained for 9B tokens (10x Chinchilla scaling laws) with the recipe given
+in Section B.1.
+
+E
+
+Impact of the Warm-Up Period on Length Generalization
+
+In Figure 11 we show the results of pre-training a Mamba-2 45m model from scratch with two different learning rate
+warm-up periods and a context length of 𝑇 = 1024. Having an extended warm-up period hinders length generalization
+in this case, suggesting that length generalization can be affected by training hyperparameters. Our work removes the
+need to carefully analyze and tune these hyperparameters, since length generalization is expected to be achievable with
+the interventions we propose in Section 4.
+
+F
+
+Impact of the Standard Deviation on the Random Gaussian Initial State
+Intervention
+
+Figure 12: Position-wise perplexity of Mamba-2 125m post-trained for 100 steps with random initial state at different
+standard deviations 𝜎. This post-training technique enables length generalization, but if the noise level is too high it hurts
+performance.
+
+19
+
+(a) Total Variation.
+
+(b) Jensen-Shannon Divergence.
+
+(c) 1 - Cosine Similarity.
+
+Figure 13: Comparison of different distance metrics for the computation of Effective Remembrance (Section 3.4). The
+models shown are the Mamba-2 official checkpoints (solid lines), and their post-trained counterparts with State Passing
+(Section 4.1). They are evaluated on the valildation dataset of the Pile (Gao et al. 2020), and the Effective Remembrancce
+𝑇 value is 8192. For these models, the shape of the Effective Remembrance is robust to the choice of distance.
+
+In Section 4.2, we proposed sampling the initial state from a Gaussian distribution of standard deviation 𝜎 (see Section
+4.2), which is a parameter that needs to be tuned for each model. In Figure 12 we show the position-wise cross entropy
+of a 125m Mamba-2 model post-trained with different standard deviations in the random initial state. This post-training
+technique facilitates length generalization; however, an excessively high noise level degrades performance. On the other
+hand, we have observed that if the noise standard deviation is too small, this intervention does not enable length generalization.
+
+G
+
+Ablation on the Choice of Distance for Effective Remembrance
+
+In Section 3.4 we introduced Effective Remembrance as a metric to understand the impact of certain parts of the context in
+the output of an autoregressive model. Since Effective Remembrance compares two different outputs of the autoregressive
+model, which are probabilities, we used total variation as a distance between them. In this subsection, we explore the
+impact of using a different distance (the Jensen-Shannon distance) and also using the cosine similarity5 between the
+probability vectors. The results for the Mamba-2 baseline models and the same models post-trained with State Passing is
+shown in Figure 13. Although the absolute values vary, it can be seen that the shape of the Effective Remembrance does
+not change much depending on the distance.
+
+H
+
+Derivation of SSM Equations for Non-Zero Initial State
+
+Taking equation 1a and unrolling it using induction:
+ℎ𝑡 = 𝐴𝑡 ℎ𝑡 −1 + 𝐵𝑡 𝑥𝑡
+= 𝐴𝑡 (𝐴𝑡 −1ℎ𝑡 −2 + 𝐵𝑡 −1𝑥𝑡 −1 ) + 𝐵𝑡 𝑥𝑡 = 𝐴𝑡 −1𝐴𝑡 ℎ𝑡 −2 + 𝐵𝑡 −1𝐴𝑡 𝑥𝑡 −1 + 𝐵𝑡 𝑥𝑡
+= ...
+×
+= 𝐴0:𝑡
+ℎ −1 +
+
+∑︁
+
+𝐴𝑠+1:𝑡 𝐵𝑠 𝑥𝑠
+
+𝑠=0
+
+I
+
+State Passing Pytorch Pseudocode
+
+In section 4.1 we provide the equations to compute the output and final state of a recurrent model when the initial state is
+not zero-initialized. In Figure 14 we provide pseudocode to compute the contribution of the initial state to the final state
+and output.
+5 Technically, the distance is one minus cosine similarity: 𝑑 (𝑝, 𝑞) = 1 − CosineSimilarity(𝑝, 𝑞). We note that this is not a proper distance.
+
+20
+
+import torch
+import torch . nn . functional as F
+def state_passing ( X : torch . Tensor ,
+A : torch . Tensor ,
+B : torch . Tensor ,
+C : torch . Tensor ,
+state : torch . Tensor ,
+) -> tuple [ torch . Tensor , torch . Tensor ]:
+"""
+B : Batch size
+T : Sequence Dimension
+H : Hidden dimension
+N : State dimension
+Inputs :
+X : (B , H , T ) - Input Sequence
+A : (B , H , N , T ) - A ( Equation 1 a )
+B : (B , N , T ) - B ( Equation 1 a )
+C : (B , N , T ) - C ( Equation 1 b )
+state : (B , H , N ) - Initial state
+Outputs :
+y : (B , H , T ) - Contribution of the initial state to the output
+final_state : (B , H , N ) - Final state
+"""
+# Generate A_ {0: T } , A_ {1: T } , ... , A_ { T : T }
+A_cs_rev = torch . cumsum ( A . flip ( -1) , dim = -1). flip ( -1)
+A_cs_rev = torch . exp ( F . pad ( A_cs_rev , (0 ,1))) # ( B H N T )
+final_state = torch . einsum ( " bht , bnt , bhnt - > bhn " , X , B , A_cs_rev [: , : , : , 1:])
+# Final state contribution from initial state
+final_state = final_state + state * A_cs_rev [: , : , : , 0]
+# Calculate contribution of initial state on outputs
+A_cs = torch . exp ( torch . cumsum (A , dim = -1)) # ( B H N T )
+y = torch . einsum ( " bhn , bhnt , bnt - > bht " , state , A_cs , C )
+return y , final_state
+
+Figure 14: Pseudocode to compute the final state (Equation 4a) and contribution to the output from the initial state (second
+term of the right hand side of Equation 4b) for a recurrent model when the initial state is not zero-initialized. This code
+assumes that the matrix 𝐴𝑡 is diagonal.
+
+21
+
+

@@ -1,0 +1,1170 @@
+                                                             Automata Cascades: Expressivity and Sample Complexity
+                                                   Alessandro Ronca,1 Nadezda Alexandrovna Knorozova,2,3 Giuseppe De Giacomo1,4
+                                                                                           1
+                                                                                     DIAG, Sapienza University of Rome
+                                                                                                 2
+                                                                                                   RelationalAI
+                                                                                          3
+                                                                                            IFI, University of Zurich
+                                                                           4
+                                                                             Computer Science Department, University of Oxford
+                                                          ronca@diag.uniroma1.it, nadezda.knorozova@relational.ai, giuseppe.degiacomo@cs.ox.ac.uk
+
+
+
+
+arXiv:2211.14028v3 [cs.FL] 6 Mar 2023
+                                                                    Abstract                                  number of components, as the number of states of a system
+                                                                                                              will typically be exponential in the number of its stateful
+                                          Every automaton can be decomposed into a cascade of basic           components.
+                                          prime automata. This is the Prime Decomposition Theorem
+                                          by Krohn and Rhodes. Guided by this theory, we propose au-             We propose automata cascades as a structured, modular,
+                                          tomata cascades as a structured, modular, way to describe           way to describe automata as complex systems made of many
+                                          automata as complex systems made of many components,                components connected in an acyclic way. Our cascades are
+                                          each implementing a specific functionality. Any automaton           strongly based on the theory of Krohn and Rhodes, which
+                                          can serve as a component; using specific components allows          says that every automaton can be decomposed into a cas-
+                                          for a fine-grained control of the expressivity of the resulting     cade of basic components called prime automata (Krohn and
+                                          class of automata; using prime automata as components im-           Rhodes 1965). Conversely, the theory can be seen as pre-
+                                          plies specific expressivity guarantees. Moreover, specifying        scribing which components to use in order to build certain
+                                          automata as cascades allows for describing the sample com-
+                                                                                                              classes of automata, and hence obtain a certain expressivity.
+                                          plexity of automata in terms of their components. We show
+                                          that the sample complexity is linear in the number of compo-        For example, we can cascade so-called flip-flop automata in
+                                          nents and the maximum complexity of a single component,             order to build all noncounting automata, and hence obtain
+                                          modulo logarithmic factors. This opens to the possibility of        the expressivity of well-known logics such as monadic first-
+                                          learning automata representing large dynamical systems con-         order logic on finite linearly-ordered domains (McNaughton
+                                          sisting of many parts interacting with each other. It is in         and Papert 1971) and the linear temporal logic on finite
+                                          sharp contrast with the established understanding of the sam-       traces LTLf (De Giacomo and Vardi 2013).
+                                          ple complexity of automata, described in terms of the overall          We focus on cascades as a means to learn automata. Our
+                                          number of states and input letters, which implies that it is only
+                                                                                                              cascades are designed for a fine control of their sample com-
+                                          possible to learn automata where the number of states is lin-
+                                          ear in the amount of data available. Instead our results show       plexity. We show that—ignoring logarithmic factors—the
+                                          that one can learn automata with a number of states that is         sample complexity of automata cascades is at most linear in
+                                          exponential in the amount of data available.                        the product of the number of components and the maximum
+                                                                                                              complexity of a single component. Notably, the complexity
+                                                                                                              of a single component does not grow with the number of
+                                                              1    Introduction                               components in the cascade. We carry out the analysis both
+                                        Automata are fundamental in computer science. They are                in the setting where classes of automata cascades are finite,
+                                        one of the simplest models of computation, with the ex-               and in the more general setting where they can be infinite.
+                                        pressive power of regular languages, placed at the bot-               For both cases, we obtain bounds of the same shape, with
+                                        tom of the Chomsky hierarchy. They are also a mathemat-               one notable difference that for infinite classes we incur a
+                                        ical model of finite-state dynamical systems. In learning             logarithmic dependency on the maximum length of a string.
+                                        applications, automata allow for capturing targets that ex-           Overall, our results show that the sample complexity of au-
+                                        hibit a time-dependent behaviour; namely, functions over              tomata can be decoupled from the the number of states and
+                                        sequences such as time-series, traces of a system, histo-             input letters. Rather, it can be described in terms of the com-
+                                        ries of interactions between an agent and its environment.            ponents of a cascade capturing the automaton. Notably, the
+                                        Automata are typically viewed as state diagrams, where                number of states of such an automaton can be exponential in
+                                        states and transitions are the building blocks of an automa-          the number of components of the cascade.
+                                        ton, cf. (Hopcroft and Ullman 1979). Accordingly, classes                We see the opportunity for cascades to unlock a greater
+                                        of automata are described in terms of the number of states            potential of automata in learning applications. On one hand,
+                                        and input letters. Learning from such classes requires an             automata come with many favourable, well-understood, the-
+                                        amount of data that is linear in the number of states and let-        oretical properties, and they admit elegant algorithmic so-
+                                        ters (Ishigami and Tani 1997). Practically it means that, in          lutions. On the other hand, the existing automata learning
+                                        order to learn large dynamical systems made of many com-              algorithms have a complexity that depends directly on the
+                                        ponents, the amount of data required is exponential in the            number of states. This hurts applications where the num-
+ber of states grows very fast, such as non-Markov reinforce-             by the overall discrepancy of f with the target f0 . On a sin-
+ment learning (Toro Icarte et al. 2018; De Giacomo et al.                gle domain element x, the discrepancy between f (x) and
+2019; Gaon and Brafman 2020; Brafman and De Giacomo                      f0 (x) is measured as L(f (x), f0 (x)), for a given loss func-
+2019; Abadi and Brafman 2020; Xu et al. 2020; Neider                     tion L : Y × Y → {0, 1}. The overall discrepancy is the
+et al. 2021; Jothimurugan et al. 2021; Ronca and De Gia-                 expectation E[L(f (x), f0 (x))] with respect to an underly-
+como 2021; Ronca, Paludo Licks, and De Giacomo 2022).                    ing probability distribution P , and it is called the risk of
+Given our favourable sample complexity results, automata                 the function, written R(f ). Then, the goal is to choose a
+cascades have a great potential to extend the applicability of           function f ∈ F that minimises the risk R(f ), when the un-
+automata learning in large complex settings.                             derlying probability distribution P is unknown, but we are
+   Before concluding the section, we introduce our running               given a sample Z` of ` i.i.d. elements xi ∈ X drawn accord-
+example, that is representative of a class of tasks commonly             ing to P (xi ) together with their labels f0 (xi ); specifically,
+considered in reinforcement learning. It is based on an ex-              Z` = z1 , . . . , z` with zi = hxi , f0 (xi )i.
+ample from (Andreas, Klein, and Levine 2017).
+                                                                         Sample Complexity. We would like to establish the min-
+Example 1. Consider a Minecraft-like domain, where an                    imum sample size ` sufficient to identify a function f ∈ F
+agent has to build a bridge by first collecting some raw ma-             such that
+terials, and then using a factory. The agent has two options.                            R(f ) − min R(f ) ≤ 
+The first option is to complete the tasks {getWood, getIron,                                          f ∈F
+getFire} in any order, and then {useFactory}. The second                 with probability at least 1 − η. We call such ` the sample
+option is to complete {getSteel}, and then {useFactory}.                 complexity of F, and we write it as S(F, , η). When  and
+   A formal description of the example as well as full proofs            η are considered fixed, we write it as S(F).
+of all our technical results are deferred to the appendix.
+                                                                         Sample Complexity Bounds for Finite Classes. When
+                       2    Preliminaries                                the set of admissible functions F is finite, its sample com-
+                                                                         plexity can be bounded in terms of its cardinality, cf.
+Functions. For f : X → Y and g : Y → Z, their compo-                     (Shalev-Shwartz and Ben-David 2014). In particular,
+sition f ◦ g : X → Z is defined as (f ◦ g)(x) = g(f (x)).
+                                                                                    S(F, , η) ∈ O (log |F| − log η)/2 .
+                                                                                                                           
+For f : X → Y and h : X → Z, their cross product
+f ×h : X → Y ×Z is defined as (f ×h)(x) = hf (x), h(x)i.
+A class of functions is uniform if all functions in the class               Then, for fixed  and η, the sample complexity S(F)
+have the same domain and codomain. Given a tuple t =                     is O(log |F|), and hence finite classes can be compared in
+hx1 , . . . , xn i, and a subset J ⊆ [1, n], the projection πJ (t)       terms of their cardinality.
+is hxj1 , . . . , xjm i where j1 , . . . , jm is the sorted sequence
+of elements of J. Furthermore, πm           a
+                                              denotes the class of all                          4    Automata
+projections πJ for J a subset of [1, a] of cardinality m. We             This section introduces basic notions of automata theory,
+write I for the identity function, and log for log2 .                    with some inspiration from (Ginzburg 1968; Maler 1990).
+String Functions and Languages. An alphabet Σ is a set                      An automaton is a mathematical description of a state-
+of elements called letters. A string over Σ is an expression             ful machine that returns an output letter on every input
+σ1 . . . σ` where each letter σi is from Σ. The empty string             string. At its core lies the mechanism that updates the in-
+is denoted by ε. The set of all strings over Σ is denoted by             ternal state upon reading an input letter. This mechanism
+Σ∗ . A factored alphabet is of the form X a for some set X               is captured by the notion of semiautomaton. An n-state
+called the domain and some integer a ≥ 1 called the arity.               semiautomaton is a tuple D = hΣ, Q, δ, qinit i where: Σ
+A string function is of the form f : Σ∗ → Γ for Σ and Γ                  is an alphabet called the input alphabet; Q is a set of n
+alphabets. Languages are a special case of string functions;             elements called states; δ : Q × Σ → Q is a function
+namely, when f : Σ → {0, 1} is an indicator function, it can             called transition function; qinit ∈ Q is called initial state.
+be equivalently described by the set {x ∈ Σ∗ | f (x) = 1},               The transition function is recursively extended to non-empty
+that is called a language.                                               strings as δ(q, σ1 σ2 . . . σm ) = δ(δ(q, σ1 ), σ2 . . . σm ), and
+                                                                         to the empty string as δ(q, ε) = q. The result of execut-
+                   3       Learning Theory                               ing semiautomaton D on an input string is D(σ1 . . . σm ) =
+                                                                         δ(qinit , σ1 . . . σm ). We also call such function D : Σ∗ → Q
+We introduce the problem of learning, following the classi-
+                                                                         the function implemented by the semiautomaton.
+cal perspective of statistical learning theory (Vapnik 1998).
+                                                                            Automata are obtained from semiautomata by adding an
+Learning Problem. Consider an input domain X and an                      output function. An n-state automaton is a tuple A =
+output domain Y . For example, in the setting where we clas-             hΣ, Q, δ, qinit , Γ, θi where: DA = hΣ, Q, δ, qinit i is a semi-
+sify strings over an alphabet Σ, the input domain X is Σ∗                automaton, called the core semiautomaton of A; Γ is an al-
+and the output domain Y is {0, 1}. The problem of learn-                 phabet called output alphabet, θ : Q × Σ → Γ is called
+ing is that of choosing, from an admissible class F of func-             output function. An acceptor is a special kind of automa-
+tions from X to Y , a function f that best approximates an               ton where the output function is an indicator function θ :
+unknown target function f0 : X → Y , not necessarily in-                 Q × Σ → {0, 1}. The result of executing autmaton A on
+cluded in F. The quality of the approximation of f is given              an input string is A(σ1 . . . σm ) = θ(DA (σ1 . . . σm−1 ), σm ).
+                                                            factory,       class of n-state acceptors over the input alphabet [1, k].
+                                                            wood,
+              factory,
+              wood                                          iron
+                                                                           Then, the sample complexity of A(k, n) is Θ(k · n · log n).1
+                                       iron
+                                             fire                             Consequently, learning an acceptor from the class of all
+                                                                   fire,
+                              steel                  factory,      steel
+                                                                           acceptors with k input letters and n states requires an amount
+                       factory,                      wood,                 of data that is at least k · n. Such a dependency is also ob-
+      wood                                           fire
+                       iron                                                served in the existing automata learning algorithms, e.g.,
+                                     wood
+                                                               iron,
+                                                                           (Angluin 1987; Ron, Singer, and Tishby 1996, 1998; Clark
+             iron
+                                      fire                     steel       and Thollard 2004; Palmer and Goldberg 2007; Balle, Cas-
+                             steel                                         tro, and Gavaldà 2013, 2014). More recently, there has been
+                                                    factory,
+                fire                                fire,                  an effort in overcoming the direct dependency on the car-
+ factory                             wood           iron                   dinality k of the input alphabet, through symbolic automata
+                                                                           (Mens and Maler 2015; Maler and Mens 2017; Argyros and
+                                       iron                                D’Antoni 2018), but their sample complexity has not been
+                                                    wood,                  studied.
+                        factory,                    steel
+             steel      fire
+                                   steel
+                                                                                             5     Automata Cascades
+                                       steel,          factory             We present the formalism of automata cascades, strongly
+                                       wood,                               based on the cascades from (Krohn and Rhodes 1965)—
+                                       iron,
+                                       fire                                see also (Ginzburg 1968; Maler 1990; Dömösi and Nehaniv
+                                                                           2005). The novelty of our formalism is that every cascade
+ Figure 1: State diagram of the automaton for Example 2.                   component is equipped with mechanisms for processing in-
+                                                                           puts and outputs. This allows for (i) controlling the complex-
+                                                                           ity of components as the size of the cascade increases; and
+We also call such function A : Σ∗ → Γ the function imple-                  (ii) handling large (and even infinite) input alphabets.
+mented by the automaton. The language recognised by an                     Definition 1. An automata cascade is a sequence of au-
+acceptor is the set of strings on which it returns 1. When two             tomata A1 n · · · n Ad where each Ai is called a component
+automata A1 and A2 implement the same function, we say                     of the cascade and it is of the form
+that A1 is captured by A2 , or equivalently that A2 is captured
+by A1 .                                                                                hΣ1 × · · · × Σi , Qi , δi , qiinit , Σi+1 , θi i.
+   The expressivity of a class of automata is the set of func-
+tions they implement. Thus, for acceptors, it is the set of                The function implemented by the cascade is the one im-
+languages they recognise. The expressivity of all acceptors                plemented by the automaton hΣ1 , Q, δ, q init , Σd+1 , θi hav-
+is the regular languages (Kleene 1956), i.e., the languages                ing set of states Q = Q1 × · · · × Qd , initial state qinit =
+that can be specified by regular expressions. We will often                hq1init , . . . , qdinit i, transition and output functions defined as
+point out the expressivity of acceptors because the classes of
+languages they capture are widely known.                                        δ(hq1 , . . . , qd i, σ) = hδ1 (q1 , σ1 ), . . . , δd (qd , σd )i,
+                                                                                θ(hq1 , . . . , qd i, σ) = θd (qd , σd ),
+Example 2. The automaton for our running example reads
+traces generated by the agent while interacting with the en-               where each component reads the recursively-defined input
+vironment. The input alphabet is Σ = {blank, wood, iron,
+fire, steel, factory}, where blank describes that no relvant                            σ1 = σ, and σi+1 = hσi , θi (qi , σi )i.
+event happened. The automaton returns 1 on traces where
+the agent has completed the task. The state diagram is de-                 A cascade is simple if θi (q, σ) = q, for every i ∈ [1, d − 1].
+picted in Figure 1, where transitions for blank are omitted                An acceptor cascade is a cascade where Γd+1 = {0, 1}.
+and they always yield the current state. The output is 1 on all               The components of a cascade are arranged in a sequence.
+transitions entering the double-lined state, and 0 otherwise.              Every component reads the input and output of the preced-
+   The automaton in the example has to keep track of the                   ing component, and hence, recursively, it reads the external
+subset of tasks completed so far, requiring one state per sub-             input together with the output of all the preceding compo-
+set. In general, the number of states can grow exponentially               nents. The external input is the input to the first component,
+with the number of tasks.                                                  and the overall output is the one of the last component.
+                                                                              As components of a cascade, we consider automata on
+4.1   Existing Sample Complexity Results                                   factored alphabets that first apply a projection operation on
+                                                                           their input, then apply a map to a smaller internal alpha-
+Classes of automata are typically defined in terms of the car-
+                                                                           bet, and finally transition based on the result of the previous
+dinality k of the input alphabet (assumed to be finite) and the
+                                                                           operations.
+number n of states. The existing result on the sample com-
+plexity of automata is for such a family of classes.                          1
+                                                                                The original result is equivalently stated in terms of the VC
+Theorem 1 (Ishigami and Tani, 1997). Let A(k, n) be the                    dimension, introduced later in this paper.
+                                                          0            that allows for storing one bit of information.
+             set          read,                                        Definition 3. A flip-flop is a two-state automaton
+                          set                       0
+                                    +1                        +1       hX a , J, Π, φ, Q, δ, qinit , Γ, θi where Π = {set, reset, read},
+      0               1                        +2                      Q = {0, 1} and the transition function satisfies the follow-
+                                                         +2        0   ing three identities:
+            reset                         +2
+ read,                               2                        1
+ reset                                                                     δ(q, read) = q,     δ(q, set) = 1,    δ(q, reset) = 0.
+                              0
+                                                    +1
+                                                                         We capture the task of our running example with a cas-
+                                                                       cade where each task is captured exactly by a flip-flop.
+Figure 2: State diagrams of some of the simplest prime au-
+tomata: a flip-flop on the left, and a 3-counter on the right.         Example 3. The sequence task of our running example is
+                                                                       captured by the cascade
+                                                                                Awood n Airon n Afire n Asteel n Afactory
+Definition 2. An n-state automaton is a tuple A =
+hX a , J, Π, φ, Q, δ, qinit , Γ, θi where X a is the factored input    where each component is a flip-flop that outputs its cur-
+alphabet; J ⊆ [1, a] is the dependency set and its cardinal-           rent state. The diagram for the cascade is shown in Fig-
+ity m is the degree of dependency; Π is the finite internal            ure 3, where getWood corresponds to Awood , and similarly
+alphabet; φ : X m → Π is an input function that oper-                  for the other components. All components read the input,
+ates on the projected input tuples; Q is a set of n states;            and only Afactory also reads the output of the other com-
+δ : Q × Π → Q is the transition function on the internal               ponents. Thus, the dependency set of Awood , Airon , Afire ,
+letters; qinit ∈ Q is the initial state; Γ is the output al-           and Asteel is the singleton {1}, and the dependency set of
+phabet; and θ : Q × X m → Γ is an output function that                 Afactory is {1, 2, 3, 4, 5}—note that the indices correspond
+operates on the projected input tuples. The automaton in-              to positions of the components in the cascade. Then, Awood
+duced by A is the automaton A0 = hΣ, Q, δJ,φ , qinit , Γ, θJ i         has input function φwood (x) that returns set if x = wood,
+where the input alphabet is Σ = X a , the transition function          and returns read otherwise. Similarly, Airon , Afire , and
+is δJ,φ (q, σ) = δ(q, φ(πJ (σ))), and the output function is           Asteel . Instead, the component Afactory has input function
+θJ (q, σ) = θ(q, πJ (σ)). The core semiautomaton of A is the           φfactory (x, wood , iron, fire, steel ) that returns set if
+core semiautomaton of A0 . The string function implemented
+by A is the one implemented by the induced automaton.                        (x = factory) ∧ [(wood ∧ iron ∧ fire) ∨ steel ]
+   The above definition adds two key aspects to the standard           and returns read otherwise.
+definition of automaton. First, the projection operation πJ ,             The second class of prime automata is a class of automata
+that allows for capturing the dependencies between the com-            that have a correspondence with simple groups from group
+ponents in a cascade. Although every component receives                theory. Their general definition is beyond the scope of this
+the output of all the preceding components, it may use only            paper. For that, see (Ginzburg 1968). Here we present the
+some of them, and hence the others can be projected away.              class of prime counters, as a subclass that seems particularly
+The dependency set J corresponds to the indices of the in-             relevant from a practical point of view.
+put tuple that are relevant to the component. Second, the in-
+put function φ, that maps the result of the projection oper-           Definition 4. An n-counter is an n-state automaton
+ation to an internal letter. The rationale is that many inputs         hX a , J, Π, φ, Q, δ, qinit , Γ, θi where Π = Q = [0, n − 1],
+trigger the same transitions, and hence they can be mapped             and the transition function satisfies the following identity:
+to the same internal letter. This particularly allows for de-                             δ(i, j) = i + j (mod n).
+coupling the size of the core semiautomaton from the car-
+dinality of the input alphabet—in line with the mechanisms             An n-counter is prime if n is a prime number.
+of symbolic automata (Maler and Mens 2017; Argyros and                    An n-counter implements a counter modulo n. The in-
+D’Antoni 2018).                                                        ternal letters correspond to numbers that allow for reaching
+                                                                       any value of the counter in one step. In particular, they also
+      6    Expressivity of Automata Cascades                           allow for implementing the functionality of decreasing the
+Cascades can be built out of any set of components. How-               counter, e.g., adding n − 1 amounts to subtracting 1. Note
+ever, the theory by Krohn and Rhodes identifies a set of               also that the internal letter 0 plays the same role as read does
+prime automata that is a sufficient set of components to build         in a flip-flop. When we are interested just in counting—i.e.,
+cascades, as it allows for capturing all automata. They are,           increment by one—the modulo stands for the overflow due
+in a sense, the building blocks of automata. Moreover, using           to finite memory. On the other hand, we might actually be
+only some prime automata, we obtain specialised expressiv-             interested in counting modulo n; for instance, to capture pe-
+ity results.                                                           riodic events such as ‘something happens every 24 hours’.
+                                                                       A 3-counter, that is a prime counter, is depicted in Figure 2.
+6.1      Prime Components                                              Example 4. Resuming our running example, say that now,
+Prime automata are partitioned into two classes. The first             in order to use the factory, we need (i) 13 pieces of wood,
+class of prime automata are flip-flops, a kind of automaton            5 pieces of iron, and fire, or alternatively (ii) 7 pieces of
+steel. From the cascade in Example 3, it suffices to change
+the cascade components Awood , Airon , Asteel into counters
+                                                                                  getSteel
+(e.g., 16-counters) and change the input function of Afactory
+so that φfactory (x, wood , iron, fire, steel ) returns set if
+                                                                                                                  useFactory
+    (x = factory) ∧
+                                                           
+       (wood ≥ 13) ∧ (iron ≥ 5) ∧ fire ∨ (steel ≥ 7) ,                           getWood
+
+and it returns read otherwise. The rest is left unchanged. The
+cascade, despite its simplicity, corresponds to an automaton                      getIron
+that has over 700 states. Furthermore, suppose that we need
+to learn to detect wood, iron, fire, steel from video frames
+represented as vectors of Ra . It suffices to replace the input                   getFire
+function of the corresponding components with a function
+over Ra such as a neural network.
+
+6.2   Expressivity Results                                        Figure 3: Diagram for the cascade of the running example.
+A key aspect of automata cascades is their expressivity. As
+an immediate consequence of the Krohn-Rhodes theorem              7.1   Results for Finite Classes of Cascades
+(Krohn and Rhodes 1965)—see also (Ginzburg 1968; Maler
+1990; Dömösi and Nehaniv 2005)—we have that simple cas-         The following two theorems establish upper bounds on the
+cades of prime automata capture all automata, and simple          cardinality and sample complexity of finite classes of au-
+cascades of flip-flops capture the so-called group-free au-       tomata, and finite classes of cascades, respectively. The re-
+tomata.                                                           sults are obtained by counting the number of ways in which
+                                                                  we can instantiate the parts of a single automaton.
+Theorem 2. Every automaton is captured by a simple cas-
+cade of prime automata. Furthermore, every group-free au-         Theorem 4. The cardinality of a class of automata A =
+tomaton is captured by a simple cascade of flip-flops. The        A(Φ, ∆, Θ; a, m) is bounded as
+converse of both claims holds as well.                                                     a
+                                                                                   |A| ≤ |πm | · |Φ| · |∆| · |Θ| ,
+   Group-free automata are important because they capture
+                                                                  and its sample complexity is asymptotically bounded as
+noncounting automata, c.f. (Ginzburg 1968), whose expres-
+                                                                                      a
+                                                                                                                       
+sivity is the star-free regular languages (Schützenberger           S(A) ∈ O log |πm   | + log |Φ| + log |∆| + log |Θ| .
+1965)—i.e., the languages that can be specified by regular
+expressions without using the Kleene star but using com-          Theorem 5. The cardinality of a class of automata cascades
+plementation. This is the expressivity of well-known logics       C = A1 n · · · n Ad where the automata classes are Ai =
+such as monadic first-order logic on finite linearly-ordered      A(Φi , ∆i , Θi ; ai , mi ) is bounded as
+domains (McNaughton and Papert 1971), and the linear tem-                              d
+poral logic on finite traces LTLf (De Giacomo and Vardi
+                                                                                       Y
+                                                                                              ai
+                                                                               |C| ≤         πm i
+                                                                                                  · |Φi | · |∆i | · |Θi | ,
+2013). This observation, together with the fact that the ex-                           i=1
+pressivity of all acceptors is the regular languages, allows us
+to derive the following theorem from the one above.               and its sample complexity is asymptotically bounded as
+                                                                                                                        
+Theorem 3. The expressivity of simple acceptor cascades of                            a
+                                                                  S(C) ∈ O d · (log |πm | + log |Φ| + log |∆| + log |Θ|) ,
+prime automata is the regular languages. The expressivity of
+simple acceptor cascades of flip-flops is the star-free regular   where dropping the indices denotes the maximum.
+languages.
+                                                                     Consequently, the complexity of a cascade is bounded by
+                                                                  the product of the number d of components and a second
+7     Sample Complexity of Automata Cascades                      factor that bounds the complexity of a single component.
+We study the sample complexity of classes of automata (and
+cascades thereof) built from given classes of input functions,    7.2   Aspects and Implications of The Results
+semiautomata, and output functions. This allows for a fine-       The term log |πm a
+                                                                                     |, accounting for the projection functions,
+grained specification of automata and cascades.                   ranges from 0 to min(m, a1 + d − m) · log(a1 + d) where
+Definition 5. The class A(Φ, ∆, Θ) over a given input al-         a1 is the input arity of the first component, and hence of the
+phabet X a consists of each automaton with input function         external input. In particular, it is minimum when we allow
+from a given class Φ, core semiautomaton from a given class       each component to depend on all or none of its preceding
+∆, and output function from a give class Θ. The classes Φ,        components, and it is maximum when each component has
+∆, Θ are uniform, and hence all automata in A(Φ, ∆, Θ)            to choose half of its preceding components as its dependen-
+have the same degree of dependency m, same internal al-           cies.
+phabet Π, and same output alphabet Γ; hence, sometimes we            The term log |Φ| plays an important role, since the set of
+write A(Φ, ∆, Θ; a, m) and A(Φ, ∆, Θ; a, m, Π, Γ) to have         input functions has to be sufficiently rich so as to map the ex-
+such quantities at hand.                                          ternal input and the outputs of the preceding components to
+the internal input. First, its cardinality can be controlled by     7.3   Learning Theory for Infinite Classes
+the degree of dependency m; for instance, taking all Boolean        Infinite classes of cascades naturally arise when the input al-
+functions yields log |Φ| = 2m . Notably, it does not depend         phabet is infinite. In this case, one may consider to pick input
+on d, and hence, the overall sample complexity grows lin-           and output functions from an infinite class. For instance, the
+early with the number of cascade components as long as              class of all threshold functions over the domain of integers,
+the degree of dependency m is bounded. Second, the class            or as in Example 4 the neural networks over the vectors of
+of input functions can be tailored towards the application at       real numbers.
+hand. For instance, in our running example, input functions            When considering infinite classes of functions, the sam-
+are chosen from a class Φ for which log |Φ| is linear in the        ple complexity bounds based on cardinality become trivial.
+number of tasks—see Example 5 below.                                However, even when the class is infinite, the number of func-
+   The term log |∆| is the contribution of the number of            tions from the class that can be distinguished on a given sam-
+semiautomata—note that the number of letters and states of          ple is finite, and the way it grows as a function of the sample
+each semiautomaton plays no role. Interestingly, very small         size allows for establishing sample complexity bounds. In
+classes of semiautomata suffice to build very expressive cas-       turn, such growth can be bounded in terms of the dimension
+cades, by the results in Section 5. In general, it is suffi-        of the class of functions, a single-number characterisation of
+cient to build ∆ out of prime components. But we can also           its complexity. Next we present these notions formally.
+include other semiautomata implementing some interesting
+functionality.                                                      Growth and Dimension. Let F be a class of functions
+   The term log |Θ| admits similar considerations as log |Φ|.       from a set X to a finite set Y . Let X` = x1 , . . . , x` be a
+It is worth noting that one can focus on simple cascades, by        sequence of ` elements from X. The set of patterns of a
+the results in Section 5, where output functions of all but last    class F on X` is
+component are fixed. Then, the contribution to the sample
+complexity is given by the class of output functions of the                  F(X` ) = {hf (x1 ), . . . , f (x` )i | f ∈ F},
+last component.                                                     and the number of distinct patterns of class F on X` is
+   Overall, the sample complexity depends linearly on the           N (F, X` ) = |F(X` )|. The growth of F is
+number d of components, if we ignore logarithmic factors.
+                               a
+Specifically, the term log |πm   | has only a logarithmic depen-                    G(F, `) = supX` N (F, X` ).
+dency on d, and the other terms log |Φ|, log |∆|, and log |Θ|
+are independent of d.                                               The growth of F can be bounded using its dimension, writ-
+                                                                    ten as dim(F). When |Y | = 2, we define the dimension
+Corollary 1. Let us recall the quantities from Theorem 5,           of F to be its VC dimension (Vapnik and Chervonenkis
+and fix the quantities a, m, Φ, ∆, and Θ. Then, the sample          1971)—see also (Vapnik 1998). It is the largest integer h
+complexity of C is bounded as S(C) ∈ O(d · log d).                  such that G(F, h) = 2h and G(F, h + 1) < 2h+1 if
+  In the next example we instantiate a class of cascades for        such an h exists, and infinity otherwise. When |Y | > 2,
+our running example, and derive its sample complexity.              we define the dimension of F to be its graph dimension
+                                                                    (Natarajan 1989; Haussler and Long 1995). It is defined by
+Example 5. The cascade described in Example 3 has one
+                                                                    first binarising the class of functions. For a given function
+component per task, and all components have the same out-
+                                                                    f : X → Y , its binarisation fbin : X × Y → {0, 1} is
+put function and semiautomaton. The input function φfactory
+                                                                    defined as fbin (x, y) = 1[f (x) = y]. The binarisation of F
+is 2-term monotone DNF over 9 propositional variables. Ev-
+                                                                    is Fbin = {fbin | f ∈ F }. Then, the graph dimension of F
+ery other component has an input function that is 1-term
+                                                                    is defined as the VC dimension of its binarisation Fbin .
+monotone DNF over 5 propositional variables. Using these
+observations, we can design a class of cascades for similar            The growth of F can be bounded in terms of its dimension
+sequence tasks where the goal task depends on two groups of         (Haussler and Long 1995), as follows:
+arbitrary size, having d basic tasks overall. Such a class will                                               dim(F )
+                                                                                   G(F, `) ≤ (e · ` · |Y |)             .
+consist of cascades of d components. For every i ∈ [1, d−1],
+the class of input functions Φi is the class of 1-term mono-        Sample Complexity. The sample complexity can be
+tone DNF over d variables; and Φd is the class of 2-term            bounded in terms of the dimension, cf. (Shalev-Shwartz and
+monotone DNF over 2d − 1 variables. For all i ∈ [1, d], ∆i          Ben-David 2014). In particular,
+is a singleton consisting of a flip-flop semiautomaton; and
+                                                                        S(F, , η) ∈ O (dim(F) · log |Y | − log η)/2 .
+                                                                                                                      
+Θi is a singleton consisting of the function that returns the
+state. The cardinality of Φi is e2 ·2(4d−4) , and hence its loga-
+rithm is less than 4d—see Corollary 5 of (Schmitt 2004). By         For fixed , η, and Y , the sample complexity is O(dim(F)),
+Theorem 5, considering that we have d cascade components,           and hence arbitrary classes over the same outputs can be
+we obtain that our class of cascades has sample complexity          compared in terms of their dimension.
+O(d2 ). At the same time, the minimum automaton for the
+considered family of sequence tasks has Ω(2d ) states. Go-          7.4   Results for Infinite Classes of Cascades
+ing back to the bound of Theorem 1, if we had to learn from         We generalise our sample complexity bounds to infinite
+the class of all automata with 2d states, we would incur a          classes of automata and cascades. The bound have the same
+sample complexity exponential in the number of tasks.               shape of the bounds derived in Section 7.1 for finite classes,
+with the dimension replacing the logarithm of the cardinal-       Theorem 7. Let C be a class A1 n . . . n Ad where automata
+ity. One notable difference is the logarithmic dependency on      classes are Ai = A(Φi , ∆i , Θi ; ai , mi , Πi , Γi ), let M be the
+                                                                                                                       a
+the maximum length M of a string. It occurs due to the            maximum length of a string, and let w = log |πm        |+log |∆|+
+(stateless) input and output functions. Their growth is on        dim(Φ) + dim(Θ) ≥ 2 where dropping the indices denotes
+single letters, regardless of the way they are grouped into       the maximum.
+strings. Thus, the growth on a sample of ` strings is the         (i) The growth of C is bounded as:
+growth on a sample of ` · M letters.
+   The bounds are derived using a functional description of                    d
+                                                                               Y
+                                                                                      ai
+automata and cascades. It is a shift of perspective, from          G(C, `) ≤         πm i
+                                                                                          · |∆i | · G(Φi , ` · M ) · G(Θi , ` · M ).
+stateful machines that process one letter at a time, to black-                 i=1
+boxes that process an entire input string at once. We first
+introduce function constructors to help us to build such de-      (ii) The dimension of C is bounded as:
+scriptions.                                                             dim(C) ≤ 2 · d · w · log(d · w · e · M · |Π| · |Γ|).
+Definition 6 (Function constructors). For f : Σ → Γ,
+f ∗ : Σ∗ → Γ is defined as f ∗ (σ1 . . . σn ) = f (σn ). For      (iii) The sample complexity of C is bounded as:
+g : Σ∗ → Γ, g : Σ∗ → Γ∗ is defined as g(σ1 . . . σn ) =                                                              
+                                                                          S(C) ∈ O d · w · log(d · w · M · |Π| · |Γ|) .
+g(σ1 ) . . . g(σ1 . . . σn ); furthermore, g / : Σ∗ → Γ∗ is de-
+fined as g / (σ1 . . . σn ) = g(σ1 . . . σn−1 ).                     By a similar reasoning as in the results for finite classes,
+Lemma 1. The function A implemented by an automaton               the sample complexity has a linear dependency on the num-
+hX a , J, Π, φ, Q, δ, qinit , Γ, θi can be expressed as           ber d of cascade components, modulo a logarithmic factor.
+
+              A = πJ∗ ◦ ((φ∗ ◦ D/ ) × I ∗ ) ◦ θ,                  Corollary 2. Let us recall the quantities from Theorem 7,
+                                                                  and fix the quantities a1 , m, Φ, ∆, Θ, M , Π, and Γ. Then, the
+where D is the function implemented by the semiautomaton          sample complexity of C is bounded as S(C) ∈ O(d · log d).
+hΠ, Q, δ, qinit i.
+   Note that I ∗ propagates the projected input to the out-                            8       Related Work
+put function. Also note that the output function reads the
+                                                                  The main related work is the sample complexity bounds
+state before the last update. The functional description al-
+                                                                  from (Ishigami and Tani 1997), stated in Theorem 1. Our
+lows us to bound the growth, by making use of the fact that
+                                                                  bounds are qualitatively different, as they allow for describ-
+the growth of composition and cross product of two classes
+                                                                  ing the sample complexity of a richer variety of classes of
+of functions is upper bounded by the product of their respec-
+                                                                  automata, and cascades thereof. With reference to Theo-
+tive growths. From there, we derive the dimension, and the
+                                                                  rem 4, their specific case is obtained when: the input alpha-
+sample complexity.                                                                                    a
+                                                                  bet is non-factored and hence |πm     | = 1; Φ = {I} and hence
+Theorem 6. Let A be a class A(Φ, ∆, Θ; a, m, Π, Γ), let M         |Π| = |Σ| = k; ∆ is the class of all semiautomata on k let-
+                                                        a
+be the maximum length of a string, and let w = log |πm    |+      ters and n states, and hence |∆| = nk·n ; and Θ is the class
+log |∆| + dim(Φ) + dim(Θ) ≥ 2.                                    of all indicator functions on n states, and hence |Θ| = 2n . In
+(i) The growth of A is bounded as:                                this case, it is easy to verify that our bound matches theirs.
+                   a
+       G(A, `) ≤ |πm | · |∆| · G(Φ, ` · M ) · G(Θ, `).               Learning automata expressed as a cross product is con-
+                                                                  sidered in (Moerman 2018). They correspond to cascades
+(ii) The dimension of A is bounded as:                            where all components read the input, but no component
+        dim(A) ≤ 2 · w · log(w · e · M · |Π| · |Γ|).              reads the output of the others. The authors provide a so-
+                                                                  called active learning algorithm, that asks membership and
+(iii) The sample complexity of A is bounded as:                   equivalence queries. Although it is a different setting from
+                                               
+            S(A) ∈ O w · log(w · M · |Π| · |Γ|) .                 ours, it is interesting that they observe an exponential gain in
+   Next we show the functional description of an automata         some specific cases, compared to ignoring the product struc-
+cascade. It captures the high-level idea that each component      ture of the automata.
+of a cascade can be fully executed before executing any of           The idea of decoupling the input alphabet from the core
+the subsequent automata, since it does not depend on them.        functioning of an automaton is found in symbolic automata.
+                                                                  The existing results on learning symbolic automata are in
+Lemma 2. The function implemented by an automata cas-             the active learning setting (Berg, Jonsson, and Raffelt 2006;
+cade A1 n · · · n Ad with d ≥ 2 can be expressed as               Mens and Maler 2015; Maler and Mens 2017; Argyros and
+           (I ∗ × A1 ) ◦ · · · ◦ (I ∗ × Ad−1 ) ◦ Ad .             D’Antoni 2018).
+   The cross product with I ∗ in the functional description
+above captures the fact that the input of each component is                                9    Conclusion
+propagated to the next one.                                       Given the favourable sample complexity of automata cas-
+   Then, a bound on the growth is derived from the func-          cades, the next step is to devise learning algorithms, able to
+tional description, and hence the dimension and sample            learn automata as complex systems consisting of many com-
+complexity bounds.                                                ponents implementing specific functionalities.
+                  Acknowledgments                                Krohn, K.; and Rhodes, J. 1965. Algebraic Theory of Ma-
+This work has been supported by the ERC Advanced Grant           chines. I. Prime Decomposition Theorem for Finite Semi-
+WhiteMech (No. 834228), by the EU ICT-48 2020 project            groups and Machines. Trans. Am. Math. Soc.
+TAILOR (No. 952215), by the PRIN project RIPER (No.              Maler, O. 1990. Finite Automata: Infinite Behaviour, Learn-
+20203FFYLK), by the EU’s Horizon 2020 research and in-           ability and Decomposition. Ph.D. thesis, The Weizmann In-
+novation programme under grant agreement No. 682588.             stitute of Science.
+                                                                 Maler, O.; and Mens, I. 2017. A Generic Algorithm for
+                       References                                Learning Symbolic Automata from Membership Queries. In
+Abadi, E.; and Brafman, R. I. 2020. Learning and Solving         Models, Algorithms, Logics and Tools.
+Regular Decision Processes. In IJCAI.                            McNaughton, R.; and Papert, S. A. 1971. Counter-Free Au-
+Andreas, J.; Klein, D.; and Levine, S. 2017. Modular Mul-        tomata. The MIT Press.
+titask Reinforcement Learning with Policy Sketches. In           Mens, I.; and Maler, O. 2015. Learning Regular Languages
+ICML.                                                            over Large Ordered Alphabets. Log. Methods Comput. Sci.
+Angluin, D. 1987. Learning Regular Sets from Queries and         Moerman, J. 2018. Learning Product Automata. In ICGI.
+Counterexamples. Inf. Comput.                                    Natarajan, B. K. 1989. On Learning Sets and Functions.
+Argyros, G.; and D’Antoni, L. 2018. The Learnability of          Mach. Learn.
+Symbolic Automata. In CAV.                                       Neider, D.; Gaglione, J.; Gavran, I.; Topcu, U.; Wu, B.; and
+Balle, B.; Castro, J.; and Gavaldà, R. 2013. Learning proba-    Xu, Z. 2021. Advice-Guided Reinforcement Learning in a
+bilistic automata: A study in state distinguishability. Theory   non-Markovian Environment. In AAAI.
+Comput. Sci.                                                     Palmer, N.; and Goldberg, P. W. 2007. PAC-learnability of
+Balle, B.; Castro, J.; and Gavaldà, R. 2014. Adaptively         probabilistic deterministic finite state automata in terms of
+learning probabilistic deterministic automata from data          variation distance. Theory Comput. Sci.
+streams. Mach. Learn.                                            Ron, D.; Singer, Y.; and Tishby, N. 1996. The Power of Am-
+Berg, T.; Jonsson, B.; and Raffelt, H. 2006. Regular Infer-      nesia: Learning Probabilistic Automata with Variable Mem-
+ence for State Machines with Parameters. In FASE.                ory Length. Mach. Learn.
+Brafman, R. I.; and De Giacomo, G. 2019. Regular Decision        Ron, D.; Singer, Y.; and Tishby, N. 1998. On the Learnabil-
+Processes: A Model for Non-Markovian Domains. In IJCAI.          ity and Usage of Acyclic Probabilistic Finite Automata. J.
+Clark, A.; and Thollard, F. 2004. PAC-learnability of Proba-     Comput. Syst. Sci.
+bilistic Deterministic Finite State Automata. J. Mach. Learn.    Ronca, A.; and De Giacomo, G. 2021. Efficient PAC Rein-
+Res.                                                             forcement Learning in Regular Decision Processes. In IJ-
+                                                                 CAI.
+De Giacomo, G.; Iocchi, L.; Favorito, M.; and Patrizi, F.
+2019. Foundations for Restraining Bolts: Reinforcement           Ronca, A.; Paludo Licks, G.; and De Giacomo, G. 2022.
+Learning with LTLf/LDLf Restraining Specifications. In           Markov Abstractions for PAC Reinforcement Learning in
+ICAPS.                                                           Regular Decision Processes. In IJCAI.
+De Giacomo, G.; and Vardi, M. Y. 2013. Linear Temporal           Schmitt, M. 2004. An Improved VC Dimension Bound for
+Logic and Linear Dynamic Logic on Finite Traces. In IJCAI.       Sparse Polynomials. In COLT.
+Dömösi, P.; and Nehaniv, C. L. 2005. Algebraic Theory of       Schützenberger, M. P. 1965. On Finite Monoids Having
+Automata Networks: An Introduction. SIAM.                        Only Trivial Subgroups. Inf. Control.
+Gaon, M.; and Brafman, R. I. 2020. Reinforcement Learning        Shalev-Shwartz, S.; and Ben-David, S. 2014. Understanding
+with Non-Markovian Rewards. In AAAI.                             Machine Learning: From Theory to Algorithms. Cambridge
+                                                                 University Press.
+Ginzburg, A. 1968. Algebraic Theory of Automata. Aca-
+demic Press.                                                     Toro Icarte, R.; Klassen, T. Q.; Valenzano, R. A.; and McIl-
+                                                                 raith, S. A. 2018. Using Reward Machines for High-Level
+Haussler, D.; and Long, P. M. 1995. A generalization of          Task Specification and Decomposition in Reinforcement
+Sauer’s lemma. J. Comb. Theory Ser. A.                           Learning. In ICML.
+Hopcroft, J.; and Ullman, J. 1979. Introduction to Automata      Vapnik, V. N. 1998. Statistical learning theory. Wiley.
+Theory, Languages, and Computation. Addison-Wesley.
+                                                                 Vapnik, V. N.; and Chervonenkis, A. Y. 1971. On The
+Ishigami, Y.; and Tani, S. 1997. VC-dimensions of Finite         Uniform Convergence of Relative Frequencies of Events to
+Automata and Commutative Finite Automata with k Letters          Their Probabilities. Theory Probab. its Appl.
+and n States. Discret. Appl. Math.
+                                                                 Xu, Z.; Gavran, I.; Ahmad, Y.; Majumdar, R.; Neider, D.;
+Jothimurugan, K.; Bansal, S.; Bastani, O.; and Alur, R. 2021.    Topcu, U.; and Wu, B. 2020. Joint Inference of Reward Ma-
+Compositional Reinforcement Learning from Logical Spec-          chines and Policies for Reinforcement Learning. In ICAPS.
+ifications. In NeurIPS.
+Kleene, S. C. 1956. Representation of events in nerve nets
+and finite automata. Automata studies.
+                                                                     A     Proofs
+A.1     Proof of Theorem 2 (Expressivity of Automata Cascades)
+We first introduce the cascade product between semiautomata. Given two semiautomata
+                                                                  1
+                                                D1 = hΣ, Q, δ1 , qinit i,
+                                                                     2
+                                               D2 = hΣ × Q, Q, δ2 , qinit i,
+their cascade product D1 n D2 yields the semiautomaton D = hΣ, Q, δ, qinit i where
+                                                  Q = Q1 × Q2 ,
+                                                                       1       2
+                                                             qinit = hqinit , qinit i,
+                                                  δ(hq1 , q2 i, σ) = hδ1 (q1 , σ), δ2 (q2 , hq1 , σi)i.
+                                                                                                                          i
+   The cascade product on semiautomata is left-associative. Hence, given semiautomata Di = hΣ×Q1 ×· · ·×Qi−1 , Qi , δi , qinit i
+for i ∈ [1, d], we can build a semiautomaton as D1 n · · · n Dd .
+   The proof of Theorem 2 is based on the following theorem, which is an immediate consequence of the Krohn-Rhodes Prime
+Decomposition Theorem (Krohn and Rhodes 1965).
+Theorem 8 (Krohn and Rhodes). Every automaton A is captured by an automaton A0 whose core semiautomaton is expressed
+by a cascade product A1 n · · · n Ad where each Ai is a prime semiautomaton. Furthermore, every group-free automaton A is
+captured by an automaton A0 whose core semiautomaton is expressed by a cascade product A1 n · · · n Ad where each Ai is a
+flip-flop semiautomaton. The converse of both claims holds as well.
+Theorem 2. Every automaton is captured by a simple cascade of prime automata. Furthermore, every group-free automaton
+is captured by a simple cascade of flip-flops. The converse of both claims holds as well.
+Proof. Consider an automaton A = hΣ, Q, δ, qinit , Γ, θi. By Theorem 8, automaton A is captured by an automaton A0 =
+hΣ, Q0 , δ 0 , qinit
+                0
+                     , Γ, θ0 i such that its semiautomaton hΣ, Q0 , δ 0 , qinit0
+                                                                                   i is expressed by a cascade product D1 n · · · n Dd where
+                                                                                                       i
+each Di is a prime semiautomaton of the form hΣ × Q1 × · · · × Qi−1 , Qi , δi , qinit                     i. For every i ∈ [1, d − 1], let Ai be the
+automaton with core semiautomaton Di and output function θi (qi , hσ, q1 , . . . , qi−1 i) = qi . Also, let Ad be the automaton
+with core semiautomaton Dd and output function θd (qd , hσ, q1 , . . . , qd−1 i) = θ0 (hq1 , . . . , qd i, σ). Now, consider the cascade
+C = (A1 , . . . , Ad ) made of the automata just introduced. Since the cascade is simple and its components are prime, it suffices
+                                                                                                                                          init
+to show that A is captured by C. Namely, that A and C implement the same function. Let AC = hΣ, QC , δC , qC                                   , Γ, θC i be
+the automaton corresponding to the cascade C. Consider an input string σ1 . . . σm . Let q = hq1 , . . . , qd i be the state of AC after
+                                                init
+reading σ1 . . . σm−1 ; namely, q = δC (qC           , σ1 . . . σm−1 ). The function implemented by C is
+                 C(σ1 . . . σm ) = θd (qd , hσm , q1 , . . . , qd−1 i) = θ0 (hq1 , . . . , qd i, σm ) = A0 (σ1 . . . σm ) = A(σ1 . . . σm ).
+For the second claim, it suffices to note that A1 , . . . , Ad can be taken to be flip-flops when A is group-free, by Theorem 8.
+   Next we show the converse of the two claims. The converse of the first claim holds immediately by the definition of cascade,
+which says that the function it implements is the one implemented by the corresponding automaton. For the converse of the
+second claim, consider a simple cascade C = (A1 , . . . , Ad ). For every i ∈ [1, d], the core semiautomaton Di of Ai is a flip-flop.
+Also, for every i ∈ [1, d − 1] the output function of Ai is θi (qi , hσ, q1 , . . . , qi−1 i) = qi . Thus, the core semiautomaton of the
+automaton corresponding to C is expressed by the cascade product D1 n · · · n Dd . Thus, by Theorem 8, cascade C is captured
+by a group-free automaton.
+
+A.2     Proof of Theorem 4 (Cardinality and Sample Complexity of Finite Classes of Automata)
+Theorem 4. The cardinality of a class of automata A = A(Φ, ∆, Θ; a, m) is bounded as
+                                                              a
+                                                    |A| ≤ |πm   | · |Φ| · |∆| · |Θ| ,
+and its sample complexity is asymptotically bounded as
+                                                          a
+                                                                                           
+                                      S(A) ∈ O log |πm      | + log |Φ| + log |∆| + log |Θ| .
+Proof. We bound the number of automata in the class A(m, Φ, ∆, Θ). Consider that each automaton in the class is of the form
+                                                A = hX a , J, Π, φ, Q, δ, qinit , Γ, θi.
+To establish the cardinality of the class, it suffices to count the number of distinct components of the tuple above. The input
+                                                                                                                       a
+alphabet X a is fixed. The number of possible sets of indices of J ⊆ [1, a] is the cardinality of the set |πm a
+                                                                                                                | = m      . The
+number of input functions φ is |Φ|. Each input function determines the internal alphabet Π. Each semiautomaton hΠ, Q, δ, qinit i
+is from ∆, and hence we have at most |∆|. The number of output functions θ is |Θ|, and the output alphabet Γ is determined by
+the output function. The bound follows by taking the product of the sets of components whose cardinality has been discussed
+above.
+   For the case where ∆ is the set of all semiautomaton with k letters and n states, we have |∆| ≤ nk·n —assuming w.l.o.g. that
+Q = [1, n] and qinit = 1.
+   The sample complexity is immediate by taking the logarithm of the cardinality bound established above.
+A.3   Proof of Theorem 5 (Cardinality and Sample Complexity of Finite Classes of Automata Cascades)
+Note that the theorem is restated by defining some of the quantities more clearly.
+Theorem 5. The cardinality of a class of automata cascades C = A1 n · · · n Ad where the automata are from Ai =
+A(Φi , ∆i , Θi ; ai , mi ) is bounded as
+                                                d
+                                                Y
+                                                     ai
+                                          |C| ≤    πm  i
+                                                         · |Φi | · |∆i | · |Θi | ,
+                                                           i=1
+
+and its sample complexity is asymptotically bounded as
+                                                                                      
+                                                     a
+                                 S(C) ∈ O d · (log |πm | + log |Φ| + log |∆| + log |Θ|) ,
+
+where dropping the indices denotes the maximum as follows:
+                    a                a
+                                ai |π i |
+                   πm = arg maxπm    mi              the class of projection functions with maximum cardinality,
+                                     i
+
+                    Φ = arg maxΦi |Φi |              the class of input functions with maximum cardinality,
+                    ∆ = arg max∆i |∆i |              the class of semiautomata with maximum cardinality,
+                    Θ = arg maxΘi |Θi |              the class of output functions with maximum cardinality.
+
+
+
+Proof. We bound the number of cascades in the class C = A1 n · · · n Ad . In order to do so, we bound the cardinality of each
+class of automata Ai = A(Φi , ∆i , Θi ; ai , mi ). Thus, by the cardinality bound in Theorem 4, we have that
+                                                          ai
+                                                 |Ai | ≤ πm i
+                                                              · |Φi | · |∆i | · |Θi | .
+                                     Qd
+Thus, the bound on |C| is given by       i=1 |Ai |. Then, for the sample complexity, we loosen the bound taking the maximum of
+each indexed quantity. Namely,
+                                                     d
+                                                     Y               d
+                                                                     Y
+                                                                             a
+                                             |C| ≤         |Ai | ≤         |πm | · |Φ| · |∆| · |Θ| ,
+                                                     i=1             i=1
+       a
+where πm , Φ, ∆, and Θ are defined in the statement of the theorem. Then,
+                                                         a       d          d      d        d
+                                                 |C| ≤ |πm | · |Φ| · |∆| · |Θ| .
+The sample complexity bound follows by taking the logarithm of the cardinality bound established above.
+
+A.4   Further Details on the Growth and Sample Complexity
+This section restates two claims from Section 7.3, providing details on the way they are derived. The following Proposition 1
+restates the upper bound on the growth in terms of the dimension.
+Proposition 1. Let F be a class of functions from X to Y . Then,
+                                   dim(F )                               dim(F )  
+                                     X        `                             X          `                          dim(F )
+                      G(F, `) ≤                 · (|Y | − 1)i ≤                          · |Y |i ≤ (e · ` · |Y |)         .
+                                     i=0
+                                              i                              i=0
+                                                                                       i
+
+Proof. The first inequality is Corollary 3 of (Haussler and Long 1995). We loosen it by substituting (|Y | − 1)i with |Y |i and
+                                                                    Pd
+then applying the well-known bound on the partial sum of binomials i=0 mi ≤ (e · m)d to derive the last inequality.
+                                                                             
+
+  The following Proposition 2 restates the asymptotic bound on the sample complexity in terms of the dimension.
+Proposition 2. The following asymptotic bound on the sample complexity holds true:
+                                         S(F, , η) ∈ O (dim(F) · log |Y | − log η)/2 .
+                                                                                      
+
+Proof. By Point 2 of Theorem 19.3 of (Shalev-Shwartz and Ben-David 2014), the proposition holds with the Natarajan dimen-
+sion of F in place of dim(F). Then the proposition follows immediately since dim(F) is an upper bound on the Natarajan
+dimension, by Equations (24) and (26) of (Haussler and Long 1995).
+A.5      Basic Propositions
+In this section we state and prove some basic propositions that we use in the next sections of the appendix, where we prove the
+results for Section 7.4.
+   The next Proposition 3 describes a relationship between the growth of F and the growth of its binarisation Fbin .
+Proposition 3. Let F be a class of functions. Then, G(Fbin , `) ≤ G(F, `).
+
+Proof. Let Z` = hx1 , y1 i, . . . , hx` , y` i and let X` = x1 , . . . , x` . The proposition is immediate by observing that every tuple in
+                                               F(X` ) = {hf (x1 ), . . . , f (x` )i | f ∈ F}
+corresponds to at most one tuple in
+                                     Fbin (Z` ) = {h1[y1 = f (x1 )], . . . , 1[y` = f (x` )]i | f ∈ F}.
+
+
+   The next Propositions 4 and 5 provide bounds on the growth for composition and cross product of functions. They are well-
+known. For instance, they are left as an exercise in the book (Shalev-Shwartz and Ben-David 2014). However, we were not able
+to find a peer-reviewed reference for the proofs. We report proofs based on the lecture notes (Kakade and Tewari 2008).
+Proposition 4. Let F1 : X → W , and let F2 : W → Y . Then, G(F1 ◦ F2 , `) ≤ G(F1 , `) · G(F2 , `).
+
+Proof. Let X` = x1 , . . . , x` be a sequence of ` elements from X. Let F = F1 ◦ F2 . We have
+                                   F(X` ) = {hf2 (f1 (x1 )), . . . , f2 (f1 (x` ))i | f1 ∈ F1 , f2 ∈ F2 }
+                                               [
+                                          =            {hf2 (u1 ), . . . , f2 (u` )i | f2 ∈ F2 },
+                                               U` ∈F1 (X` )
+
+and therefore,
+                                                                 X
+                              N (F, X` ) = |F(X` )| ≤                        |{hf2 (u1 ), . . . , f2 (u` )i | f2 ∈ F2 }|
+                                                              U` ∈F1 (X` )
+                                                                 X
+                                                        ≤                    N (F2 , U` )
+                                                              U` ∈F1 (X` )
+                                                                 X
+                                                        ≤                    G(F2 , `)
+                                                              U` ∈F1 (X` )
+
+                                                        = N (F1 , X` ) · G(F2 , `)
+                                                        ≤ G(F1 , `) · G(F2 , `).
+Since X` is arbitrary, this concludes the proof.
+
+Proposition 5. Let F1 : X → Y and let F2 : X → Z. Then, G(F1 × F2 , `) ≤ G(F1 , `) · G(F2 , `).
+
+Proof.                                                                                  
+                 G(F1 × F2 , `) = sup N (F1 × F2 , X` ) = sup N (F1 , X` ) · N (F2 , X` ) ≤ G(F1 , `) · G(F2 , `).
+                                    X`                              X`
+
+
+
+  The next Propositions 6–8 describe properties of the growth with respect to string functions.
+Proposition 6. Let F be a class of functions Σ → Γ. Then, G(F ∗ , `) ≤ G(F, `).
+
+Proof. Let X` = x1 , . . . , x` be a sequence of strings over Σ, and let σi be the last letter of xi . Since f ∗ (xi ) = f (σi ) for every
+function f ∈ F, we have that F ∗ (X` ) = F ∗ (σ1 , . . . , σ` ) = F(σ1 , . . . , σ` ). Therefore,
+                           N (F ∗ , X` ) = |F ∗ (X` )| = |F(σ1 , . . . , σ` )| = N (F, σ1 , . . . , σ` ) ≤ G(F, `).
+Since X` is arbitrary, this concludes the proof.
+
+Proposition 7. Let F1 : Σ∗ → Y and let F2 : Σ∗ → Z. Then, G(F1 × F2 , `) = G(F1 × F2 , `).
+Proof. Consider a function f1 ∈ F1 , a function f2 ∈ F2 , and a sequence X` = x1 , . . . , x` of strings over Σ. We have that
+
+                                            (f1 × f2 )(X` ) = (f1 × f2 )(x1 ), . . . , (f1 × f2 )(x` ),
+and
+                                            (f1 × f2 )(X` ) = (f1 × f2 )(x1 ), . . . , (f1 × f2 )(x` ).
+Now, consider xi = σ1 . . . σs . We have
+         (f1 × f2 )(xi ) = (f1 × f2 )(σ1 ) . . . (f1 × f2 )(σ1 . . . σs ) = hf1 (σ1 ), f2 (σ1 )i . . . hf1 (σ1 . . . σs ), f2 (σ1 . . . σs )i,
+and
+                      (f1 × f2 )(xi ) = hf1 (xi ), f2 (xi )i = hf1 (σ1 ) . . . f1 (σ1 . . . σs ), f2 (σ1 ) . . . f2 (σ1 . . . σs )i.
+Note that the output of (f1 × f2 )(xi ) and (f1 × f2 )(xi ) contain the same occurrences of letters, arranged differently. Hence,
+the same holds for (f1 × f2 )(X` ) and (f1 × f2 )(X` ). Therefore,
+
+                         |{(f1 × f2 )(X` ) | f1 ∈ F1 , f2 ∈ F2 }| = |{(f1 × f2 )(X` ) | f1 ∈ F1 , f2 ∈ F2 }|,
+and hence
+                                                    N (F1 × F2 , X` ) = N (F1 × F2 , X` ).
+Since X` is arbitrary, this concludes the proof.
+
+Proposition 8. Let F be a class of functions Σ∗ → Γ. Then, G(F, `) ≤ G(F, ` · M ) where M is the maximum length of a
+string.
+
+Proof. Consider a string x = σ1 . . . σs with σi ∈ Σ. Consider the sequence of non-empty prefixes of x,
+                                                       xp = σ1 , σ1 σ2 , . . . , σ1 σ2 . . . σs .
+For every f ∈ F, the following two identities hold:
+
+                                                        f (x) = f (σ1 ) . . . f (σ1 . . . σs ),                                                  (1)
+                                                       f (xp ) = f (σ1 ), . . . , f (σ1 . . . σs ).                                              (2)
+
+Now, let X` = x1 , . . . , x` be a sequence of ` strings over Σ, and let X`p = xp1 , . . . , xp` where xpi is the sequence of non-empty
+prefixes of xi defined as above. Then, the identities (1) and (2) imply N (F, X` ) = N (F, X`p ). Thus, N (F, X`p ) ≤ G(F, `·M ),
+since X`p is a sequence of length at most ` · M , and hence N (F, X`p ) ≤ G(F, ` · M ). Since X` is arbitrary, we conclude that
+G(F, `) ≤ G(F, ` · M ).
+
+  The next Propositions 9–11 provide some algebraic identities for functions expressed in terms of composition, cross product,
+and our constructors introduced in Definition 6.
+Proposition 9. Let f1 : Σ∗ → Γ, and let f2 : Γ∗ → Y . Then, f1 ◦ f2 = f1 ◦ f2 .
+
+Proof.
+
+                                               (f1 ◦ f2 )(σ1 . . . σn )
+                                                = (f1 ◦ f2 )(σ1 ) . . . (f1 ◦ f2 )(σ1 . . . σn )
+                                                                                        
+                                                = f2 f1 (σ1 ) . . . f2 f1 (σ1 . . . σn )
+                                                                                                      
+                                                = f2 f1 (σ1 ) . . . f2 f1 (σ1 ) . . . f1 (σ1 . . . σn )
+                                                                                     
+                                                = f2 f1 (σ1 ) . . . f1 (σ1 . . . σn )
+                                                                       
+                                                = f2 f1 (σ1 . . . σn )
+                                                = (f1 ◦ f2 )(σ1 . . . σn ).
+
+
+
+Proposition 10. Let f1 : Σ∗ → Γ, and let f2 : Γ → Y . Then, f1 ◦ f2 = f1 ◦ f2∗ .
+Proof.
+                                       (f1 ◦ f2 )(σ1 . . . σn )
+                                        = (f1 ◦ f2 )(σ1 ) . . . (f1 ◦ f2 )(σ1 . . . σn )
+                                                                                 
+                                        = f2 f1 (σ1 ) . . . f2 f1 (σ1 . . . σn )
+                                        = f2∗ f1 (σ1 ) . . . f2∗ f1 (σ1 . . . σn )
+                                                                                  
+
+                                        = f2∗ f1 (σ1 ) . . . f2∗ f1 (σ1 ) . . . f1 (σ1 . . . σn )
+                                                                                                
+
+                                        = f2∗ f1 (σ1 ) . . . f1 (σ1 . . . σn )
+                                                                              
+
+                                        = f2∗ f1 (σ1 . . . σn )
+                                                                
+
+                                       = (f1 ◦ f2∗ )(σ1 . . . σn ).
+
+
+Proposition 11 (Left-distributivity of function composition over cross product). Consider three functions f1 : X → Y ,
+f2 : Y → Z, and f3 : Y → W . Then, (f1 ◦ f2 ) × (f1 ◦ f3 ) = f1 ◦ (f2 × f3 ).
+Proof. We have
+                                                 [(f1 ◦ f2 ) × (f1 ◦ f3 )](x)
+                                                 = (f1 ◦ f2 )(x), (f1 ◦ f3 )(x)
+                                                 = f2 (f1 (x)), f3 (f1 (x))
+                                                 = (f2 × f3 )(f1 (x))
+                                                 = (f1 ◦ (f2 × f3 ))(x).
+This concludes the proof.
+
+A.6      Proof of Lemma 1 (Functional Description of an Automaton)
+Lemma 1. The function A implemented by an automaton hX a , J, Π, φ, Q, δ, qinit , Γ, θi can be expressed as
+                                             A = πJ∗ ◦ ((φ∗ ◦ D/ ) × I ∗ ) ◦ θ,
+where D is the function implemented by the semiautomaton hΠ, Q, δ, qinit i.
+Proof. The function implemented by A is the one implemented by the induced automaton A0 = hΣ, Q, δJ,φ , qinit , Γ, θJ i, where
+δJ,φ (q, σ) = δ(q, φ(πJ (σ))), and the output function is θJ (q, σ) = θ(q, πJ (σ)). In turn, the function implemented by A0 is
+A0 (σ1 . . . σm ) = θJ (δJ,φ (qinit , σ1 . . . σm−1 ), σm ). Thus, the function implemented by A is
+                                               A(σ1 . . . σm ) = θJ (δJ,φ (qinit , σ1 . . . σm−1 ), σm ).                  (3)
+Observe that
+                             φ(πJ (σ1 )) . . . φ(πJ (σm )) = φ∗ (πJ (σ1 ) . . . πJ (σm )) = φ∗ (πJ∗ (σ1 . . . σm )).
+Thus,
+                           δJ,φ (qinit , σ1 . . . σm ) = δ(qinit , φ∗ (πJ∗ (σ1 . . . σm ))) = D(φ∗ (πJ∗ (σ1 . . . σm ))).
+Now, going back to (3), we have                                                              
+                                 A(σ1 . . . σm ) = θJ δJ,φ (qinit , σ1 . . . σm−1 ), σm
+                                                   = θJ D(φ∗ (πJ∗ (σ1 . . . σm−1 ))), σm
+                                                                                                
+
+                                                   = θJ D/ (φ∗ (πJ∗ (σ1 . . . σm ))), σm
+                                                                                              
+
+                                                   = θ D/ (φ∗ (πJ∗ (σ1 . . . σm ))), πJ (σm )
+                                                                                                  
+
+                                                   = θ D/ (φ∗ (πJ∗ (σ1 . . . σm ))), πJ∗ (σ1 . . . σm )
+                                                                                                         
+
+                                                   = θ D/ (φ∗ (πJ∗ (σ1 . . . σm ))), I ∗ (πJ∗ (σ1 . . . σm ))
+                                                                                                             
+
+                                                   = θ D/ ((πJ∗ ◦ φ∗ )(σ1 . . . σm )), (πJ∗ ◦ I ∗ )(σ1 . . . σm )
+                                                                                                                  
+
+                                                   = θ (πJ∗ ◦ φ∗ ◦ D/ )(σ1 . . . σm ), (πJ∗ ◦ I ∗ )(σ1 . . . σm )
+                                                                                                                   
+
+                                                   = θ ((πJ∗ ◦ φ∗ ◦ D/ ) × (πJ∗ ◦ I ∗ ))(σ1 . . . σm )
+                                                                                                           
+
+                                                   = (πJ∗ ◦ φ∗ ◦ D/ ) × (πJ∗ ◦ I ∗ ) ◦ θ (σ1 . . . σm )
+                                                                                             
+
+                                                   = πJ∗ ◦ (φ∗ ◦ D/ ) × I ∗ ◦ θ (σ1 . . . σm ).
+                                                                                    
+
+The last equality is by Propostion 11. This concludes the proof.
+A.7     Proof of Theorem 6 (Growth and Sample Complexity of Infinite Classes of Automata)
+We prove Theorem 6 in two lemmas. First, we prove the bound on the growth in Lemma 3, then we prove the bound on the
+dimension in Lemma 4. Then, the asymptotic bound on the sample complexity follows immediately by Propostion 2.
+Lemma 3. Let A be a class of automata A(Φ, ∆, Θ; a, m, Π, Γ), and let M be the maximum length of a string. The growth of
+A is bounded as:
+                                                 a
+                                    G(A, `) ≤ |πm  | · |∆| · G(Φ, ` · M ) · G(Θ, `).
+
+Proof. By Lemma 1 the class of functions implemented by A can be expressed as
+                                                 a )∗ ◦ (Φ∗ ◦ ∆/ ) × I ∗ ◦ Θ.
+                                                                        
+                                          A = (πm
+
+Then,
+                                                               
+                               a )∗ ◦ (Φ∗ ◦ ∆/ ) × I ∗ ◦ Θ, `
+                                                       
+             G(A, `) = G (πm                                                                                        by Lemma 1,
+                                                       
+                     ≤ G (πm   a )∗ ◦ (Φ∗ ◦ ∆/ ) × I ∗ , ` · G(Θ, `)                                            by Proposition 4,
+                                      
+                               a )∗ , ` · G (Φ∗ ◦ ∆/ ) × I ∗ , ` · G(Θ, `)
+                                                                
+                     ≤ G (πm                                                                                    by Proposition 4,
+                         a
+                           | · G (Φ∗ ◦ ∆/ ) × I ∗ , ` · G(Θ, `)
+                                                                                                                      a
+                     ≤ |πm                                                                                      since πm is finite,
+                         a
+                           | · G Φ∗ ◦ ∆/ , ` · G (I ∗ , `) · G(Θ, `)
+                                             
+                     ≤ |πm                                                                                      by Proposition 5,
+                         a
+                           | · G Φ∗ ◦ ∆/ , ` · G(Θ, `)                                                      ∗
+                                             
+                     = |πm                                                                         since I is a single function,
+                         a
+                           | · G Φ∗ , ` · G (∆/ , `) · G (Θ, `)
+                                         
+                     ≤ |πm                                                                                      by Proposition 4,
+                         a
+                                             
+                     ≤ |πm | · |∆| · G Φ∗ , ` · G (Θ, `)                                                         since ∆ is finite,
+                          a
+                      ≤ |πm | · |∆| · G(Φ∗ , ` · M ) · G(Θ, `)                                                  by Proposition 8,
+                          a
+                      ≤ |πm | · |∆| · G(Φ, ` · M ) · G(Θ, `)                                                    by Proposition 6.
+
+This proves the lemma.
+
+Lemma 4. Let A be a class of automata A(Φ, ∆, Θ; a, m, Π, Γ), let M be the maximum length of a string, and let w =
+      a
+log |πm | + log |∆| + dim(Φ) + dim(Θ) ≥ 2. The dimension of A is bounded as:
+
+                                            dim(A) ≤ 2 · w · log(w · e · M · |Π| · |Γ|).
+
+Proof. By Lemma 3 the upper bound on the growth G(A, `) is
+                                                      a
+                                          G(A, `) ≤ |πm | · |∆| · G(Φ, ` · M ) · G(Θ, `).
+
+Applying Proposition 1 to G(Φ, ` · M ) and G(Θ, `) we obtain,
+                                                  a                                 h                   g
+                                      G(A, `) ≤ |πm | · |∆| · (e · ` · M · |Π|) · (e · ` · |Γ|) .
+
+We loosen the bound on G(A, `) by collecting the factors with an exponent,
+                                                     a                                        h+g
+                                         G(A, `) ≤ |πm | · |∆| · (` · e · M · |Π| · |Γ|)            .
+
+Next we show the claimed upper bound on the dimension of A. By the definition of dimension, in order to show that a number
+` is an upper bound on the dimension of A, it suffices to show that G(Abin , `) < 2` —note that G(Abin , `) = G(A, `) when the
+output alphabet has cardinality two. Then, since G(Abin , `) ≤ G(A, `) by Proposition 3, a number ` satisfies G(Abin , `) < 2`
+if it satisfies G(A, `) < 2` , and in turn if it satisfies
+                                              a                                     h+g
+                                            |πm | · |∆| · (` · e · M · |Π| · |Γ|)         < 2` .
+
+We show that the former inequality is satisfied for ` = 2 · w · log(w · e · M · |Π| · |Γ|) = 2 · w · log(w · e · C), where we introduce
+C = M · |Π| · |Γ| for brevity. We keep proceeding by sufficient conditions. Specifically, at each step, either we replace the r.h.s.
+with a smaller expression, we simplify a common term between the two sides, or we just rewrite an expression in an equivalent
+form.
+                          a                                  h+g
+                        |πm | · |∆| · (` · e · M · |Π| · |Γ|)      < 2`
+                                      a                      h+g
+                                    |πm | · |∆| · (` · e · C)     < 2`
+                a                                             h+g
+                                                                  < 22·w·log(w·e·C) ,
+                                                            
+              |πm | · |∆| · 2 · w · log(w · e · C) · e · C
+                                                            h+g                                                a
+                a
+              |πm | · |∆| · 2 · w · log(w · e · C) · e · C        < (w · e · C)2·(h+g) · (w · e · C)2·(ln(|∆|·|πm |)/ ln 2)) ,
+                                                            h+g                                                a
+                a
+              |πm | · |∆| · 2 · w · log(w · e · C) · e · C        < (w · e · C)2·(h+g) · (w · e · C)2·(ln(|∆|·|πm |)) ,
+                a
+                                                            h+g
+              |πm | · |∆| · 2 · w · log(w · e · C) · e · C        < (w · e · C)2·(h+g) · |πm
+                                                                                           a
+                                                                                             | · |∆| ,
+                                                            h+g
+                            2 · w · log(w · e · C) · e · C        < (w · e · C)2·(h+g)
+                                         2 · log(w · e · C)h+g < (w · e · C)h+g
+                                                                                     h+g
+                                                                       (w · e · C)
+                                                             1<
+                                                                   2 · log(w · e · C)
+The term on the r.h.s. is strictly greater than 1 whenever w ≥ 2, considering that C ≥ 1. This proves the lemma.
+
+A.8     Proof of Lemma 2 (Functional Description of an Automata Cascade)
+Lemma 2. The function implemented by an automata cascade A1 n · · · n Ad with d ≥ 2 can be expressed as
+
+                                                (I ∗ × A1 ) ◦ · · · ◦ (I ∗ × Ad−1 ) ◦ Ad .
+
+Proof. Let Cd = A1 n · · · n Ad = (A1 , . . . , Ad ). We show by induction on d ≥ 1 that
+
+                                                (I ∗ × A1 ) ◦ · · · ◦ (I ∗ × Ad−1 ) ◦ Ad .
+considering C1 = A1 as the base case, which holds trivially. In the inductive case, d ≥ 2, and we assume that the function
+implemented by the cascade Cd−1 = A1 n · · · n Ad−1 can be expressed as
+
+                                               (I ∗ × A1 ) ◦ · · · ◦ (I ∗ × Ad−2 ) ◦ Ad−1 .
+From the definition of cascade, at each step, the input to component Ad consists of the input to the component Ad−1 together
+with the output of Ad−1 . Over an execution, the sequence of such inputs to Ad is the function
+
+                                           (I ∗ × A1 ) ◦ · · · ◦ (I ∗ × Ad−2 ) ◦ (I ∗ × Ad−1 ).
+Then, the overall output of the casacade is returned by Ad applied to such an input string, and hence the function of Cd is
+
+                                       (I ∗ × A1 ) ◦ · · · ◦ (I ∗ × Ad−2 ) ◦ (I ∗ × Ad−1 ) ◦ Ad .
+This concludes the proof.
+
+A.9     Proof of Theorem 7 (Growth and Sample Complexity of Infinite Classes of Automata Cascades)
+We prove Theorem 7 in two lemmas. First, we prove the bound on the growth of cascades in Lemma 5, then we prove the
+bound on the dimension of cascades in Lemma 6. Then, the asymptotic bound on the sample complexity follows immediately
+by Propostion 2.
+Lemma 5. Let C be a class C = A1 n . . . n Ad of cascades of automata Ai = A(Φi , ∆i , Θi ; ai , mi , Πi , Γi ), and let M be the
+maximum length of a string. The growth of C is bounded as:
+                                                 d
+                                                 Y
+                                                        ai
+                                     G(C, `) ≤         πm i
+                                                            · |∆i | · G(Φi , ` · M ) · G(Θi , ` · M ).
+                                                 i=1
+
+Proof. By Lemma 2 the class of functions implemented by C can be expressed as,
+
+                                             C = (I ∗ × A1 ) ◦ · · · ◦ (I ∗ × Ad−1 ) ◦ Ad .
+Then,
+                                                                       
+                G(C, `) = G (I ∗ × A1 ) ◦ · · · ◦ (I ∗ × Ad−1 ) ◦ Ad , `                                      by Lemma 2,
+                                        d−1
+                                        Y
+                        ≤ G(Ad , `) ·          G(I ∗ × Ai , `)                                             by Proposition 4,
+                                        i=1
+                                        d−1
+                                        Y
+                        ≤ G(Ad , `) ·          G(I ∗ , `) · G(Ai , `)                             by Proposition 5 and 7,
+                                        i=1
+                                        d−1
+                                        Y
+                        = G(Ad , `) ·          G(Ai , `)                                             since I ∗ is singleton,
+                                        i=1
+
+Next we derive an upper bound on G(A, `) for an arbitrary class A = A(Φ, ∆, Θ; a, m).
+                                                             
+          G(A, `) = G (πm     a )∗ ◦ (Φ∗ ◦ ∆/ ) × I ∗ ◦ Θ, `                                        by Lemma 1,
+                                                                 
+                   ≤ G (πm    a )∗ ◦ (Φ∗ ◦ ∆/ ) × I ∗ , ` · G Θ∗ , `                   by Proposition 10 and 4,
+                                                                 
+                   ≤ G (πm    a )∗ ◦ (Φ∗ ◦ ∆/ ) × I ∗ , ` · G Θ∗ , `                            by Proposition 9,
+                                                                      
+                   ≤ G (πm    a )∗ , ` · G (Φ∗ ◦ ∆/ ) × I ∗ , ` · G Θ∗ , `                      by Proposition 4,
+                                                   
+                        a
+                                                                                                      a
+                   ≤ |πm  | · G (Φ∗ ◦ ∆/ ) × I ∗ , ` · G Θ∗ , `                                since πm   is finite,
+                                                   
+                        a
+                                                                  
+                   ≤ |πm  | · G (Φ∗ ◦ ∆/ ) × I ∗ , ` · G Θ∗ , `                                 by Proposition 7,
+                                             
+                        a
+                                                                    
+                   ≤ |πm  | · G (Φ∗ ◦ ∆/ ), ` · G I ∗ , ` · G Θ∗ , `                            by Proposition 5,
+                                             
+                        a
+                                                                                   since I ∗ is a single function,
+                                                           
+                   ≤ |πm  | · G (Φ∗ ◦ ∆/ ), ` · G Θ∗ , `
+                        a
+                                                       
+                   ≤ |πm  | · G Φ∗ ◦ ∆ / , ` · G Θ ∗ , `                                        by Proposition 9,
+                        a
+                                                              
+                   ≤ |πm | · G Φ∗ , ` · G ∆/ , ` · G Θ∗ , `                                     by Proposition 4,
+                        a
+                                                       
+                   ≤ |πm  | · |∆| · G Φ∗ , ` · G Θ∗ , `                                 since ∆ is a finite class,
+                        a
+                    ≤ |πm | · |∆| · G (Φ∗ , ` · M ) · G (Θ∗ , ` · M )                                          by Proposition 8,
+                        a
+                    ≤ |πm | · |∆| · G (Φ, ` · M ) · G (Θ, ` · M )                                              by Proposition 6.
+Using Lemma 3 we derive an upper bound on the G(Ad , `),
+                           ad                                          ad
+              G(Ad , `) ≤ πm d
+                               · |∆d | · G(Φd , ` · M ) · G(Θd , `) ≤ πm d
+                                                                           · |∆d | · G(Φd , ` · M ) · G(Θd , ` · M ).
+Then,
+                                                   d
+                                                   Y
+                                                          ai
+                                   G(C, `) ≤             πm i
+                                                              · |∆i | · G(Φi , ` · M ) · G(Θi , ` · M ).
+                                                   i=1
+The lemma is proved.
+Lemma 6. Let C be a class C = A1 n . . . n Ad of cascades where Ai = A(Φi , ∆i , Θi ; ai , mi , Πi , Γi ). Let M be the maximum
+length of a string. Let h = maxi dim(Φi ) be maximum dimension of a class of input functions, let g = maxi dim(Θi ) be
+the maximum dimension of a class of output functions, let ∆ = arg max∆i |∆i | be the class of semiautomata with maximum
+                      a                 ai                  a
+cardinality, and let πm = arg maxπm
+                                  ai πm   i
+                                            . Let w = log |πm | + log |∆| + h + g ≥ 2. The dimension of C is bounded as:
+                                        i
+
+
+                                            dim(C) ≤ 2 · d · w · log(d · w · e · M · |Π| · |Γ|),
+Proof. By Lemma 5 the upper bound on G(C, `) is
+                                                   d
+                                                   Y
+                                                          ai
+                                   G(C, `) ≤             πm i
+                                                              · |∆i | · G(Φi , ` · M ) · G(Θi , ` · M ).
+                                                   i=1
+Applying Proposition 1 to terms G(Φi , ` · M ), G(Θi , ` · M ) we obtain
+                                                  d
+                                                  Y
+                                                         ai                                h                  g
+                                   G(C, `) ≤            πm i
+                                                             · |∆i | · (e · ` · M · |Πi |) i · (e · ` · |Γi |) i .
+                                                  i=1
+We loosen the bound by collecting the factors with the exponent and by taking the maximum of each indexed quantity,
+                                                      a         d       d                         d·(h+g)
+                                       G(C, `) ≤ |πm    | · |∆| · (` · e · M · |Π| · |Γ|)
+Next we show the claimed upper bound on the dimension of C. By the definition of dimension, in order to show that a number `
+is an upper bound on the dimension, it suffices to show that G(Cbin , `) < 2` . Then, since G(Cbin , `) ≤ G(C, `) by Proposition 3,
+a number ` satisfies G(Cbin , `) < 2` if it satisfies G(C, `) < 2` , and in turn if it satisfies
+                                            a               d                           d·(h+g)
+                                         (|πm | · |∆|) · (` · e · M · |Π| · |Γ|)         < 2` .
+We show that the former inequality is satisfied for ` = 2 · d · w · log(d · w · e · M · |Π| · |Γ|) = 2 · d · w · log(d · w · e · C), where
+we introduce C = M · |Π| · |Γ| for brevity. We keep proceeding by sufficient conditions. Specifically, at each step, either we
+replace the r.h.s. with a smaller expression, we simplify a common term between the two sides, or we just rewrite an expression
+in an equivalent form.
+                       a          d                                 d·(h+g)
+                    (|πm | · |∆|) · (` · e · M · |Π| · |Γ|)                   < 2`
+                                  a           d                     d·(h+g)
+                               (|πm | · |∆|) · (` · e · C)          < 2`
+                d                                         d·(h+g)
+      a
+   (|πm | · |∆|) · 2 · d · w · log(d · w · e · C) · e · C           < 22·d·w·log(d·w·e·C) ,
+      a         d                                           d·(h+g)
+                                                                    < (d · w · e · C)2·d·w ,
+                                                          
+   (|πm | · |∆|) · 2 · d · w · log(d · w · e · C) · e · C
+                d                                         d·(h+g)                                                             a
+      a
+   (|πm | · |∆|) · 2 · d · w · log(d · w · e · C) · e · C           < (d · w · e · C)2·d·(h+g) · (d · w · e · C)2·d·(log(|∆|·|πm |)) ,
+                d                                         d·(h+g)                                                            a
+      a
+   (|πm | · |∆|) · 2 · d · w · log(d · w · e · C) · e · C           < (d · w · e · C)2·d·(h+g) · (d · w · e · C)2·d·(ln(|∆|·|πm |)/ ln 2) ,
+                d                                         d·(h+g)                                                           a
+      a
+   (|πm | · |∆|) · 2 · d · w · log(d · w · e · C) · e · C           < (d · w · e · C)2·d·(h+g) · (d · w · e · C)2·d·ln(|∆|·|πm |) ,
+      a         d                                         d·(h+g)                                             2·d
+   (|πm | · |∆|) · 2 · d · w · log(d · w · e · C) · e · C           < (d · w · e · C)2·d·(h+g) · (|πma
+                                                                                                       | · |∆|) ,
+                                                          d·(h+g)
+                   2 · d · w · log(d · w · e · C) · e · C           < (d · w · e · C)2·d·(h+g) ,
+                                     2 · log(d · w · e · C)d·(h+g) < (d · w · e · C)d·(h+g) ,
+                                                                                             d·(h+g)
+                                                                           (d · w · e · C)
+                                                                 1<                                    .
+                                                                       2 · log(d · w · e · C)
+The term on the r.h.s. is strictly greater than 1 whenever d · w ≥ 2, considering that C ≥ 1. The lemma is proved.
+
+                                   B    Formal Description of The Running Example
+The sequence task of the running example (Example 1) is formalised by the following Temporal Datalog program—for Tempo-
+ral Datalog see (Ronca et al. 2022). Let wood , iron, fire, steel , and factory be unary unary predicates. They are used to model
+the input. For example, wood (17) is in the input trace if the agent collects wood at time 17, and factory(5) is in the input trace
+if the agent attempts to use the factory at time 5. Additionally, let getWood , getIron, getFire, getSteel , and useFactory be
+unary predicates. They are defined by the following rules.
+                                                                                wood (t) → getWood (t)                          (4)
+                                                                            getWood (t) → getWood (t + 1)                       (5)
+                                                                                 iron(t) → getIron(t)                           (6)
+                                                                              getIron(t) → getIron(t + 1)                       (7)
+                                                                                  fire(t) → getFire(t)                          (8)
+                                                                              getFire(t) → getFire(t + 1)                       (9)
+                                                                                 steel (t) → getSteel (t)                      (10)
+                                                                             getSteel (t) → getSteel (t + 1)                   (11)
+                                                          getSteel (t − 1) ∧ factory(t) → useFactory(t)                        (12)
+                   getWood (t − 1) ∧ getIron(t − 1) ∧ getFire(t − 1) ∧ factory(t) → useFactory(t)                              (13)
+                                                                          useFactory(t) → useFactory(t + 1)                    (14)
+Then, at any given time point τ , the task has been completed if useFactory(τ ) is entailed by the input facts and the rules above.
+                                          References for The Appendix
+Kakade, S.; and Tewari, A. 2008. Lecture Notes of CMSC 35900 (Spring 2008) Learning Theory, Lecture 12. Available at:
+https://home.ttic.edu/%7Etewari/lectures/lecture12.pdf [Last accessed: 30/11/2022].
+Ronca, A.; Kaminski, M.; Cuenca Grau, B.; and Horrocks, I. 2022. The delay and window size problems in rule-based stream
+reasoning. Artif. Intell., 306: 103668.
+

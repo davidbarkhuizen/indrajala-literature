@@ -1,0 +1,1982 @@
+                                                                      On the Power of Differentiable Learning
+                                                                           versus PAC and SQ Learning
+                                              Emmanuel Abbe            École polytechnique fédérale de Lausanne (EPFL)                 emmanuel.abbe@epfl.ch
+                                              Pritish Kamath           Google Research                                                      pritish@ttic.edu
+                                              Eran Malach              Hebrew University of Jerusalem (HUJI)                     eran.malach@mail.huji.ac.il
+                                              Colin Sandon             Massachusetts Institute of Technology (MIT)                           csandon@mit.edu
+                                              Nathan Srebro            Toyota Technological Institute at Chicago (TTIC)                        nati@ttic.edu
+
+
+
+
+arXiv:2108.04190v2 [cs.LG] 6 Feb 2022
+                                                         Collaboration on the Theoretical Foundations of Deep Learning (deepfoundations.ai)
+
+                                                                                                       Abstract
+                                                   We study the power of learning via mini-batch stochastic gradient descent (SGD) on the population loss,
+                                               and batch Gradient Descent (GD) on the empirical loss, of a differentiable model or neural network, and ask
+                                               what learning problems can be learnt using these paradigms. We show that SGD and GD can always simulate
+                                               learning with statistical queries (SQ), but their ability to go beyond that depends on the precision ρ of the gradient
+                                               calculations relative to the minibatch size b (for SGD) and sample size m (for GD). With fine enough precision
+                                               relative to minibatch size, namely when bρ is small enough, SGD can go beyond SQ learning and simulate any
+                                               sample-based learning algorithm and thus its learning power is equivalent to that of PAC learning; this extends
+                                               prior work that achieved this result for b = 1. Similarly, with fine enough precision relative to the sample
+                                               size m, GD can also simulate any sample-based learning algorithm based on m samples. In particular, with
+                                               polynomially many bits of precision (i.e. when ρ is exponentially small), SGD and GD can both simulate PAC
+                                               learning regardless of the mini-batch size. On the other hand, when bρ2 is large enough, the power of SGD is
+                                               equivalent to that of SQ learning.
+
+
+                                        1     Introduction
+                                        A leading paradigm that has become the predominant approach to learning is that of differentiable learning, namely
+                                        using a parametric function class fw (x), and learning by performing mini-batch Stochastic Gradient Descent
+                                        (bSGD) updates (using gradients of the loss on a mini-batch of b independent samples per iteration) or full-batch
+                                        Gradient Descent (fbGD) updates (full gradient descent on the empirical loss, using the same m samples in all itera-
+                                        tions). Feed-forward neural networks are a particularly popular choice for the parametric model fw . One approach
+                                        to understanding differentiable learning is to think of it as a method for minimizing the empirical error of fw with
+                                        respect to w, i.e. as an empirical risk minimization (ERM). ERM is indeed well understood, and is in a sense a
+                                        universal learning rule, in that any hypothesis class that is PAC learnable is also learnable using ERM. Furthermore,
+                                        since poly-sized feed-forward neural networks can represent any poly-time computable function, we can conclude
+                                        that ERM on neural networks can efficiently learn any tractable problem. But this view of differentiable learning
+                                        ignores two things.
+                                            Firstly, many ERM problems, including ERM on any non-trivial neural network, are highly non-convex and
+                                        (stochastic) gradient descent might not find the global minimizer. As we just discussed, pretending that bSGD or
+                                        fbGD do find the global minimizer would mean we can learn all poly-time computable functions, which is known to
+                                        be impossible 1 [e.g. Kearns and Valiant, 1994, Klivans and Sherstov, 2009]. In fact, even minimizing the empirical
+                                        risk on a neural net with two hidden units, and even if we assume data is exactly labeled by such a network, is
+                                        already NP-hard, and cannot be done efficiently with bSGD/fbGD [Blum and Rivest, 1992]. We already see that
+                                        bSGD and fbGD are not the same as ERM, and asking “what can be learned by bSGD/fbGD” is quite different from
+                                        asking “what can be learned by ERM”.
+                                           1
+                                             Subject to mild cryptographic assumptions, such as the existence of one-way functions, i.e. the existence of cryptography itself, and
+                                        where we are referring to bSGD/fbGD running for polynomially many steps.
+
+
+                                                                                                            1
+    Furthermore, bSGD and fbGD might also be more powerful than ERM. Consider using a highly overparametrized
+function class fw , with many more parameters than the number of training examples, as is often the case in modern
+deep learning. In such a situation there would typically be many empirical risk minimizers (zero training error solu-
+tions), and most of them would generalize horribly, and so the ERM principal on its own is not sufficient for learning
+[Neyshabur et al., 2015]. Yet we now understand how fbGD and bSGD incorporate intricate implicit bias that leads
+to particular empirical risk minimizers which might well ensure learning [Soudry et al., 2018, Nacson et al., 2019].
+    All this justifies studying differentiable learning as a different and distinct paradigm from empirical risk mini-
+mization. The question we ask is therefore:
+What can be learned by performing mini-batch stochastic gradient descent, or full-batch gradient descent,
+      on some parametric function class fw , and in particular on a feed-forward neural network?
+Answering this question is important not only for understanding the limits of what we could possibly expect from
+differentiable learning, but even more so in guiding us as to how we should study differentiable learning, and
+ask questions, e.g., about its power relative to kernel methods [e.g. Yehudai and Shamir, 2019, Allen-Zhu and Li,
+2019, 2020, Li et al., 2020, Daniely and Malach, 2020, Ghorbani et al., 2019, 2020, Malach et al., 2021], or the
+theoretical benefits of different architectural innovations [e.g. Malach and Shalev-Shwartz, 2020].
+    A significant, and perhaps surprising, advance toward answering this question was recently presented by
+Abbe and Sandon [2020], who showed that bSGD with a single example per iteration (i.e. a minibatch of size 1)
+can simulate any poly-time learning algorithm, and hence is as powerful as PAC learning. On the other hand, they
+showed training using population gradients (infinite batch size, or even very large batch sizes) and low-precision
+(polynomial accuracy, i.e. a logarithmic number of bits of precision), is no more powerful than learning with Statis-
+tical Queries (SQ), which is known to be strictly less powerful than PAC learning [Kearns, 1998, Blum et al., 2003].
+This seems to suggest non-stochastic fbGD, or even bSGD with large batch sizes, is not universal in the same way
+as single-example bSGD. As we will see below, it turns out this negative result depends crucially on the allowed
+precision, and its relationship to the batch, or sample, size.
+
+Our Contributions. In this paper, we take a more refined view of this dichotomy, and consider learning with
+bSGD with larger mini-batch sizes b > 1, as is more typically done in practice, as well as with fbGD. We ask
+whether the ability to simulate PAC learning is indeed preserved also with larger mini-batch sizes, or even full
+batch GD? Does this universality rest on using single examples, or perhaps very small mini-batches, or can we
+simulate any learning algorithm also without such extreme stochasticity? We discover that this depends on the
+relationship of the batch size b and the precision ρ of the gradient calculations. That is, to understand the power of
+differentiable learning, we need to also explicitly consider the numeric precision used in the gradient calculations,
+where ρ is an arbitrary additive error we allow.
+     We first show that regardless of the mini-batch size, bSGD is always able to simulate any SQ method, and so
+bSGD is at least as powerful as SQ learning. When the mini-batch size b is large relative to the precision, namely
+b = ω(log(n)/ρ2 ), where n is the input dimension and we assume the model size and number of iterations are
+polynomial in n, bSGD is not any more powerful than SQ. But when b < 1/(8ρ), or in other words with fine
+enough precision ρ < 1/(8b), bSGD can again simulate any sample-based learning method, and is as powerful
+as PAC learning (the number of SGD iterations and size of the model used depend polynomially on the sample
+complexity of the method being simulated, but the mini-batch size b and precision ρ do not, and only need to
+satisfy bρ < 1/8—see formal results in Section 3). We show a similar result for fbGD, with a dependence on the
+sample size m: with low precision (large ρ) relative to the sample size m, fbGD is no more powerful than SQ. But
+with fine enough precision relative to the sample size, namely when ρ < 1/(8m), fbGD can again simulate any
+sample-based learning method based on m samples (see formal results in Section 6).
+     We see then, that with fine enough precision, differentiable learning with any mini-batch size, or even using
+full-batch gradients (no stochasticity in the updates), is as powerful as any sample-based learning method. The
+required precision does depend on the mini-batch or sample size, but only linearly. That is, the number of bits
+of precision required is only logarithmic in the mini-batch or sample sizes. And with a linear (or even super-
+logarithmic) number of bits of precision (i.e. ρ = 2−n ), bSGD and fbGD can simulate arbitrary sample-based
+
+                                                          2
+methods with any polynomial mini-batch size; this is also the case if we ignore issue of precision and assume exact
+computation (corresponding to ρ = 0).
+    On the other hand, with low precision (high ρ, i.e. only a few bits of precision, which is frequently the case
+when training deep networks), the mini-batch size b plays an important role, and simulating arbitrary sample based
+methods is provably not possible using fbGD, or with bSGD with a mini-batch size that is too large, namely
+b = ω(log(n)/ρ2 ). Overall, except for an intermediate regime between 1/ρ and log(n)/ρ2 , we can precisely
+capture the power of bSGD.
+
+Computationally Bounded and Unbounded Learning. Another difference versus the work of Abbe and Sandon
+is that we discuss both computationally tractable and intractable learning. We show that poly-time PAC and SQ are
+related, in the sense described above, to bSGD and fbGD on a poly-sized neural network, whereas computationally
+unbounded PAC and SQ (i.e. limited only by the number of samples or number of statistical queries, but not run-
+time) are similarly related to bSGD and fbGD on an arbitrary differentiable model fw . In fact, to simulate PAC and
+SQ, we first construct an arbitrary fw , and then observe that if the PAC or SQ method is poly-time computable,
+then the computations within it can be expressed as poly-size circuits, which can in turn be simulated as poly-size
+sub-networks, allowing us to implement fw as a neural net.
+
+Answering SQs using Samples. Our analysis relies on introduction of a variant of SQ learning which we refer
+to as mini-batch Statistical Queries (bSQ, and we similarly introduce a full-batch variant, fbSQ). In this variant,
+which is related to the Honest-SQ model [Yang, 2001, 2005], statistical queries are answered using a mini-batch of
+samples drawn from the source distribution, up to some precision. We first show that bSQ methods can always be
+simulated by bSGD, by constructing a differentiable model where at each step the derivatives with respect to some
+of the parameters contain the answers to the statistical queries. We then relate bSQ to SQ and PAC, based on the
+relationship between the mini-batch size and precision. In order to simulate PAC using bSQ, we develop a novel
+“sample extraction” that uses mini-batch statistical queries (on independently sampled mini-batches) to extract a
+single sample drawn from the source distribution. This procedure might be of independent interest, perhaps also in
+studying privacy, where such an extraction is not desirable. Our study of the relationship of bSQ to SQ and PAC,
+summarized in Section 4, also sheds light on how well the SQ framework captures learning by answering queries
+using empirical averages on a sample, which is arguably one of the main motivations for the inverse-polynomial
+tolerance parameter in the SQ framework.
+
+
+2       Learning Paradigms
+We consider learning a predictor f : X → R over an input space X , so as to minimize its population loss LD (f ) :=
+E(x,y)∼D ℓ(f (x), y) with respect to a source distribution D over X × Y, where ℓ : R × Y → R≥0 is a loss function.
+Unless noted otherwise, we take the loss function to be the square-loss ℓsq (ŷ, y) = 21 (ŷ − y)2 . For concreteness,
+we always take Y = {0, 1} and X = {0, 1}n .
+
+Differentiable Learning. We study learning by (approximate) gradient descent on a differentiable model. For-
+mally, a differentiable model of size p is a mapping f : Rp × X → R, denoted fw (x), where w ∈ Rp are the
+parameters, or “weights”, of the model, and for every x ∈ X there exists a gradient ∇w fw (x) for almost every
+w ∈ Rp (i.e, outside of a measure-zero set of weights). 2
+    A notable special case of differentiable models is that of neural networks, defined by a directed acyclic graph
+with a single output node (i.e. with zero out-degree) and n + 1 input nodes (i.e. with zero in-degree) corresponding
+to the n bits of X and the constant 1. Every edge e corresponds to a weight parameter we . Computation proceeds
+recursively with each vertex v returning the value ov obtained by applying an activation function σ : R → R on the
+    2
+    Allowing fw (x) to be non-differentiable on a measure zero set might seem overly generous, but it’s simpler to state, and a more
+conservative restriction wouldn’t affect our results. Our simulations use either everywhere differentiable models, or neural networks with
+piece-wise linear activation, resulting in a piece-wise linear models with a finite number of pieces.
+
+
+                                                                    3
+linear combination
+         P          of the values
+                                  computed at its predecessors as specified by the edge weights w = (we )e , that is,
+ov := σ      e = (u→v) we ou . The final output of the model on input x is the value returned by the output node.
+    For a differentiable model fw (x), an initialization distribution W over Rp , mini-batch size b, gradient precision
+ρ, and stepsize 3 γ, the mini-batch Stochastic Gradient Descent (bSGD) method operates by computing iterates of
+the form:
+                                                           w (0) ∼ W
+                                                         w (t+1) ← w (t) − γgt                                                             (1)
+where gt is a ρ-approximate rounding of the mini-batch (empirical) clipped gradient
+                                                                    b
+                                                                1X
+                                           ∇LSt (fw(t) ) :=       [∇ℓ(fw(t) (xt,i ), yt,i )]1                                              (2)
+                                                                b
+                                                                   i=1
+
+where the mini-batches St = ((xt,1 , yt,1 ), . . . , (xt,b , yt,b )) ∼ D b containing b samples each are sampled inde-
+pendently at each iteration, and [α]1 denotes entry-wise clipping of α to [−1, 1]. We say that u ∈ [−1, 1]p is a
+ρ-approximate rounding of v ∈ [−1, 1]p if u ∈ ρ · Zp (namely, each entry of u is an integral multiple of ρ), and
+ku − vk∞ ≤ 3ρ/4. Thus, overall gt is a valid gradient estimate if it satisfies
+                                       gt ∈ ρ · Zp      and      kgt − ∇LSt (fw(t) )k∞ ≤ 3ρ/4                                              (3)
+
+Precision, Rounding and Clipping. The clipping and rounding we use captures using d = − log ρ bits of
+precision, and indeed we generally consider ρ = 2−d where d ∈ N.
+     We consider clipped gradients because the precision ρ makes sense only when considered relative to the scale
+of the gradients. Clipping is an easy way to ensure we do not “cheat” by using very large magnitude gradients to
+circumvent the precision limit, and can be thought of as a way of handling overflow. We note however that in all our
+simulation constructions, we always have k∇ℓ(fw(t) (x), y)k∞ ≤ 1 for all w (t) and all (x, y), and hence clipping
+plays no role. We could have alternatively said the method “fails” or is “invalid” if a larger magnitude gradient is
+encountered.
+     In our rounding error model, for any integer q, values in (qρ − 4ρ , qρ + ρ4 ) get rounded to qρ, whereas, values
+in [qρ + ρ/4, qρ + 3ρ/4] can get rounded either to qρ or (q + 1)ρ. This error model is a proxy for rounding errors
+in real finite precision arithmetic, where we have uncertainty about the least significant bit when representing real
+numbers in [−1, 1] with d bits of precision, as this final bit represents a rounding of the ignored lower order bits.
+Viewed another way, a ρ-approximate rounding of v ∈ [−1, 1] can be obtained by considering a ρ/4-approximation
+of v, i.e. ṽ ∈ [−1, 1] s.t. |v − ṽ| ≤ ρ/4, and then (deterministically) rounding ṽ to the nearest integer multiple of ρ.
+
+Learning with bSGD. A learning method A is said to be a bSGD(T, ρ, b, p, r) method if it operates by computing
+bSGD iterates for some differentiable model f : Rp × X → R (i.e., with p parameters), starting from some
+(randomized) initialization W which uses r random bits, 4 with some stepsize γ, given ρ-approximate gradients
+over batches of size b; the output of A is the final iterate fw(T ) : X → R. We say that A ensures error ε on a source
+distribution D if E[sup LD (fw(T ) )] ≤ ε, where the expectation is over both the initialization w (0) and the mini-
+batches St ∼ D b , and the sup is over all gradient estimates gt satisfying (3) at iterates where fw is differentiable at
+w (t) for all xt,i ∈ St . 5, 6 We denote by bSGDσNN(T, ρ, b, p, r) the family of bSGD methods where the differentiable
+   3
+      The stepsize doesn’t play an important role in our analysis. We can also allow variable or adaptive stepsize sequences without changing
+the results—for simplicity of presentation we stick with a fixed stepsize, and in fact in our constructions just use a fixed constant (not
+dependent on other parameters) stepsize of γ = 1 or γ = 2.
+    4
+      Namely, W : {0, 1}r → Rp such that w(0) ∼ W(s) for s ∼ uniform over {0, 1}r .
+    5
+      Formally, and for simplicity, if fw is not differentiable at w(t) for some xt,i , we consider any gt ∈ [−1, 1]p as valid. But recall that
+fw (x) is differentiable almost everywhere. We could have required a more conservative behaviour without affecting any of our results. In
+particular, in all our simulation constructions, fw (x) is always differentiable at w(t) encountered.
+    6
+      Defining the error as E[sup LD (fw(T ) )] can be interpreted as allowing the rounding errors on gt to also depend on random samples in
+future steps. A more conservative definition would involve Ew(0) ES1 supg1 . . . EST supgT LD (fw(T ) ). However, this distinction does not
+
+
+                                                                        4
+model is implemented by a neural network with p parameters, using the poly-time computable 7 activation function
+σ and where the initialization distribution W can be sampled from in poly(n) time.
+
+Full-batch Gradient Descent (fbGD). We also consider learning with full-batch Gradient Descent, i.e. gradient
+descent on an empirical loss, where the entire training set of size m is used in each iteration. A method A is a
+fbGD(T, ρ, m, p, r) if it operates similarly to a bSGD(T, ρ, b = m, p, r) method with the only difference being
+that the same batch of samples is used at each iteration, namely St = S for all t, where S ∼ D m . Similarly,
+fbGDσNN (T, ρ, m, p, r) is defined analogous to bSGDσNN (T, ρ, b, p, r), where we require the differentiable model
+to be a neural network. As with bSGD methods, we say that A ensures error ε on a source distribution D if
+E[sup LD (fw(T ) )] ≤ ε, where the expectation is over both the initialization w (0) and the training set S ∼ D b , and
+the sup is over all gradient estimates gt satisfying (3) at iterates where fw is differentiable at w (t) for all xi ∈ S.
+Note that while bSGD(T, ρ, b, p, r) uses T b samples overall, fbGD(T, ρ, m, p, r) uses only m samples in total.
+
+PAC and SQ Learning. A learning method A is said to be a PAC(m, r) method 8 if it takes in a set of samples
+S ⊆ X × Y of size m, uses r bits of randomness and returns a predictor f : X → R. We say that A ensures error
+ε on a source distribution D if E[LD (f )] ≤ ε, where the expectation is over S ∼ D m and the randomness in A.
+Similarly, we say that A is a PACTM (m, r, T IME ) algorithm if it is a PAC(m, r) method which can be implemented
+using a Turing machine that runs in time T IME .
+      A learning method A is said to be a statistical-query SQ(k, τ, r) method, if it operates in k rounds where in
+round t the method produces a statistical-query Φt : X ×Y → [−1, 1] for which it receives a response vt , and finally
+outputs a predictor f : X → R. Formally, each Φt is a function of a random string R ∈ {0, 1}r and past responses
+v1 , . . . , vt−1 . We say that A ensures error ε on a source distribution D if ER [sup LD (f )] ≤ ε, where the sup is
+over all “valid” vt ∈ [−1, 1], namely |vt − ED Φt (x, y)| ≤ τ . Similarly, we say that A is a SQTM (k, τ, r, T IME )
+algorithm if A is a SQ(k, τ, r) method that can be implemented using a Turing machine that runs in time T IME ,
+using queries that can be computed in time T IME .
+
+Relating Classes of Methods. The subject of this work is to compare between what can be learnt with different
+classes of methods. To do so, we define a general notion of when methods in class C can be simulated by methods
+in C ′ , and thus C ′ can be said to be at least as powerful as C. For any method/algorithm A and for any source
+distribution D, let err(A, D) be the infimum over ε such that A ensures error ε on D. We now define:
+
+Definition 1. For two classes of methods C, C ′ , and any δ ≥ 0, we write C ′ δ C if for every method A ∈ C there
+exists a method A′ ∈ C ′ such that for every source distribution D we have err(A′ , D) ≤ err(A, D) + δ.
+
+   That is, C ′ δ C means that C ′ is at least as powerful as C. Observe that for all classes of methods C1 , C2 , C3 , if
+C1 δ1 C2 and C2 δ2 C3 then C1 δ1 +δ2 C3 .
+
+
+3     Main Results : bSGD versus PAC and SQ
+Our main result, given below as a four-part Theorem, establishes the power of bSGD learning relative to PAC
+(i.e. arbitrary sample based) and SQ learning. As previously discussed, the exact relation depends on the mini-
+batch size b and gradient precision ρ. First, we show that for any mini-batch size b, with fine enough precision ρ,
+bSGD can simulate PAC.
+change any of our results and we stick to the simpler E sup definition for convenience.
+    7
+      We say that σ : R → R is “polynomial-time computable” if there exists a Turing machine that, for any given z ∈ R and desired
+precision, computes σ(z) and σ ′ (z) to within the desired precision in time that is polynomial in the bit length of the representation of z and
+the number of desired bits of precision.
+    8
+      The usage of the acronym PAC here is technically improper as we use it to refer to a method and not a class of learning problems. We
+use it for notational convenience and historical reasons.
+
+
+
+
+                                                                       5
+Theorem 1a (PAC to bSGD). For all b and ρ < 1/(8b), and for all m, r, δ, it holds that
+
+                  bSGD(T ′ = O(mn/δ), ρ, b, p′ = r + O(T ′ (n + log b)), r ′ ) δ PAC(m, r) .
+
+where r ′ = r + O(T ′ log b). Furthermore, if ρ < min {1/(8b), 1/12}, using the activation function in Figure 1,
+for every runtime T IME , it holds for p′ = poly(n, m, r, T IME , ρ−1 , b, δ−1 ) and the same T ′ , r ′ above that
+
+                                  bSGDσNN (T ′ , ρ, b, p′ , r ′ ) δ PACTM (m, r, T IME )
+
+To establish equivalence (when Theorem 1a holds), we also note that PAC is always at least as powerful as bSGD
+(since bSGD can be implemented using samples):
+
+Theorem 1b (bSGD to PAC). For all b, ρ and T, p, r, it holds that
+
+                                  PAC(m′ = T b, r ′ = r) 0 bSGD(T, ρ, b, p, r) .
+
+Furthermore, for all poly-time computable activations σ, it holds that
+
+              PACTM (m′ = T b, r ′ , T IME ′ = poly(T, b, p, r, n, log ρ)) 0 bSGDσNN (T, ρ, b, p, r) .
+
+On the other hand, if the mini-batch size is large relative to the precision, bSGD cannot go beyond SQ:
+
+Theorem 1c (bSGD to SQ). There exists a constant C such that for all δ > 0, for all T , ρ, b, p, r, such that
+bρ2 > C log(T p/δ), it holds that
+                                                     ρ ′
+                                SQ(k′ = T p, τ ′ =     , r = r) δ bSGD(T, ρ, b, p, r) .
+                                                     8
+Furthermore, for all poly-time computable activations σ, it holds that
+                                                                        
+                                 ρ ′                          1        1
+        SQTM k = T p, τ = , r = r, T IME = poly(T, , b, p, r, ) δ bSGDσNN(T, ρ, b, p, r).
+                   ′         ′                  ′
+                                 8                            ρ        δ
+
+To complete the picture, we also show that regardless of the mini-batch size, i.e. even when bSGD cannot simulate
+PAC, bSGD can always, at the very least, simulate any SQ method. This also establishes equivalence to SQ when
+Theorem 1c holds:
+
+Theorem 1d (SQ to bSGD). There exists a constant C such that for all δ > 0, for all b and all k, τ, r, it holds that
+                                             τ
+                           bSGD(T ′ , ρ =       , b, p′ = r + 2T, r ′ = r) δ SQ(k, τ, r) .
+                                             16
+                  l         m
+                    C log(k/δ)
+where T ′ = k ·         bτ 2   . Furthermore, using the piecewise linear “two stage ramp” activation function σ
+                            ′
+(Figure 1), it holds for p = poly(k, 1/τ, r, T IME , 1/δ) that
+                                               τ
+                          bSGDσNN (T ′ , ρ =      , b, p′ , r ′ = r) δ SQTM (k, τ, r, T IME ) .
+                                               16
+     In the above Theorems, the reductions hold with parameters on the left-hand-side (the parameters of the model
+being reduced to) that are polynomially related to the dimension and the parameters on the right-hand-side. But
+the mini-batch size b and gradient precision ρ play an important role. In Theorem 1a, we may choose b and ρ as
+we wish, as long as they satisfy bρ < 1/8—they do not need to be chosen based on the parameters of the PAC
+method, and we can always simulate PAC with any b and ρ satisfying bρ < 1/8. Similarly, in Theorem 1d, we may
+chose b ≥ 1 arbitrarily, and can always simulate SQ, although ρ does have to be chosen according to τ . The reverse
+reduction of Theorem 1c, establishing the limit of when bSGD cannot go beyond SQ, is valid when bρ2 = ω(log n),
+if the size of the model p and number of SGD iterations T are restricted to be polynomial in n.
+
+                                                            6
+                                                                                   σ(x)
+                       
+                        −2           if x < −3
+                       
+                       
+                       
+                                     if − 3 ≤ x ≤ −1
+                                                                                    2
+                       x + 1
+                 σ(x) = 0             if − 1 < x < 0                     −3    −1
+                       
+                                                                                                  x
+                       
+                        x            if 0 ≤ x ≤ 2                                  0        2
+                       
+                       
+                       
+                         2            if x > 2                                          −2
+
+
+
+
+                             Figure 1: Activation function used in Theorems 1a and 1d
+
+   Focusing on the mini-batch size b, and allowing all other parameters to be chosen to be polynomially related,
+Theorems 1a to 1d can be informally summarized as:
+                                             PAC  bSGD(b)  SQ                                                   (4)
+where the left relationship is tight if b < 1/(8ρ) and the right relationship is tight if b > ω((log n)/ρ2 ). Equiva-
+lently, focusing on the precision ρ and how it depends on the mini-batch size b, and allowing all other parameters
+to be polynomially related, Theorems 1a to 1d can be informally summarized as:
+                   If ρ < 1/(8b),                               bSGD(b, ρ) ≈ PAC                                  (5)
+                            p          
+                   If ρ > ω    (log n)/b ,                      PAC  SQ(Θ(ρ)) ≈ bSGD(b, ρ)                       (6)
+                   And in any case,                             bSGD(b, ρ)  SQ(Θ(ρ))                             (7)
+    More formally, the results can also be viewed as a relationship between classes of learning problems. A learning
+problem is a sequence (Pn )n∈N, where each Pn is a set of distributions Dn over {0, 1}n × Y. For a parametrized
+class of methods C(θ), we say a learning problem is poly-learnable with C if for every polynomial ε(n) there
+is a polynomial θ(n) such that for every n there is a method in C(θ(n)) that ensures error at most ε(n) on all
+distributions in Pn . We slightly abuse notation and use C to denote the set of learning problems poly-learnable
+with C methods, so that, e.g. PAC, PACTM , SQ and SQTM , are the familiar classes of PAC and SQ (poly) learnable
+problems. For bSGD we also define bSGD[b(n), ρ(n)], where b and ρ are only allowed to depend on n via the
+specified (polynomially bounded, possibly constant) dependence, and not arbitrarily (the other parameters may
+grow as an arbitrary polynomial), and bSGD[b(n, ρ)], where 1/ρ can grow as an arbitrary polynomial, but the
+choice of b as a function of n and ρ is constrained. With this notation, our results imply the following relationships
+between these classes of learning problems:
+Corollary 1. For any (poly bounded, possible constant) dependence b(n, ρ), and for the activation function σ in
+Figure 1, it holds that
+                                 SQ ⊆(1) bSGD[b]                  ⊆(2) PAC
+                              SQTM ⊆(3) bSGDσNN[b]                ⊆(4) PACTM
+Moreover, if ∀n,ρ b(n, ρ) < 1/(8ρ), then inclusions (2) and (4) are tight, and if b(n, ρ) ≥ ω(log n)/ρ2 , then
+inclusions (1) and (3) are tight.
+Corollary 2. For any (poly bounded, possibly constant) b(n), ρ(n), and σ from Figure 1:
+          If ∀n bρ < 1/8 then    bSGD[b, ρ] = PAC                  and    bSGDσNN [b, ρ] = PACTM
+       If bρ2 ≥ ω(log n) then    bSGD[b, ρ] ⊆ SQ ( PAC             and    bSGDσNN [b, ρ] ⊆ SQTM ( PACTM
+In Corollaries 1 and 2, for the sake of simplicity, we focused on realizable learning problems, where the minimal
+loss inf f LDn (f ) = 0 for each Dn ∈ Pn . However, we note that Theorems 1a to 1d are more general, as they
+preserve the performance of learning methods (up to an additive δ) on all source distributions D. So, a result
+similar to Corollary 1 could be stated for other forms of learning, such as agnostic learning, weak learning etc.
+
+                                                          7
+Proof Outline. In order to prove Theorems 1a to 1d, we first relate bSGD to an intermediate model, mini-batch
+Statistical Queries (bSQ), which we introduce in Section 4. This is a variant of SQ-learning, but where statistical
+queries are answered based on mini-batches of samples. In Section 5 we discuss how to simulate arbitrary statistical
+queries as gradient calculations for a specifically crafted model, and thus establish how to simulate (a large enough
+subclass of) bSQ methods using bSGD on some model fw . Furthermore, if the bSQ method has runtime T IME ,
+then fw is also computable in time poly(T IME ), and so can be implemented as a circuit, and thus a neural net
+of size poly(T IME ). With this ability to simulate bSQ methods with bSGD in mind, what remains is to relate
+bSQ to SQ and PAC, which is the subject of Section 4. Simulating an SQ method with a bSQ method is fairly
+straightforward, as each statistical query on the population can be simulated by averaging a large enough number
+of empirical statistical queries (with the resulting precision being bounded by the precision of each of the empirical
+statistical queries). This can be done using any sample size, unrelated to the precision. More surprising, we show
+how to simulate any sample based (PAC) method using bSQ, provided the precision is fine enough relative to the
+mini-batch size. This is done using a novel sample extraction procedure, which can extract a single sample sampled
+from D using a polynomial number of mini-batch statistical queries, and with precision linear in the mini-batch size
+(this is required so that each element in the mini-batch has a noticeable effect on the gradients). To complete the
+picture, we show that with low precision, statistical queries on a sample and on the population are indistinguishable
+(i.e. queries on an empirical mini-batch can be simulated by population queries, up to the required precision) and
+so neither bSQ nor bSGD, can go beyond SQ (establishing Theorem 1c). Finally, simulating bSGD using PAC
+(Theorem 1b) is straightforward, as bSGD is defined in terms of samples. The full proofs of Theorems 1a to 1d are
+presented in Appendix D, with key ideas developed in Sections 4 and 5.
+
+Activation Functions and Fixed Weights. The neural net simulations in Theorems 1a and 1d use a specific
+“stage-wise ramp” piecewise linear activation function with five linear pieces, depicted in Figure 1. A convenient
+property of this activation function is that it is has a central flat piece, making it easier for us to deal with weight
+drift due to rounding errors during training, and in particular drift of weights we would rather not change at all.
+Since any piecewise linear activation function can be simulated with ReLU activation, we could instead use a more
+familiar ReLU activation. However, the simulation “gadget” would involve weights that we would need fixed
+during training. That is, if we allow neural networks where some of the weights are fixed while others are trainable,
+we could use ReLU activation to simulate sample-based methods in Theorem 1a and SQ methods in Theorem 1d.
+As stated, we restrict ourselves only to neural nets where all edges have trainable weights, for which it is easier to
+prove the theorems with the specific activation function of Figure 1.
+
+
+4    The Mini-Batch Statistical Query Model
+En route to proving Theorems 1a to 1d, we introduce the model of mini-batch Statistical Queries (bSQ). In this
+model, similar to the standard Statistical Query (SQ) learning model, learning is performed through statistical
+queries. But in bSQ, these queries are answered based on an empirical average over a mini-batch of b i.i.d. samples
+from the source distribution. That is, each query Φt : X × Y → [−1, 1]p is answered with a response vt s,t,
+                                 b
+                             1X
+                        vt −    Φt (xt,i , yt,i )       ≤τ,       where St = ((xt,i , yt,i ))i ∼ D b                (8)
+                             b
+                                i=1                 ∞
+
+Note that we allow p-dimensional vector “queries”, that is, p concurrent scalar queries are answered based on the
+same mini-batch St , drawn independently for each vector query.
+    Formally, a learning method A is said to be a bSQ(k, τ, b, p, r) method, if it operates in k rounds where in
+round t, the method produces a query Φt : X × Y → [−1, 1]p for which it receives a response vt satisfying (8)
+and finally outputs a predictor f : X → R. To be precise, each Φt is a function of a random string R ∈ {0, 1}r
+and past responses v1 , . . . , vt−1 , and the output is a function of the random string R and all responses. We say
+that A ensures error ε on a source distribution D if E[sup LD (f )] ≤ ε, where the expectation is over R and the
+
+
+                                                              8
+mini-batches St ∼ D b and the sup is over all “valid” vt ∈ [−1, 1]p satisfying (8). A learning method is said to be
+bSQTM (k, τ, b, p, r, T IME ) if in addition it can be implemented with computational time at most T IME .
+    The first step of our simulation of PAC and SQ with bSGD is to simulate (a variant of) bSQ using bSGD. But
+beyond its use as an intermediate model in studying differentiable learning, bSQ can also be though of as a realistic
+way of answering statistical queries. In fact, one of the main justifications for allowing errors in the SQ model,
+and the demand that the error tolerance τ be polynomial, is that it is possible to answer statistical queries about
+the population with tolerance τ by calculating empirical averages on samples of size O(1/τ 2 ). In the bSQ model
+we make this explicit, and indeed answer the queries using such samples. We do also allow additional arbitrary
+error beyond the sampling error, which we might think of    √ as “precision”. The bSQ model can thus be thought of as
+decomposing the SQ tolerance to a sampling error O(1/ b) and an additional arbitrary error τ . If the arbitrary error
+τ indeed captures “precision”, it is reasonable to take it to be exponentially small (corresponding to polynomially
+many bits of precision), while the sampling error would still be polynomial in a poly-time poly-sample method.
+Studying the bSQ model can reveal to us how well the standard SQ model captures what can be done when most
+of the error in answering statistical queries is due to the sampling error.
+    Our bSQ model is similar to the honest-SQ model studied by Yang [2001, 2005], who also asked whether
+answering queries based on empirical averages changes the power of the model. But the two models have some
+significant differences, which lead to different conclusions, namely: Honest-SQ does not allow for an additional
+arbitrary error (i.e. it uses τ = 0 in our notation), but an independent mini-batch is used for each single-bit query
+Φt : X × Y → {0, 1}, whereas bSQ allows for p concurrent real-valued scalar queries on the same mini-batch.
+Yang showed that, with a single bit query per mini-batch, and even if τ = 0, it is not possible to simulate arbitrary
+sample-based methods, and honest-SQ is strictly weaker than PAC. But we show that once multiple bits can be
+queried concurrently 9 the situation is quite different.
+    In fact, we show that when the arbitrary error τ is small relative to the sample size b (and thus the sampling
+error), bSQ can actually go well beyond SQ learning, and can in fact simulate any sample-based method. That is,
+SQ does not capture learning using statistical queries answered (to within reasonable precision) using empirical
+averages:
+
+Theorem 2a. (PAC to bSQ) For all δ > 0, for all b, and τ < 1/(2b), and for all m, r, it holds for k′ =
+10m(n + 1)/δ, p′ = n + 1, r ′ = r + k log2 b that
+
+                                               bSQ(k′ , τ , b, p′ , r ′ ) δ PAC(m, r) .
+
+Furthermore, for every runtime T IME , it holds for T IME ′ = poly(n, m, r, T IME , 1/δ) that
+
+                                   bSQTM (k′ , τ , b, p′ , r ′ , T IME ′ ) δ PACTM (m, r, T IME ) .
+
+Proof Sketch. The main ingredient is a bSQ method S AMPLE -E XTRACT (Algorithm 1) that extracts a sample
+(x, y) ∼ D by performing mini-batch statistical queries over independently sampled mini-batches. For ease of
+notation, let Z := X × Y identifying it with {0, 1}n+1 and denote z ∈ Z as (z1 , . . . , zn+1 ) = (y, x1 , . . . , xn ).
+S AMPLE -E XTRACT operates by sampling the bits of z one by one, drawing zbi from the conditional distribution
+{zi | z1,...,i−1 }D .
+     The main reason why τ < 1/2b enables this method to work is that for any query of the form Φ : X ×
+Y → {0, 1}p , given any valid response v such that kv − ES Φ(x, y)k∞ ≤ τ , it is possible to exactly recover
+ES Φ(x, y), by simply rounding each entry to the nearest integral multiple of 1/b. In Appendix A.1, we show that
+S AMPLE -E XTRACT returns a sample drawn from D in O(n) expected number of queries. Thus, k′ = O(mn/δ)
+queries suffice to recover m samples, with a failure probability of at most δ. Once we can simulate sample access,
+it is straightforward to simulate the entire PAC method. The full proof is given in Appendix A.1.
+
+   9
+      We do so with polynomially many binary-valued queries, i.e. Φt (x) ∈ {0, 1}p , and p polynomial. It is also possible to encode this into
+a single real-valued query with polynomially many bits of precision. Once we use real-valued queries, if we do not limit the precision at all,
+i.e. τ = 0, and do not worry about processing time, its easy to extract the entire minibatch St using exponentially many bits of precision.
+Theorem 2a shows that polynomially many bits are sufficient for extracting a sample and simulating PAC.
+
+
+                                                                      9
+Algorithm 1 S AMPLE -E XTRACT bSQ algorithm (lines in green contain high-level idea of algorithm)
+  Input: Batch size b, Tolerance τ satisfying bτ < 1/2.
+  Output: Sample z ∼ D
+
+  s←ǫ        . . . (empty prefix string)
+  repeat
+    # Let S ∼ D b be the independently sampled mini-batch
+    For ℓ := length(s), issue bSQ Φ : Z → {0, 1}n−ℓ+2 , given as
+
+                         Φ0 (z) := 1 {z1,...,ℓ = s}                       # not required when ℓ = 0
+                         Φj (z) := 1 {z1,...,ℓ = s and zℓ+j = 1}          for all 1 ≤ j ≤ n + 1 − ℓ
+
+     Let v ∈ [0, 1]n−ℓ+2 be any valid answer, namely kv − ES Φ(z)k∞ < τ for independently sampled S ∼ D b .
+     Round each vi to the nearest integral multiple of 1/b.    # Since τ < 1/2b, this ensures vi = ES [Φi (z)].
+                                   Let:    w ← bv0 ,     w1 ← bv1 ,     w0 ← b(v0 − v1 ).
+    # w / w0 / w1 ← number of samples in S that match prefix s / s ◦ 0 / s ◦ 1.
+    if w = 0 then
+       # Do nothing; repeat the loop with a new sample.                                         ⊲ (No sample matches prefix)
+    else if w = 1 then
+       # Return (unique) sample in S that matches prefix s.                           ⊲ (Exactly one sample matches prefix)
+       return (s1 , . . . , sℓ , zbℓ+1 , . . . , zbn+1 ), where zbℓ+j = 1 {vj = 1/b} for all 1 ≤ j ≤ n + 1 − ℓ.
+    else
+             ( prefix s to reduce expected number of sample points with the prefix.
+       # Extend
+               s ◦ 0 with probability w0 /w
+       s←                                                                         ⊲ (More than one sample matches prefix)
+               s ◦ 1 with probability w1 /w
+       # Return s if it fully specifies a sample point (x, y).
+       if length(s) = n + 1 : return s.
+       # Otherwise, repeat loop with the longer prefix s (with new samples).
+    end if
+  until a sample is returned
+
+
+    To complement the Theorem, we also note that sample-based learning is always at least as powerful as bSQ,
+since bSQ is specified based on a sample of size kb (see Appendix A.1 for a complete proof):
+Theorem 2b. (bSQ to PAC) For all b, τ and k, p, r, it holds that
+                                   PAC(m′ = kb, r ′ = r) 0 bSQ(k, τ , b, p, r) .
+Furthermore, for every runtime T IME it holds for T IME ′ = poly(n, b, T IME ) that
+                        PACTM (m′ = kb, r ′ = r, T IME ′ ) 0 bSQTM (k, τ , b, p, r, T IME ) .
+    On the other hand, when the the mini-batch
+                                       √         size b is large relative to the precision (i.e. the arbitrary error τ is
+large relative to the sampling error 1/ b), bSQ is no more powerful than standard SQ:
+Theorem 2c. (bSQ to SQ) There exists a constant C ≥ 0 such that for all δ > 0, for all k, τ , b, p, r, such that
+bτ 2 > C log(kp/δ), it holds that
+                                                 τ
+                             SQ(k′ = kp, τ ′ = , r ′ = r) δ bSQ(k, τ , b, p, r) .
+                                                 2
+Furthermore, for any runtime T IME it holds for T IME′ = poly(T IME ) that
+                                          τ
+                   SQTM (k′ = kp, τ ′ = , r ′ = r, T IME ′ ) δ bSQTM (k, τ , b, p, r, T IME ) .
+                                          2
+
+                                                            10
+Proof Sketch. When b ≫ 1/τ 2 , the differences between the empirical and population averages become (with high
+probability) much smaller than the tolerance τ , the population statistical query answers are valid responses to
+queries on the mini-batch, and we can thus simulate bSQ using SQ. We do need to make sure this holds uniformly
+for the p parallel scalar queries, and across all k rounds—see Appendix A.3 for a complete proof.
+
+Finally, we show that with any mini-batch size, and enough rounds of querying, we can always simulate any SQ
+method using bSQ:
+Theorem 2d. (SQ to bSQ) There exists a constant C ≥ 0 such that for all δ > 0, for all b and all k, τ, r, it holds
+that                                                                       
+                                C log(k/δ)        ′   τ        ′        ′
+               bSQ k′ = k ·                   , τ   =   , b, p   = 1, r   = r   δ SQ(k, τ, r) .
+                                    bτ 2              2
+Furthermore, for every runtime T IME it holds for T IME ′ = poly(T IME , k, 1/τ ) and the same k′ , τ ′ , p′ , r ′ , that
+                                                                 
+                           bSQTM k′ , τ ′ , b, p′ , r ′ , T IME ′ δ SQTM (k, τ, r, T IME ) .
+
+Proof Sketch. To obtain an answer to a statistical query on the population, even if the sample-size b per query is
+small, we can average the responses for the same query over multiple mini-batches (i.e. over multiple rounds). This
+allows us to reduce the sampling error arbitrarily, and leaves us with only the arbitrary error τ ′ (the arbitrary errors
+also get averaged, and since each element in the average is no larger than τ ′ , the magnitude of this average is also
+no large than τ ′ ). See full proofs in Appendix A.3.
+
+
+5    Simulating Mini-Batch Statistical Queries with Differentiable Learning
+As promised in Section 3, in order to simulate PAC and SQ methods using bSGD, and thus establish Theorems 1a
+and 1d, we first show how bSGD can simulate (a subclass of) bSQ (with corresponding mini-batch size and preci-
+sion, and without any restriction on their relationship), and then rely in turn on Theorems 2a and 2d showing how
+bSQ can simulate PAC and SQ. We first show how a gradient computation can encode a statistical query, and use
+this, for a bSQ method A, to construct a differentiable model f , that is defined in terms of the queries performed
+by A and their dependence on previous responses, such that bSGD on f simulates A. This construction does not
+rely on A being computationally tractable. We then note that if A is computable in time T IME , i.e. all the queries
+are computable in time T IME , and the mapping from responses to queries are likewise computable in time T IME ,
+then these mappings can be implemented as circuits of size poly(T IME ), enabling us to implement f as a neural
+network, with these circuits as subnetworks.
+
+Alternating Query Methods. Instead of working with, and simulating, any bSQ method, we consider only
+alternating methods, denoted bSQ0/1 , where in each round, only one of the two possible labels is involved in the
+query. Formally, we say that a (mini-batch) statistical query Φ : X × Y → [−1, 1]p is a y-query for y ∈ Y if
+Φ(x, y) = 0 for all y 6= y, or equivalently Φ(x, y) = 1{y=y} · ΦX (x) for some ΦX : X → [−1, 1]p . A bSQ0/1
+                    0/1
+(analogously, bSQTM ) method is a bSQ (analogously, bSQTM ) method such that for all odd rounds t, Φt is a 1-
+query, and at all even rounds t, Φt is a 0-query. As minor extensions of Theorems 2a and 2d (simulation PAC and
+SQ using bSQ methods), we show that these simulations can in-fact be done using alternating queries, thus relating
+PAC and SQ to bSQ0/1 . We present the full details in Appendices A.1 and A.3 respectively.
+Lemma 1. (PAC to bSQ0/1 ) For all δ > 0, for all b, and τ < 1/(2b), then and for all m, r, it holds for
+k′ = 20m(n + 1)/δ, p′ = n + 1, r ′ = r + k log2 b that
+
+                                          bSQ0/1 (k′ , τ , b, p′ , r ′ ) δ PAC(m, r) .
+
+Furthermore, for every runtime T IME it holds for T IME ′ = poly(n, m, r, T IME , 1/δ) that
+                                    0/1
+                               bSQTM (k′ , τ , b, p′ , r ′ , T IME ′ ) δ PACTM (m, r, T IME ) .
+
+                                                               11
+Lemma 2. (SQ to bSQ0/1 ) There exists a constant C > 0, such that for all δ > 0, for all b and all k, τ, r, it holds
+that                                                                    
+                  0/1    ′        C log(k/δ)       ′  τ      ′       ′
+              bSQ       k =k·                   , τ = , b, p = 1, r = r δ SQ(k, τ, r) .
+                                       bτ 2           4
+Furthermore, for every runtime T IME . it holds for T IME ′ = poly(T IME , k, 1/τ ) and the same k′ , τ ′ , p′ , r ′ , that
+                                   0/1
+                              bSQTM (k′ , τ ′ , b, p′ , r ′ , T IME ′ ) δ SQTM (k, τ, r, T IME ) .
+
+Simulating bSQ0/1 with differentiable programming.                  We now show how to to simulate a bSQ0/1 method with
+bSGD, with corresponding mini-batch and precision:
+
+Lemma 3a. (bSQ0/1 to bSGD) For all τ ∈ (0, 1) and b, k, p, r ∈ N, it holds that
+                                τ                                
+             bSGD T ′ = k, ρ = , b, p′ = r + (p + 1)k, r ′ = r 0 bSQ0/1 (k, τ, b, p, r) .
+                                 4
+Proof Sketch. We first show how a single y-query can be simulated using a single step of bSGD on a specific
+differentiable model. Given a 0-query Φ : X × Y → [−1, 1]p , consider the following model:
+
+                                                 fw (x) = 1 − hΦX (x), wi                                                 (9)
+
+With w (0) = 0, the model fw(0) “guesses” the label to be 1 for all examples, and therefore suffers a loss only for
+examples with the label 0. Using a simple gradient calculations we get:
+
+       ∇w ES ℓsq (fw(0) (x), y) = ES 1{y = 0} · ∇w fw(0) (x) = − ES 1{y = 0} · ΦX (x) = −ES Φ(x, y)
+
+Hence, after a single step of bSGD we have w (1) = ES Φ(x, y) (up to precision ρ), so w (1) stores the answer for the
+0-query Φ. We can analogously simulate a 1-query by setting the output to be 0 at w (0) . We achieve the simulation
+of the complete bSQ0/1 method using a composition of such differentiable models: for each round t we reserve a
+parameter wt . The model is defined so that based on how many queries t were already answered, and the responses
+as encoded in w0 , . . . , wt−1 , the objective is set to be locally linear in wt , with coefficients corresponding to the
+desired query, as above. These coefficients are of course a function of the other parameters. But the key is that the
+dependence is piecewise linear, and the dependence on all parameters other than wt is constant around w, ensuring
+that the only non-zero derivative is w.r.t. wt . Some complications needed to be overcome include: keeping track
+of how many queries were already executed (i.e. a “clock”), errors in gradients, and defining the model so that it
+is differentiable always everywhere and yet piecewise linear with the correct coefficients at points actually reached
+during training. Full details of the simulation and its proof are given in Appendix B.
+
+Combining Lemma 3a with Lemmas 1 and 2 establishes the first statements (about computationally unbounded
+learning) of Theorems 1a and 1d; full details in Appendix D.
+
+Implementing the differentiable model as a Neural Network. The simulation in Lemma 3a, as described above,
+uses some arbitrary differentiable model fw (x), that is defined in terms of the mappings from responses to queries
+in the bSQ0/1 method. If the bSQ0/1 method is computationally bounded, the simulation can also be done using a
+neural network:
+                    0/1
+Lemma 3b. (bSQTM to bSGDσNN) For all τ ∈ (0, 31 ) and b, k, p, r ∈ N, and using the activation σ from Figure 1,
+it holds that
+                                                                    
+              σ   ′     τ      ′          1                      ′               0/1
+       bSGDNN T = k, ρ = , b, p = poly(k, , b, p, r, T IME ), r = r 0 bSQTM (k, τ, b, p, r, T IME ) .
+                        4                 τ
+
+
+
+
+                                                               12
+                                         0/1
+Proof Sketch. For a time-bounded bSQTM method, the mapping from previous responses to the next query is
+computable in time T IME , and hence with a circuit, or neural network (with any non-trivial activation), of size
+poly(T IME ). We can thus replace this mapping with a subnet computing it, and obtain a neural network imple-
+menting the differentiable model from Lemma 3a. This is a simple approach for obtaining a neural network where
+some of the weights are fixed (the weights in the subnetworks used to implement the mappings, as well as the
+“gating” between them) and only some of the edges have trainable weights. We are interested in simulating using
+bSGD on a neural network where all edges have trainable weights. In Appendix B.1 we discuss how the construc-
+tion could be modified so that the edge weights in these subnetworks remain fixed over training, but with some
+compromises. Instead, in Appendix C we describe an alternate construction, following the same ideas as described
+in the proof sketch of Lemma 3a, but directly constructed as a neural network: we use the subnets implementing
+the mapping from responses to queries discussed above, where the initialization is very specific and encodes these
+functions, but design them in such a way that the vertices are always at flat parts of their activation functions so
+that it does not change. Then, for each query we designate one edge whose weight is intended to encode the result
+of that query, and connect the output of that edge to the net’s output by means of a path with some vertices that
+the computation component can force to flat parts of their activation functions. That allows it to make the weights
+of those edges change in the desired manner by controlling the derivative of the net’s output with respect to these
+weights. The full details are in Appendix C.
+
+Combining Lemma 3b with Lemmas 1 and 2 establishes the second statements (about computationally bounded
+learning) of Theorems 1a and 1d; full details in Appendix D.
+
+Reverse direction: Simulating bSGD with PAC and SQ. In order to establish Theorems 1b and 1c we rely
+on Theorems 2b and 2c and for that purpose note that bSGD can be directly implemented using bSQ (proof in
+Appendix D):
+
+Lemma 4. (bSGD to bSQ) For all T, ρ, b, p, r, it holds that
+                                               ρ        
+                        bSQ k = T, τ = , b, p, r 0 bSGD(T, ρ, b, p, r) .
+                                                4
+Furthermore, for every poly-time computable activation σ, it holds that
+                                   ρ                                 
+              bSQTM k = T, τ = , b, p, r, T IME = poly(T, p, b, r) 0 bSGDσNN (T, ρ, b, p, r) .
+                                    4
+
+6    Full-Batch Gradient Descent: fbGD versus PAC and SQ
+So far we considered learning with mini-batch stochastic gradient descent (bSGD), where an independent mini-
+batch of examples is used at each step. But this stochasticity, and the use of independent fresh samples for each
+gradient step, is not crucial for simulating PAC and SQ, provided enough samples overall, and a correspondingly
+fine enough precision. We show that analogous results hold for learning with full-batch Gradient Descent (fbGD),
+i.e. gradient descent on the (fixed) empirical loss.
+
+Theorem 3a (PAC to fbGD). For all m and ρ < 1/(8m) and for all r, it holds that
+
+                             fbGD(T ′ = O(mn), ρ, m′ = m, p′ , r ′ ) 0 PAC(m, r) .
+
+where p′ = r + O(mn) and r ′ = r. Furthermore, using the piece-wise linear “two-stage ramp” activation σ
+(Figure 1), for every runtime T IME , it holds for p′ = poly(n, m, r, T IME , ρ−1 ) and the same T ′ , r ′ that
+
+                            fbGDσNN (T ′ , ρ, m′ = m, p′ , r ′ ) 0 PACTM (m, r, T IME )
+
+
+
+
+                                                        13
+Theorem 3b (fbGD to PAC). For all m, ρ and T, p, r, it holds that
+
+                                PAC(m′ = m, r ′ = r) 0 fbGD(T, ρ, m, p, r) .
+
+Furthermore, for all poly-time computable activations σ, it holds that
+
+             PACTM (m′ = m, r ′ = r, T IME ′ = poly(T, m, p, r, n)) 0 fbGDσNN (T, ρ, m, p, r, s) .
+
+Theorem 3c (fbGD to SQ). There exists a constant C such that for all δ > 0, for all T , ρ, m, p, r, such that
+mρ2 > C(T p log(1/ρ) + log(1/δ)), it holds that
+                                                  ρ ′
+                             SQ(k′ = T p, τ ′ =     , r = r) δ fbGD(T, ρ, m, p, r) .
+                                                  8
+Furthermore, for all poly-time computable activations σ, it holds that
+                              ρ                                             
+       SQTM k′ = T p, τ ′ = , r ′ = r, T IME ′ = poly(T, ρ−1 , m, p, r, δ−1 ) δ fbGDσNN (T, ρ, m, p, r).
+                               8
+Theorem 3d (SQ to fbGD). There exists a constant C such that for all δ > 0, for all k, τ, r, it holds for m, ρ such
+that ρ = τ /16, mρ2 > C(k log(1/ρ) + log(1/δ)) that
+
+                          fbGD(T ′ = 2k, ρ, m, p′ = r + 2T, r ′ = r) δ SQ(k, τ, r) .
+
+Furthermore, using the piece-wise linear “two-stage ramp” activation σ (Figure 1), it holds for the same T ′ , r ′
+above and p′ = poly(k, 1/τ, r, T IME , 1/δ) that
+
+                               fbGDσNN (T ′ , ρ, m, p′ , r ′ ) δ SQTM (k, τ, r, T IME ) .
+
+The above theorems are analogous to Theorems 1a to 1d. They are proved in an analogous manner in Appendix E,
+by going through the intermediate model of fixed-batch statistical query fbSQ, in place of bSQ. An fbSQ(k, τ, m, p, r)
+method is described identically to an bSQ(k, τ, b = m, p, r) method, except that the responses for all queries are
+obtained using the same batch of samples in all rounds (i.e. St = S for all t, where S ∼ D m in Equation (8)). Sim-
+ulating fbSQ methods using fbGD, or fbGDNN can be done using the exact same constructions as in Lemmas 3a
+and 3b. To establish Theorem 3a, we use an algorithm similar to (and simpler than) Algorithm 1 to extract all
+the samples batch of samples (see details in Lemma 5a in Appendix A.2). Relating fbSQ to SQ and establishing
+Theorems 3c and 3d requires more care, because of the adaptive nature of fbGD on the full-batch. Instead, we con-
+sider all possible queries the method might make, based on previous responses. Since we have at most T p log(1/ρ)
+or kp log(1/τ ) bits of response to choose a new query based on, we need to take a union bound over a number of
+queries exponential in this quantity, which results in the sample sized required to ensure validity scaling linear in
+kp log(1/τ ). See Appendix A.4 for complete proofs and details.
+     Theorem 3a tells us that with fine enough precision, even fbGD can simulate any sample-based learning method,
+and is thus as powerful as PAC. The precision required is linear in the total number of samples m used by the
+method, i.e. the number of bits of precision is logarithmic in m. In particular, this implies that ρ = poly(n),
+i.e. O(log n) bits of precision, are sufficient for simulating any sample-based method that uses polynomially many
+samples. Returning to the relationship between classes of learning problems considered in Corollaries 1 and 2,
+where the parameters are allowed to depend polynomially on n, we have:
+
+Corollary 3. fbGD = PAC        and    fbGDNN = PACTM .
+
+    But a significant difference versus bSGD is that with fbGD the precision depends (even if only polynomially)
+on the total number of samples used by the method. This is in contrast to bSGD, where the precision only has to be
+related to the mini-batch size used, and with constant precision (and constant mini-batch size), we could simulate
+any sample based based method, regardless of the number of samples used by the method (only the number T of
+SGD iterations and the size p of the model increase with the number of samples used). Viewed differently, consider
+
+                                                           14
+what can be done with some fixed precision ρ (that is not allowed to depend on the problem size n or sample size
+m): methods that use up to 1/(8ρ) samples can be simulated even with fbGD. But bSGD allows us to simulate
+methods that use even more samples, by keeping the mini-batch size below 1/(8ρ).
+     It should also be noted that the limit of what can be done with fbGD, and when it cannot go beyond SQ, is not
+as clear and tight as for bSGD. Theorem 3c tells us that once m = Ω̃(T p/ρ2 ), we cannot go beyond SQ. But this
+bound on the sample size depends polynomially on the fbGD model size p and number of iterations T (as opposed
+to the logarithmic dependence in Theorem 1c). Even if the precision ρ is bounded, it is conceivably possible to go
+beyond SQ and simulate any sample based method by using a polynomilally larger model size p and/or number of
+iterations iterations T (and in any case T and p need to increase polynomially with m when using the simulations
+of Lemmas 3a and 3b, even if using bSGD). It thus remains open whether it is possible to simulate any sample
+based method with fbGD using constant precision ρ and where the model size p and number of iterations T are
+polynomial in the sample size m and dimension n.
+
+Learning with mini-batch stochastic gradients over a fixed training set. Perhaps the most realistic differen-
+tiable learning approach is to use a fixed training set S, and then at each iteration calculate a gradient estimate based
+on a mini-batch St ⊂ S chosen at random, with replacement, from within the training set S (as opposed to using
+fresh samples from the population distribution, as in bSGD). Analogs of Theorems 1a and 1d and Theorem 3c
+should hold also for this hybrid class, but we do not provide details here.
+
+
+7        Summary and Discussion
+We provided an almost tight characterization of the learning power of mini-batch SGD, relating it to the well-studied
+learning paradigms PAC and SQ, and thus (nearly) settling the question of “what can be learned using mini-batch
+SGD?”. That single-sample SGD is able to simulate PAC learning was previously known, but we extended this
+result considerably, studied its limit, and showed that even outside this limit, bSGD can still always simulate SQ.
+A gap still remains, when the mini-batch size is between 1/ρ and log(n)/ρ2 , where we do not know where bSGD
+sits between SQ and PAC. We furthermore showed that with sufficient (polynomial) precision, even full Gradient
+Descent on an empirical loss can simulate PAC learning.
+     It is tempting to view our results, which show the theoretical power of differentiable learning, as explaining the
+success of this paradigm. But we do not think that modern deep learning behaves similar to the constructions in our
+work. While we show how any SQ or PAC algorithm can be simulated, this requires a very carefully constructed
+network, with an extremely particular initialization, which doesn’t look anything like deep learning in current
+practice. Our result certainly does not imply that SGD on a particular neural net can learn anything learnable by
+PAC or SQ, as this would imply that such network can learn any computationally tractable function,10 which is
+known to be impossible (subject to mild cryptographic assumptions).
+     Rather, we view our work as guiding us as to what questions we should ask toward understanding how actual
+deep learning works. We see that understanding differentiable learning in such a broad generality as we did here
+is probably too strong, as it results in answers involving unrealistic initialization, and no restriction, and thus
+no insight, as to what makes learning problems learnable using deep learning. Can we define a class of neural
+networks, or initializations, which is broad enough to capture the power of deep learning, yet disallows such crazy
+initialization and does provide insight as to when deep learning is appropriate? Perhaps even mild restrictions on the
+initialization can already severely restrict the power of differentiable learning. E.g., Malach et al. [2021] recently
+showed that even just requiring that the output of the network at initialization is close to zero can significantly
+change the power of differentiable learning, Abbe et al. [2021] showed that imposing certain additional regularity
+assumptions on the architecture/initialization of neural networks restricts the learning power of (S)GD to function
+classes with a certain hierarchical property. An interesting direction for future work is understanding the power of
+    10
+     Observe that for any tractable function f , there exists a trivial learning algorithm that returns f regardless of its input, which means that
+the class {f } is PAC learnable.
+
+
+
+
+                                                                       15
+differentiable learning under these, or other, restrictions. Does this lead to a different class of learnable problems,
+distinct from SQ and PAC, which is perhaps more related to deep learning in practice?
+
+Acknowledgements
+This work was done as part of the NSF-Simons Sponsored Collaboration on the Theoretical Foundations of Deep
+Learning. Part of this work was done while PK was at TTIC, and while NS was visiting EPFL. PK and NS were
+supported by NSF BIGDATA award 1546500 and NSF CCF/IIS award 1764032.
+
+
+
+
+                                                          16
+References
+E. Abbe and C. Sandon. On the universality of deep learning. In Advances in Neural Information Processing Systems 33: An-
+   nual Conference on Neural Information Processing Systems 2020, NeurIPS 2020, December 6-12, 2020, virtual, 2020. URL
+   https://proceedings.neurips.cc/paper/2020/hash/e7e8f8e5982b3298c8addedf6811d500-Abstract.html.
+
+E. Abbe, E. Boix-Adserà, M. S. Brennan, G. Bresler, and D. M. Nagaraj. The staircase property: How hierarchical structure
+   can guide deep learning. In A. Beygelzimer, Y. Dauphin, P. Liang, and J. W. Vaughan, editors, Advances in Neural
+   Information Processing Systems, 2021. URL https://openreview.net/forum?id=fj6rFciApc.
+
+Z. Allen-Zhu and Y. Li.    What can resnet learn efficiently, going beyond kernels? In Advances in Neu-
+  ral Information Processing Systems 32:    Annual Conference on Neural Information Processing Systems
+  2019, NeurIPS 2019, December 8-14, 2019, Vancouver, BC, Canada, pages 9015–9025, 2019.           URL
+  https://proceedings.neurips.cc/paper/2019/hash/5857d68cd9280bc98d079fa912fd6740-Abstract.html.
+
+Z. Allen-Zhu and Y. Li. Backward feature correction: How deep learning performs deep learning. arXiv, abs/2001.04413,
+   2020. URL https://arxiv.org/abs/2001.04413.
+
+S. Arora and B. Barak. Computational Complexity: A Modern Approach. Cambridge University Press, USA, 1st edition,
+   2009. ISBN 0521424267.
+
+A. Blum and R. L. Rivest. Training a 3-node neural network is np-complete. Neural Networks, 5(1):117–127, 1992. doi:
+  10.1016/S0893-6080(05)80010-3. URL https://doi.org/10.1016/S0893-6080(05)80010-3.
+
+A. Blum, A. Kalai, and H. Wasserman. Noise-tolerant learning, the parity problem, and the statistical query model. Journal
+  of the ACM (JACM), 50(4):506–519, 2003.
+
+A.     Daniely and E. Malach.          Learning parities with neural networks.         In Advances in Neu-
+     ral   Information Processing   Systems    33:      Annual Conference    on    Neural  Information Pro-
+     cessing Systems 2020,       NeurIPS 2020,     December 6-12,      2020,    virtual,  2020.        URL
+     https://proceedings.neurips.cc/paper/2020/hash/eaae5e04a259d09af85c108fe4d7dd0c-Abstract.html.
+
+B. Ghorbani, S. Mei, T. Misiakiewicz, and A. Montanari. Linearized two-layers neural networks in high dimension. arXiv,
+   abs/1904.12191, 2019. URL http://arxiv.org/abs/1904.12191.
+
+B. Ghorbani, S. Mei, T. Misiakiewicz, and A. Montanari. When do neural networks outperform kernel methods? In Ad-
+   vances in Neural Information Processing Systems, volume 33, pages 14820–14830. Curran Associates, Inc., 2020. URL
+   https://proceedings.neurips.cc/paper/2020/file/a9df2255ad642b923d95503b9a7958d8-Paper.pdf.
+
+M. Kearns. Efficient noise-tolerant learning from statistical queries. Journal of the ACM (JACM), 45(6):983–1006, 1998.
+
+M. Kearns and L. Valiant. Cryptographic limitations on learning boolean formulae and finite automata. Journal of the ACM
+  (JACM), 41(1):67–95, 1994.
+
+A. R. Klivans and A. A. Sherstov. Cryptographic hardness for learning intersections of halfspaces. Journal of Computer and
+  System Sciences, 75(1):2–12, 2009.
+
+Y. Li, T. Ma, and H. R. Zhang. Learning over-parametrized two-layer neural networks beyond NTK. In Conference on
+   Learning Theory, COLT 2020, 9-12 July 2020, Virtual Event [Graz, Austria], volume 125 of Proceedings of Machine
+   Learning Research, pages 2613–2682. PMLR, 2020. URL http://proceedings.mlr.press/v125/li20a.html.
+
+E. Malach and S. Shalev-Shwartz. Computational separation between convolutional and fully-connected networks. arXiv
+   preprint arXiv:2010.01369, 2020.
+
+E. Malach, P. Kamath, E. Abbe, and N. Srebro. Quantifying the benefit of using differentiable learning over tangent kernels.
+   arXiv, abs/2103.01210, 2021. URL https://arxiv.org/abs/2103.01210.
+
+M. S. Nacson, N. Srebro, and D. Soudry. Stochastic gradient descent on separable data: Exact convergence with a fixed
+  learning rate. In The 22nd International Conference on Artificial Intelligence and Statistics, AISTATS 2019, 16-18 April
+  2019, Naha, Okinawa, Japan, volume 89 of Proceedings of Machine Learning Research, pages 3051–3059. PMLR, 2019.
+  URL http://proceedings.mlr.press/v89/nacson19a.html.
+
+                                                            17
+B. Neyshabur, R. Tomioka, and N. Srebro. In search of the real inductive bias: On the role of implicit regularization in deep
+   learning. In 3rd International Conference on Learning Representations, ICLR 2015, San Diego, CA, USA, May 7-9, 2015,
+  Workshop Track Proceedings, 2015. URL http://arxiv.org/abs/1412.6614.
+
+D. Soudry, E. Hoffer, M. S. Nacson, S. Gunasekar, and N. Srebro. The implicit bias of gradient descent on separable data. J.
+  Mach. Learn. Res., 19:70:1–70:57, 2018. URL http://jmlr.org/papers/v19/18-188.html.
+
+K. Yang. On learning correlated boolean functions using statistical queries. In Algorithmic Learning Theory, 12th
+  International Conference, ALT 2001, Washington, DC, USA, November 25-28, 2001, Proceedings, volume 2225
+  of Lecture Notes in Computer Science, pages 59–76. Springer, 2001. doi: 10.1007/3-540-45583-3\_7. URL
+  https://doi.org/10.1007/3-540-45583-3_7.
+
+K. Yang. New lower bounds for statistical query learning. J. Comput. Syst. Sci., 70(4):485–509, 2005. doi: 10.1016/j.jcss.
+  2004.10.003. URL https://doi.org/10.1016/j.jcss.2004.10.003.
+
+G. Yehudai and O. Shamir. On the power and limitations of random features for understanding neural networks.
+  In Advances in Neural Information Processing Systems 32: Annual Conference on Neural Information Process-
+  ing Systems 2019, NeurIPS 2019, 8-14 December 2019, Vancouver, BC, Canada, pages 6594–6604, 2019. URL
+  http://papers.nips.cc/paper/8886-on-the-power-and-limitations-of-random-features-for-understanding-neur
+
+
+
+
+                                                            18
+A     Reductions between bSQ, fbSQ and SQ, PAC
+In this section, we prove Theorems 2a to 2d. Additionally, we state and prove analogous statements relating fbSQ
+to PAC and SQ.
+
+A.1    bSQ versus PAC
+Theorem 2a. (PAC to bSQ) For all δ > 0, for all b, and τ < 1/(2b), and for all m, r, it holds for k′ =
+10m(n + 1)/δ, p′ = n + 1, r ′ = r + k log2 b that
+
+                                        bSQ(k′ , τ , b, p′ , r ′ ) δ PAC(m, r) .
+
+Furthermore, for every runtime T IME , it holds for T IME ′ = poly(n, m, r, T IME , 1/δ) that
+
+                             bSQTM (k′ , τ , b, p′ , r ′ , T IME ′ ) δ PACTM (m, r, T IME ) .
+
+Proof. For all b, τ satisfying bτ < 1/2, we first design a bSQ(k = 10(n+1), τ, b, p = n+1, r) algorithm S AMPLE -
+E XTRACT (Algorithm 1) that generates a single sample (x, y) ∼ D; technically, this algorithm runs in at most
+10(n + 1) expected number of steps, but as we will see this is sufficient to complete the proof. For ease of notation,
+we let Z := X × Y and we identify Z with {0, 1}n+1 and denote z ∈ Z as (z1 , . . . , zn+1 ) = (y, x1 , . . . , xn ).
+S AMPLE -E XTRACT operates by sampling the bits of z one by one, drawing zbi from the conditional distribution
+{zi | z1,...,i−1 }D . We show two things: (i) Once the algorithm is at a prefix s, the algorithm indeed returns a
+sample zb drawn from the conditional distribution {z | z1,...,k = s}D , and (ii) The algorithm returns a sample in
+T ≤ 10(n + 1) expected number of steps.
+    We show (i) by a reverse induction on the length of s. The base case of |s| = n + 1 is trivial. For any ℓ,
+observe that conditioned on vℓ = 1/b, the sample returned is indeed sampled according to {z | z1,...,ℓ = s}D . Now,
+consider conditioning on vℓ = t/b for some t ≥ 2. It is easy to see that vℓ+1 /vℓ is distributed according to the
+(normalized) Binomial distribution Bin(t, p)/t where p = PrD [zℓ+1 = 1 | z1,...,ℓ = s] and hence s is appended
+with 1 with probability E[vℓ+1 /vℓ | vℓ = t/b] = p, or appended with 0 otherwise. The inductive hypothesis for
+|s| = ℓ + 1 completes the argument.
+    We show (ii) by proving a couple of more general claims. First of all, we assert that if the algorithm currently
+has a prefix s that occurs in a random sample from D with probability ps and bps ≤ 1/5 then the expected number
+remaining steps before the algorithm terminates is at most 5/bps . We prove this by reverse induction on the length
+of s. The base case of |s| = n + 1 is trivial. Now, let bs be the number of samples in the next batch that start with
+s. We have E[bs ] = bps and
+
+                           E[max(0, bs − 1)] ≤ E[bs (bs − 1)] = b(b − 1)p2s ≤ bps /5
+
+And hence,
+
+                               P[bs = 1] = E[bs ] − E[max(0, bs − 1)] ≥ (4/5)bps
+
+Thus, the expected number of steps before we get at least one sample starting with s is at most 2/bps . Also,
+Pr[bs > 0] = 1 − (1 − ps )b ≤ bps . So, for p0 := ps◦0 and p1 := ps◦1 (that is, the probabilities that a sample from
+D starts with s ◦ 0 and s ◦ 1 respectively), the expected number of steps remaining in the algorithm is at most
+                                                  
+          2      P[bs > 1] p0 5           p1 5            2    P[bs > 1] 10          2     1 10           5
+              +                  ·     +      ·       =      +            ·      ≤      + ·          ≤
+         bps P[bs > 0] ps bp0 ps bp1                     bps P[bs > 0] bps          bps 4 bps            bps
+
+as claimed. Next, we show that if the algorithm currently has a prefix s and bps > 1/5, then the expected number
+of steps remaining is at most 10(n + 1 − |s|). We again prove this with a reverse induction on |s|. The base case
+
+
+
+                                                            19
+of |s| = n + 1 is trivial. With bps > 1/5, the probability that a batch of b samples has at least one sample starting
+with prefix s is at least 1/8. So, the expected remaining number of steps before the algorithm terminates is at most
+                                                                                    
+                                 p0                    5       p1                    5
+                           8+        · 10(n − |s|) +        +     · 10(n − |s|) +
+                                 ps                   bp0      ps                   bp1
+                                                   5      5
+                            = 8 + (10(n − |s|) +      +
+                                                  bps bps
+                            ≤ 10(n + 1 − |s|)
+
+as desired. That completes the induction argument. The algorithm starts with s = ǫ, which every sample will start
+with, so the expected number of steps before the algorithm terminates is at most 10(n + 1).
+    Finally, given a PAC(m, r) method A, we design a bSQ(k, τ ′ , b′ , p = n+1, r ′ ) method A′ that runs S AMPLE -E XTRACT
+for k = 10m(n + 1)/δ rounds, restarting the algorithm after every sample returned. If the total number of samples
+extracted is less than m, then A′ outputs the zero predictor. Else it returns the output of A on the first m samples
+extracted. Since the expected number of rounds needed to extract m samples is at most 10m(n + 1), we have by
+Markov’s inequality that the probability of extracting less than m samples in 10m(n + 1)/δ rounds is at most δ.
+Thus, we get that for any D, err(A′ , D) ≤ err(A; D) + δ (where A′ return the null (zero) predictor if less than m
+samples were extracted, in which case, the loss is 1). The number of random bits needed per round is at most log2 b
+and thus, the total number of random bits needed is r ′ = r + k log2 b.
+
+Theorem 2b. (bSQ to PAC) For all b, τ and k, p, r, it holds that
+
+                                   PAC(m′ = kb, r ′ = r) 0 bSQ(k, τ , b, p, r) .
+
+Furthermore, for every runtime T IME it holds for T IME ′ = poly(n, b, T IME ) that
+
+                        PACTM (m′ = kb, r ′ = r, T IME ′ ) 0 bSQTM (k, τ , b, p, r, T IME ) .
+
+Proof. This is immediate, since a PAC(m = kb, r) method can generate valid bSQ responses using b samples
+for each of the k rounds by simply computing the empirical averages per batch. The number of random bits used
+remains unchanged.
+
+Finally we show that with a slight modification, S AMPLE -E XTRACT can be implemented as a bSQ0/1 algorithm,
+thereby proving Lemma 1, restated below for convenience.
+
+Lemma 1. (PAC to bSQ0/1 ) For all δ > 0, for all b, and τ < 1/(2b), then and for all m, r, it holds for
+k′ = 20m(n + 1)/δ, p′ = n + 1, r ′ = r + k log2 b that
+
+                                        bSQ0/1 (k′ , τ , b, p′ , r ′ ) δ PAC(m, r) .
+
+Furthermore, for every runtime T IME it holds for T IME ′ = poly(n, m, r, T IME , 1/δ) that
+                                  0/1
+                             bSQTM (k′ , τ , b, p′ , r ′ , T IME ′ ) δ PACTM (m, r, T IME ) .
+
+Proof. Since z1 = y, all queries of S AMPLE -E XTRACT are already of the form 1 {y = y} ∧ ΦX (x) for y ∈ {0, 1}.
+It can also be implemented as a bSQ0/1 algorithm as follows: After the first query we fix y = s1 ∈ {0, 1}. If
+s1 = 0, we use only even rounds to perform the queries as done by S AMPLE -E XTRACT and when s1 = 1, we use
+only odd rounds. This increases the total number of rounds by a factor of 2.
+
+
+
+
+                                                             20
+A.2    fbSQ versus PAC
+We show the analogs of Theorems 2a and 2b for fbSQ.
+
+Lemma 5a. (PAC to fbSQ) For all m, and τ < 1/(2m) and for all r, it holds that
+
+                        fbSQ(k = m(n + 1), τ, m′ = m, p = 1, r ′ = r) 0 PAC(m, r) .
+
+Furthermore, for every runtime T IME , it holds for T IME ′ = poly(n, m, r, T IME , 1/δ) and same k, p, r ′ as above
+that
+                        fbSQTM (k, τ, m′ = m, p, r ′ , T IME ′ ) 0 PACTM (m, r, T IME ) .
+
+Proof. This proof is similar to, but significantly simpler than, the proof of Theorem 2a. Using same notations as in
+proof of Theorem 2a, for any prefix s ∈ {0, 1}ℓ , let Ss = {z ∈ S | z1,...,ℓ = s}. We show using reverse induction
+on ℓ, that for any given prefix s of length ℓ and knowledge of |Ss | > 0, we can deterministically recover all samples
+matching the prefix s using |Ss | · (n + 1 − ℓ) many fbSQs.
+    The base case of ℓ = n + 1 is trivial, since we already know |Ss |. For any s, we issue the fbSQ Φ : Z → {0, 1}
+given as Φ(z) = 1 {z1,...,ℓ = s and zℓ+1 = 1}. Since τ < 1/2m, rounding any value v such that |v − ES Φ(z)| ≤ τ
+to the nearest integral multiple of 1/m gives us |Ss◦1 |/m. Thus, with this one query we recover both |Ss◦1 | and
+|Ss◦0 | = |Ss | − |Ss◦1 |. By the inductive assumption, we can recover all samples in Ss◦0 using |Ss◦0 |(n − ℓ)
+additional queries and similarly, all samples in Ss◦1 using |Ss◦1 |(n − ℓ) queries. Thus, we recover all samples in
+Ss using 1 + |Ss |(n − ℓ) ≤ |Ss |(n + 1 − ℓ) queries (since 1 ≤ |Ss |).
+    Starting with the prefix s = ǫ (empty string) and knowledge of |Sǫ | = m, we can recover all samples using at
+most m(n + 1) fbSQs, after which we can simply simulate the PAC(m, r) method. Note that unlike the reduction
+to bSQ, here the algorithm always succeeds in extracting m samples in m(n + 1) steps. Hence there is no loss in
+the error ensured.
+
+Lemma 5b. (fbSQ to PAC) For all m, τ and k, p, r, it holds that
+
+                                       PAC(m, r) 0 fbSQ(k, τ, m, p, r) .
+
+Furthermore, for every runtime T IME it holds for T IME ′ = poly(n, m, T IME ) that
+
+                             PACTM (m, r, T IME ′ ) 0 fbSQTM (k, τ, m, p, r, T IME ) .
+
+Proof. This is immediate, since a PAC(m, r) method can generate valid fbSQ responses using m samples for each
+of the k rounds by simply computing the empirical averages over the entire batch of samples. The number of
+random bits used remains unchanged.
+
+Finally, we show that with a slight modification, in the same regime of Lemma 5a, any PAC method can be simu-
+lated by a fbSQ0/1 method, analogous to Lemma 1.
+
+Lemma 6. (PAC to fbSQ0/1 ) For all m, and τ < 1/(2m), and for all r, it holds that
+
+                      fbSQ0/1 (k = 2m(n + 1), τ, m′ = m, p = 1, r ′ = r) 0 PAC(m, r) .
+
+Furthermore, for every runtime T IME , it holds for T IME ′ = poly(n, m, r, T IME , 1/δ) and same k, p, r ′ as above
+that
+                                0/1
+                           fbSQTM (k, τ, m′ , p, r ′ , T IME ′ ) 0 PACTM (m, r, T IME ) .
+
+Proof. By modifying proof of Lemma 5a, analogous to the modification to proof of Theorem 2a to get Lemma 1.
+
+
+
+
+                                                         21
+A.3    bSQ versus SQ
+Theorem 2c. (bSQ to SQ) There exists a constant C ≥ 0 such that for all δ > 0, for all k, τ , b, p, r, such that
+bτ 2 > C log(kp/δ), it holds that
+                                                      τ ′
+                                 SQ(k′ = kp, τ ′ =      , r = r) δ bSQ(k, τ , b, p, r) .
+                                                      2
+Furthermore, for any runtime T IME it holds for T IME′ = poly(T IME ) that
+                                              τ ′
+                      SQTM (k′ = kp, τ ′ =      , r = r, T IME ′ ) δ bSQTM (k, τ , b, p, r, T IME ) .
+                                              2
+Proof. Fix a bSQ(k, τ, b, p, r) method A, and consider any bSQ query Φ : X × Y → [−1, 1]p . Using Chernoff-
+Hoeffding’s bound and a union bound over p entries, we have that
+                                                                                         2
+                                 Pr [kES Φ(x, y) − ED Φ(x, y)k∞ > η] ≤ 2pe−η b/2                                            (10)
+                                S∼D b
+
+Conditioned on kES Φ(x, y) − ED Φ(x, y)k∞ ≤ η, any response v ∈ [−1, 1]p that satisfies kv − ED Φ(x, y)k∞ ≤
+τ − η, also satisfies that kv − ES Φ(x, y)k∞ ≤ τ .
+     Consider a SQ(k′ = kp, τ ′ = τ − η, r) method A′ , that makes the same set of queries as A (making p SQ
+queries sequentially for each bSQ query), pretending that the SQ responses received are in fact valid bSQ responses.
+                                                                         2
+By a union bound over the m rounds, with probability at least 1 − 2kpe−η b/2 , all valid SQ responses to A′ are also
+valid bSQ responses to A and hence the statistical distance between the output distribution of A′ and A is at most
+        2                                              2
+2kpe−η b/2 . Hence err(A′ , D) ≤ err(A; D) + 4kpe−η b/2 ; here we assume w.l.o.g. that the range of the predictor
+returned by the bSQ method is [−1, 1], in which case the maximum squared loss of a predictor is at most 2. When
+bτ 2 ≥ 8 log(4kp/δ), setting η = τ /2 completes the proof.
+
+Theorem 2d. (SQ to bSQ) There exists a constant C ≥ 0 such that for all δ > 0, for all b and all k, τ, r, it holds
+that                                                                 
+                       ′        C log(k/δ)       ′ τ      ′       ′
+               bSQ k = k ·                    , τ = , b, p = 1, r = r δ SQ(k, τ, r) .
+                                    bτ 2           2
+Furthermore, for every runtime T IME it holds for T IME ′ = poly(T IME , k, 1/τ ) and the same k′ , τ ′ , p′ , r ′ , that
+                                                                 
+                           bSQTM k′ , τ ′ , b, p′ , r ′ , T IME ′ δ SQTM (k, τ, r, T IME ) .
+
+Proof. For any SQ(k, τ, r) method A, consider a bSQ(k′ = kq, τ ′ = τ /2, b, p = 1, r) method A′ that makes the
+same set of queries as A, but repeating each query q times, and then averaging the q bSQ responses received and
+treating the average as a valid SQ response (q to bePspecified shortly). Suppose
+                                                                             S       v1 , . . . , vq are bSQ responses, that
+                                                          q
+is, |vi − ESi Φ(x, y)| ≤ τ for each i, then v = i=1 vi /q and S = i Si satisfies |v − ES Φ(x, y)| ≤ τ ′ , by
+                             ′
+
+triangle inequality.
+                                                                                                                      2
+     From Equation (10) and a union bound over the k queries, we have that with probability at least 1 − 2ke−η bq/2 ,
+any valid bSQ responses v1 , . . . , vq for the q queries corresponding to each SQ query, satisfies |v − ED Φ(x, y)| ≤
+τ ′ + η. Setting η = τ − τ ′ = τ /2, we get that the statistical distance between the output distribution of A′ and A is
+                2                                                  2
+at most 2ke−τ bq/8 . Hence err(A′ , D) ≤ err(A; D) + 4ke−τ bq/8 ; again, we assume w.l.o.g. that the range of the
+predictor returnedlby the SQmmethod is [−1, 1], in which case the maximum squared loss of a predictor is at most
+2. Choosing q = 8 log(4k/δ)
+                       bτ 2
+                                completes the proof.
+
+Finally we show that any SQ method can be simulated by a bSQ0/1 method thereby proving Lemma 2, restated
+below for convenience. The proof goes via an intermediate SQ0/1 method (defined analogous to bSQ0/1 ).
+
+
+
+
+                                                             22
+Lemma 2. (SQ to bSQ0/1 ) There exists a constant C > 0, such that for all δ > 0, for all b and all k, τ, r, it holds
+that                                                                    
+                  0/1    ′        C log(k/δ)       ′  τ      ′       ′
+              bSQ       k =k·                   , τ = , b, p = 1, r = r δ SQ(k, τ, r) .
+                                       bτ 2           4
+Furthermore, for every runtime T IME . it holds for T IME ′ = poly(T IME , k, 1/τ ) and the same k′ , τ ′ , p′ , r ′ , that
+                                   0/1
+                              bSQTM (k′ , τ ′ , b, p′ , r ′ , T IME ′ ) δ SQTM (k, τ, r, T IME ) .
+
+Proof. Consider any SQ(k, τ, r) method A. Let Φt : X × Y → [−1, 1] be the query issued by the method A.
+Let A′ be the following SQ0/1 (2k, τ /2, r) method: In rounds 2t − 1 and 2t, A′ issues queries Φ1t , Φ0t respectively,
+where Φ1t (x, y) := y · Φ(x, y) and Φ0t (x, y) := (1 − y) · Φ(x, y). For any valid responses v1 , v0 to the queries
+Φ1t , Φ0t , that is, |v1 − ED Φ1t (x, y)| ≤ τ /2 and |v0 − ED Φ0t (x, y)| ≤ τ /2, it holds by triangle inequality that
+|v0 + v1 − ED (Φ0t (x, y) + Φ1t (x, y))| ≤ τ . Thus, v := v0 + v1 is a valid response for the SQ query Φt = Φ1t + Φ0t .
+Thus, we get
+                                            SQ0/1 (2k, τ /2, r) 0 SQ(k, τ, r) .
+Finally, we use essentially the same argument as in Theorem 2d to obtain a bSQ0/1 method from A′ . The only
+change needed to preserve the alternating nature of A′ is that we perform all the 1-queries in q odd rounds, inter-
+leaved with 0-queries in q even rounds. This completes the proof.
+
+A.4    fbSQ versus SQ
+We show the analogs of Theorems 2c and 2d for fbSQ. The number of samples required depends linearly on the
+number of queries, instead of logarithmically. The reason for this is that unlike in the proof of Theorems 2c and 2d,
+a naive union bound does not suffice, since the queries can be adaptive.
+
+Lemma 5c. (fbSQ to SQ) There exist a constant C ≥ 0 such that for all δ > 0, for all k, τ , m, p, r such that
+mτ 2 > C(kp log(1/τ ) + log(1/δ)), it holds that
+                                                      τ ′
+                                SQ(k′ = kp, τ ′ =       , r = r) δ fbSQ(k, τ, m, p, r) .
+                                                      2
+Furthermore, for any runtime T IME it holds for T IME′ = poly(T IME ) that
+                                              τ ′
+                     SQTM (k′ = kp, τ ′ =       , r = r, T IME ′ ) δ fbSQTM (k, τ, m, p, r, T IME ) .
+                                              2
+Proof. Fix a fbSQ(k, τ, m, p, r) method A. Conditioned on the choice of randomness sampled by A, consider the
+set of all possible queries that A could make, assuming that all the responses to all the queries ever made are in
+2α · Zp ∩ [−1, 1]p , that is, each entry of the response is an integral multiple of 2α (choice of α to be made later).
+The number of distinct responses to any query then is at most (1 + 1/α)p . Even accounting for the adaptive nature
+of the method, conditioned on the choice of randomness, there are at most (1/α+ 1)kp possible different transcripts
+of queries and answers, and hence a total of at most (1/α + 1)kp distinct queries that the method could have made.
+    Using Chernoff-Hoeffding’s bound (Equation (10)) and a union bound over all these (1/α + 1)kp possible
+                                                                          2
+queries we have that with probability at least 1 − 2p(1 + 1/α)kp · e−η m/2 over sampling S ∼ D m , it holds for
+each such query Φ : X × Y → [−1, 1]p that
+
+                                           kES Φ(x, y) − ED Φ(x, y)k∞ < η
+
+Conditioned on kES Φ(x, y) − ED Φ(x, y)k∞ ≤ η, any response v ∈ [−1, 1]p that satisfies kv − ED Φ(x, y)k∞ ≤
+τ − η − α, also satisfies that kv − ES Φ(x, y)k∞ ≤ τ − α. Furthermore, let ṽ be the rounding of v to the nearest
+value in 2α · Zp ∩ [−1, 1]p . Then, it holds that kṽ − vk∞ ≤ α and hence kṽ − ES Φ(x, y)∞ k ≤ τ .
+    Consider a SQ(k′ = kp, τ ′ = τ − η − α, r) method A′ , that makes the same set of queries as A (making
+p SQ queries sequentially for each fbSQ query), but rounds the SQ responses to the nearest value in 2α · Zp ∩
+
+                                                               23
+[−1, 1]p , and treats those as valid fbSQ responses. By the union bound argument presented above, it holds with
+                                               2
+probability at least 1 − 2p(1 + 1/α)kp · e−η m/2 that the rounded SQ responses are also valid fbSQ responses.
+                                                                                                            2
+Hence, the statistical distance between the output distribution of A′ and A is at most 2p(1 + 1/α)kp · e−η m/2 .
+                                                      2
+Hence err(A′ , D) ≤ err(A, D) + 4p(1 + 1/α)kp · e−η m/2 ; here we assume w.l.o.g. that the range of the predictor
+returned by the fbSQ method is [−1, 1], in which case the maximum squared loss of a predictor is at most 2. When
+mτ 2 ≥ 32(kp log(4/τ + 1) + log(4p/δ)), setting α = η = τ /4 completes the proof.
+
+Lemma 5d. (SQ to fbSQ) There exist a constant C ≥ 0 such that for all δ > 0, k, τ, r, it holds for τ ′ = τ2 and all
+m such that mτ 2 > C(k log(1/τ ) + log(1/δ)) that
+
+                                fbSQ(k′ = k, τ ′ , m, p′ = 1, r ′ = r) δ SQ(k, τ, r) .
+
+Furthermore, for every runtime T IME it holds for T IME ′ = poly(T IME , k, τ −1 ) that
+
+                     fbSQTM (k′ = k, τ ′ , m, p′ = 1, r ′ = r, T IME ′ ) δ SQTM (k, τ, r, T IME ) .
+
+Proof. Fix an SQ(k, τ, r) method A. Similar to the proof of Part 1, conditioned on the choice of randomness
+sampled by A, consider the set of all possible queries that A could make, assuming that all the responses to all the
+queries every made in 2α · Zp ∩ [−1, 1]. Similar to before, the number of such queries is at most (1 + 1/α)k .
+      Consider a fbSQ(k′ = k, τ ′ = τ /2, m, p = 1, r) method A′ that makes the same set of queries as A (for τ ′ to be
+decided shortly), but rounds the fbSQ responses to the nearest value in 2α · Z ∩ [−1, 1] and treats those as valid SQ
+responses. For any query Φ if v is a valid fbSQ response, then we have |v − ES Φ(x, y)| ≤ τ ′ and for its rounding
+ṽ, it holds that |ṽ − ES Φ(x, y)| ≤ τ ′ + α. From a similar application of Chernoff-Hoeffding’s bound and a union
+                                                                        2
+bound, we have that with probability at least 1 − 2(1 + 1/α)k · e−η m/2 that for all the queries Φ : X × Y → [−1, 1]
+considered above, and for any valid fbSQ response v, it holds that |v − ED Φ(x, y)| ≤ τ ′ + α + η. Hence, we get
+                                                                                                           2
+that the statistical distance between the output distribution of A′ and A is at most 2(1 + 1/α)k · e−η m/2 and hence
+                                               2
+err(A′ , D) ≤ err(A; D) + 4(1 + 1/α)k · e−η m/2 ; again, we assume w.l.o.g. that the range of the predictor returned
+by the SQ method is [−1, 1], in which case lthe maximum squared loss        m of a predictor is at most 2. Finally, setting
+       τ            τ                            32(k log(4/τ +1)+log(4/δ))
+α = 4 and η = 4 , the result holds for m ≥                    τ2
+                                                                             .
+
+Finally, we show that with a slight modification, in the same regime of Lemma 5d, any SQ method can be simulated
+by a fbSQ0/1 method, analogous to Lemma 2.
+Lemma 7. (SQ to fbSQ0/1 ) There exist a constant C ≥ 0 such that for all δ > 0, k, τ, r, it holds for τ ′ = τ4 and
+all m such that mτ 2 > C(k log(1/τ ) + log(1/δ)) that
+
+                                fbSQ(k′ = 2k, τ ′ , m, p′ = 1, r ′ = r) δ SQ(k, τ, r) .
+
+Furthermore, for every runtime T IME it holds for T IME ′ = poly(T IME , k, τ −1 ) that
+
+                     fbSQTM (k′ = 2k, τ ′ , m, p′ = 1, r ′ = r, T IME ′ ) δ SQTM (k, τ, r, T IME ) .
+
+Proof. By modifying proof of Lemma 5d, analogous to the modification to proof of Theorem 2d to get Lemma 2.
+
+
+
+B    Simulating bSQ with bSGD : Proof of Lemma 3a
+In this section, we show how to simulate any bSQ0/1 method A as bSGD on some differentiable model constructed
+according to A, and thus prove Lemma 3a:
+Lemma 3a. (bSQ0/1 to bSGD) For all τ ∈ (0, 1) and b, k, p, r ∈ N, it holds that
+                                τ                                
+             bSGD T ′ = k, ρ = , b, p′ = r + (p + 1)k, r ′ = r 0 bSQ0/1 (k, τ, b, p, r) .
+                                 4
+
+                                                            24
+Simulating a single y-query. As a first step towards showing Lemma 3a, we show how a single y-query can be
+simulated using a single step of bSGD. We consider parameterized queries, that can depend on some of parameters
+of the differentiable model. Namely, Φ : [−1, 1]q × X × Y → [−1, 1]p is a query that given some parameters
+θ ∈ [−1, 1]q , an input x ∈ X and a label y ∈ Y, returns some vector value Φ(θ, x, y). We show the following:
+Lemma 8. Let Φ : [−1, 1]q × X × Y → [−1, 1]p be some y-query that is differentiable w.r.t. its parameters.
+Fix some batch size b ∈ N, precision ρ > 0 and some ε > 0. Then, there exists a differentiable model fw , with
+w = (θ;b θ; κ) ∈ Rq ×Rp ×R, such that running bSGD for T = 1 step, from an initialization w (0) = (θd         (0) , θ (0) , κ(0) )
+
+satisfying θ (0) , κ(0) = 0, yields parameters w (1) = (θb(1) ; θ (1) ; κ(1) ) ∈ Rq × Rp × R such that for S ∼ D b :
+                    P
+   1. θ (1) − 1b (x,y)∈S Φ(θb(0) , x, y)      ≤ ε + ρ,
+                                             ∞
+
+   2. κ(1) ≥ ε − ρ.
+Proof. We consider two cases:
+1. Assume Φ is a 0-query, namely Φ(x, y) = (1 − y)Φ( b
+                                                    θ, x, 0). Then, we define a differentiable model as follows:
+                                                  D              E
+                                     fw (x) = 1 − Φ(θ, b x, 0), θ − κ + ε
+
+   Fix some batch S, and observe that:
+                      ∂                                        ∂
+                         ES ℓsq (fw (x), y) = ES (fw (x) − y) fw (x) = −ES (1 + ε − y)Φ( b
+                                                                                        θ, x, 0)
+                      ∂θ                                      ∂θ
+                                            = −ES Φ(θ,b x, y) − εES Φ(θ,
+                                                                      b x, 0)
+
+   Then, after performing one step of bSGD we have:
+
+                                                              b x, y)
+                                                 θ (1) − ES Φ(θ,             ≤ε+ρ
+                                                                         ∞
+
+   Now, similarly we have:
+                        ∂                                      ∂
+                           ES ℓsq (fw (x), y) = ES (fw (x) − y) fw (x) = −ES (1 + ε − y) ≤ −ε
+                        ∂κ                                     ∂κ
+   And therefore, after one step of bSGD we have κ(1) ≥ ε − ρ.
+                                               b x, 0). Then, we define a differentiable model as follows:
+2. Assume Φ is a 1-query, namely Φ(x, y) = yΦ(θ,
+                                                D               E
+                                       fw (x) = Φ( b θ, x, 1), θ + κ − ε
+
+   Fix some batch S, and observe that:
+                         ∂                                        ∂                    b x, 1)
+                            ES ℓsq (fw (x), y) = ES (fw (x) − y) fw (x) = ES (−ε − y)Φ(θ,
+                         ∂θ                                      ∂θ
+                                               = −ES Φ(θ,b x, y) − εES Φ(θ,
+                                                                         b x, 0)
+
+   Then, after performing one step of bSGD we have:
+
+                                                 θ (1) − ES Φ( b
+                                                              θ, x, y)       ≤ε+ρ
+                                                                         ∞
+
+   Now, similarly we have:
+                          ∂                                       ∂
+                             ES ℓsq (fw (x), y) = ES (fw (x) − y) fw (x) = ES (−ε − y) ≤ −ε
+                          ∂κ                                     ∂κ
+   And therefore, after one step of bSGD we have κ(1) ≥ ε − ρ.
+
+                                                               25
+Simulating a bSQ0/1 method. Our goal is to use Lemma 8 to simulate a bSQ0/1 method. Any bSQ0/1 method
+A is completely described by a sequence of (potentially adaptive) queries Φ1 , . . . , ΦT , and a predictor h which
+depends on the answer to previous queries, namely:
+◮ Φt depends on r random bits, and on the answers of the previous t − 1 queries, namely:
+
+                                         Φt : {0, 1}r × [−1, 1]p×(t−1) × X × Y → [−1, 1]p
+
+◮ Φt is a (t mod 2)-query.
+
+◮ h   : {0, 1}r × [−1, 1]p×(t−1) × X → R is a predictor that depends on a sequence of random bits denoted
+   v0 ∈ {0, 1}r , and on the answers to all previous queries, denoted v1 , . . . , vT ∈ [−1, 1]p .
+For v ∈ Rq , let hviτ denote the entry-wise rounding of v to τ Z, namely hviτ := arg minv′ ∈(τ Z)q kv − v ′ k∞ . In
+order to prove Lemma 3a, we need the following technical lemma:
+Lemma 9. Let Φ : [−1, 1]q → [−1, 1]p be some function, and let δ ∈ R be some accuracy. Then, there exists a
+smooth function Φ̃ : [−1, 1]q → [−1, 1]p such that Φ̃(x) = Φ(hxiδ ) for every x such that kx − hxiδ k∞ ≤ 4δ .
+We use the following fact:
+Fact 1. For every compact set K and open set U such that K ⊆ U ⊆ [−1, 1]q , there exists a smooth function
+Ψ : [−1, 1]q → [−1, 1] such that Ψ(x) = 1 for every x ∈ K and Ψ(x) = 0 for every x ∈
+                                                                                   / U.
+                                                                                                                                   q
+Proof of Lemma 9. Now, for some x ∈ [−1, 1]q we define Kx := ×qi=1 [xi −δ/4, xi +δ/4], and Ux := ×i=1 (xi −
+δ/3, xi + δ/3) and note that Kx is compact, Ux is open and Kx ⊆ Ux . So, using the above fact, there exists a
+smooth Ψx such that Ψx (Kx ) = 1 and Ψx (Rq \ Ux ) = 0. Now, consider Φ̃ : Rq → Rp such that
+                                                  X
+                                      Φ̃(x) :=          Ψx′ (x) · Φ(x′ ).
+                                                              x′ ∈(δZ)q
+
+Whenever kx − hxiδ k∞ ≤ δ/4, it holds that Ψhxiδ (x) = 1 and Ψx′ (x) = 0 for all x′ ∈ (δZ)q r {hxiδ }, and hence
+Φ̃(x) = Φ(hxiδ )s, whenever kx − hxiδ k∞ ≤ δ/4. Finally, since Ψx is smooth, Φ̃ is also differentiable.
+
+Proof of Lemma 3a. Let A be a bSQ0/1 (m, τ, b, p, r) method. Let AR (S1 , . . . , ST ) denote the set of predictors
+returned by A after receiving valid responses for τ -precision bSQs on mini-batches S1 , . . . , ST , using the random
+bits R. In order to prove Lemma 3a, it suffices to show that there exists a differentiable model fw , such that, for
+every choice of S1 , . . . , ST of size b, and every sequence of bits R ∈ {0, 1}r , there exists an initialization of the
+model such that bSGD using mini-batches S1 , . . . , ST with ℓsq loss and learning-rate γ = 1, returns a function
+fw(T ) such that fw(T ) ∈ AR (S1 , . . . , ST ).
+    Let Φ1 , . . . , ΦT be the queries made by A, and h be the returned predictor. Using Lemma 9, let Φ̃1 , . . . , Φ̃T be
+a sequence of queries, with Φ̃t : [−1, 1]r × [−1, 1]p×t−1 × X × Y → Rp , such that:
+◮ Φ̃t (v0 , . . . , vt−1 , x, y) is smooth w.r.t. v0 , . . . , vt−1 .
+
+                                                                                                                                     τ
+◮ Φ̃t (v0 , . . . , vt−1 , x, y) = Φ(hv0 iτ /4 , . . . , hvt−1 iτ /4 , x, y) for v0 , . . . vt−1 satisfying   vi − hvi iτ /4       ≤ 32 for
+                                                                                                                               ∞
+   all 1 ≤ i ≤ t − 1.
+    Let h̃ : [−1, 1]r × [−1, 1]p×(t−1) × X → R be a smooth function that agrees with h, defined similarly to Φ̃t .
+    Let c : R3 → R be a differentiable function such that:
+                                                      
+                                                      
+                                                      α3 α1 ≥ ρ and α2 ≤ ρ/2
+                                                      
+                                                      
+                                                      0   α1 , α2 ≥ ρ
+                                   c(α1 , α2 , α3 ) =
+                                                      
+                                                      0   α1 , α2 ≤ ρ/2
+                                                      
+                                                      
+                                                      ∗   otherwise
+Our differentiable model will use the following parameter:
+
+                                                                        26
+◮ Parameters θ (0) ∈ Rp , initialized to R, and stores the “random” bits.
+
+◮ T sets of parameters, each of size r, denoted θ (1) , . . . , θ (T ) ∈ Rr . The parameter θ (i) will “record” the output
+  of the i-th query. We initialize θ (1) , . . . , θ (T ) = 0.
+
+◮ T “clock” parameters κ1 , . . . κT , that indicate which query should be issued next. We initialize κ1 , . . . , κT = 0.
+
+                       (i)
+We denote by θ (t,i) , κt the value of the t-th set of parameters in the i-th iteration of SGD. The differentiable model
+is defined as follows:
+                                        T
+                                        X                                                                            
+                                                         (t)                                            (0)         (T )
+     Fθ(0) ,...,θ(T ) ,κ1 ,...,κT (x) =   c κt−1 , κt , f(θ(0) ...θ(t−1) ;θ(t) ;κ ) (x) + c κT , 0, h̃ θ , . . . , θ , x
+                                                                                     t
+                                    t=1
+
+                       (t)
+Where for every t, f(θ(1) ...θ(t−1) ,θ(t) ,κ ) is the differentiable model simulating Φ̃t , that is guaranteed by Lemma 8.
+                                            t
+As a convention, we take κ0 = 1 (this is not a trainable parameter of the model).
+    Now, denote v0 := θ (0,0) , and for every t > 0 denote vt := θ (t,t) . We have the following claim:
+Claim: for every iteration i of bSGD,
+                                                        (i)
+   1. For every t > i we have θ (t,i) = 0 and κt = 0.
+
+   2. For t = i we have:
+                                                 1      X
+                                     θ (t,i) −                      Φt (v0 , v1 , . . . , vt−1 , x, y)         ≤ 3ρ
+                                                 b
+                                                     (x,y)∈S (i)                                           ∞
+
+   3. For t < i we have θ (t,i) = θ (t,t) .
+                             (i)
+   4. For t ≤ i we have κt ≥ ρ.
+
+Proof: By induction on i:
+                                                                   (0)
+◮ For i   = 1, notice that by the initialization, κt = 0 for every t. Fix some t > 1 = i, and note that
+                                                          (i)
+   c(κt−1 , κt , α) = 0, so the gradient w.r.t θ (t,i) , κt is zero, and so condition 1 hold (the initialization is zero,
+                                                                        (0)
+   and the gradient is zero). For t = 1 = i, notice that since c(κ0 , κ1 , α) = α, we have:
+                                                                                    (1)
+                                     Fθ(0,0) ,...,θ(T,0) ,κ(0) ,...,κ(0) (x) = f (0,0) (0,1)         (0)   (x)
+                                                              1          T          (θ     ;θ     ;κ1 )
+
+   and by applying Lemma 8 with ε = 2ρ we get:
+
+                                          1 X
+                              θ (1,1) −       Φ̃1 (θ (0,0) , x, y)                 ≤ θ (1,0)         + ε + ρ ≤ 3ρ
+                                          b                                                      ∞
+                                           (x,y)∈S                             ∞
+
+   and so condition 2 follows from the fact that v0 = θ (0,0) = hv0 iτ /4 and so Φ̃1 (v0 , x, y) = Φ1 (hv0 iτ /4 , x, y) =
+   Φ1 (v0 , x, y). Furthermore, again using Lemma 8 we have:
+                                                                   (1)
+                                                                  κ1 ≥ ε − ρ = ρ
+
+   and so condition 4 follows. Finally, condition 3 is vacuously true.
+
+
+
+
+                                                                         27
+◮ Fix some i > 0, and assume the claim holds for i. We will prove the claim for i + 1. By the assumption,
+              (i)                        (i)
+  we have κt = 0 for every t > i and κt ≥ ρ for every t ≤ i. Therefore, by definition of c, we have
+     (i)    (i)
+  c(κt−1 , κt , α) = 1t=i+1 α. So,
+
+                                                                             (i+1)
+                                Fθ(0,i) ,...,θ(T,i) ,κ(i) ,...,κ(i) (x) = f (0,i)                             (i)      (x)
+                                                      1       T              (θ      ,...,θ (i,i) ;θ (i+1,i) ;κi+1 )
+
+                                                                                                                              (i)
+   Therefore, conditions 1 and 3 follow from the fact that the gradient with respect to θ (t,i) and κt , for every
+                                                                                                 (i+1)
+   t 6= i + 1, is zero. Now, using Lemma 8 with ε = 2ρ, condition 2 follows, and we also have κi+1 ≥ ρ. Finally,
+                                                                  (i)                                                        (i)
+   for every t < i + 1, by the assumption we have κt ≥ ρ, and since the gradient with respect to κt is zero, we
+               (i+1)
+   also have κt      ≥ ρ. Therefore, condition 4 follows.
+
+      Finally, to prove the Theorem, observe that by the previous claim, for every t:
+
+                                        1           X
+                                 vt −                         Φt (v0 , . . . , vt−1 , x, y)          ≤ 3ρ < τ
+                                        b
+                                            (x,y)∈S (2t−1)                                       ∞
+
+So, vt is a valid response for the t-th query.
+                                        (T )
+    By the previous claim, we have κt ≥ ρ for every 1 ≤ t ≤ T . Therefore, we have:
+
+                                 Fθ(0,2T ) ,...,θ(T,T ) ,κ(T ) ,...,κ(T ) (x) = h̃(θ (0,T ) , . . . , θ (T,T ) )
+                                                          1        T
+
+                                                ′
+and using the previous claim we have θ (t ,T ) = vt for every t′ , and therefore, by definition of h̃ we have:
+
+                                      Fθ(0,T ) ,...,θ(T,T ) ,κ(T ) ,...,κ(T ) (x) = h(v0 , . . . , vT )
+                                                              1         T
+
+
+and, using the fact that v0 , . . . , vT are valid responses to the method’s queries, we get the required.
+
+B.1     From Arbitrary Differentiable Models to Neural Networks.
+In this section we proved the key lemma for our main results, showing that alternating batch-SQ methods can be
+simulated by gradient descent over arbitrary differentiable models. We would furthermore like to show that if the
+alternative batch-SQ method is computationally bounded, the differentiable model we defined can be implemented
+as a neural network of bounded size.
+    Indeed, observe that when the method can be implemented using a Turing-machine, each query (denoted by Φ
+in the proof) can be simulated by a Boolean circuit [see Arora and Barak, 2009], and hence by a neural network
+with some fixed weights. Therefore, one can show with little extra effort that the differentiable model introduced
+in the proof of Lemma 3a can be written as a neural network, with some of the weights being fixed. To show that
+the same behavior is guaranteed even when all the weights are trained, it is enough to show that all the relevant
+weights (e.g., θ (0) , . . . , θ (T ) ) have zero gradient, unless they are correctly updated. This can be achieved using the
+“clock” mechanism (the function c(α1 , α2 , α3 ) in the construction), which in turn can be implemented by a neural
+network that is robust to small perturbations of its weights, and hence does not suffer from unwanted updates of
+gradient descent. One possible way to implement the clock mechanism using a neural network that is robust to
+small perturbations is to rely either on large weight magnitudes and small step-sizes, or on the clipping of large
+gradients.
+    We do not include these details, Instead, in the next Section, we provide complete details and a rigorous
+proof of an alternate, more direct, construction of a neural network defining a differentiable model that simulates
+              0/1
+a given bSQTM method. This direct neural-network construction is based on the same ideas, but is different in
+implementation from the construction shown in this section, involving some technical details to ensure that the
+network is well behaved under the gradient descent updates.
+
+                                                                        28
+C    Simulating bSQTM with bSGDσNN : Proof of Lemma 3b
+In this section, we show a direct construction of a neural network such that gradient descent on the neural net
+                      0/1
+simulates a given bSQTM method, thus proving Lemma 3b:
+                   0/1
+Lemma 3b. (bSQTM to bSGDσNN) For all τ ∈ (0, 31 ) and b, k, p, r ∈ N, and using the activation σ from Figure 1,
+it holds that
+                                                                    
+              σ   ′     τ      ′          1                      ′               0/1
+       bSGDNN T = k, ρ = , b, p = poly(k, , b, p, r, T IME ), r = r 0 bSQTM (k, τ, b, p, r, T IME ) .
+                        4                 τ
+
+     Given a bSQ algorithm with a specified bounded runtime, we will design a neural network such that the mini-
+batch gradients at each step correspond to responses to queries of the bSQ algorithm. Our proof of this is based on
+                               0/1
+the fact that any efficient bSQTM algorithm must decide what query to make next and what to output based on some
+efficient computation performed on random bits and the results of previous queries. Any efficient algorithm can be
+performed by a neural net, and it is possible to encode any circuit as a neural net of comparable size in which every
+vertex is always at a flat part of the activation function. Doing that would ensure that none of the edge weights
+ever change, and thus that the net would continue computing the desired function indefinitely. So, that allows us
+to give our net a subgraph that performs arbitrary efficient computations on the net’s inputs and on activations of
+other vertices.
+                                    0/1
+     Also, we can rewrite any bSQTM algorithm to only perform binary queries by taking all of the queries it was
+going to perform, and querying the ith bit of their binary representation for all sufficiently small i instead. For
+each of the resulting binary queries, we will have a corresponding vertex with an edge going to it from the constant
+vertex and no other edges going to it. So, the computation subgraph of the net will be able to determine the current
+weights of the edges leading to the query vertices by checking their activations. Also, each query vertex will have
+paths from it to the output vertex with intermediate vertices that will either get inputs in the flat parts of their
+activation function or not depending on the output of some vertices in the computation subgraph. The net effect of
+this will be to allow the computation subgraph to either make the value encoded by the query edge stay the same or
+make it increase if the net’s output differs from the sample output based on any efficiently computable function of
+the inputs and other query vertices’ activations. This allows us to encode an arbitrary bSQfgt algorithm as a neural
+net.
+
+The emulation net. In order to prove the capabilities of a neural net trained by batch stochastic gradient descent,
+we will start by proving that any algorithm in bSQ can be emulated by a neural net trained by batch stochastic
+gradient descent under appropriate parameters. In this section our net will use an activation function σ, as defined
+in Figure 1, namely
+
+                                                                                  σ(x)
+                       
+                        −2           if x < −3
+                       
+                       
+                       
+                                     if − 3 ≤ x ≤ −1
+                                                                                   2
+                       x + 1
+                 σ(x) = 0             if − 1 < x < 0                    −3    −1
+                       
+                                                                                                 x
+                       
+                        x            if 0 ≤ x ≤ 2                                 0        2
+                       
+                       
+                       
+                         2            if x > 2                                         −2
+
+
+
+
+and a loss function of ℓsq (y, y ′ ) = 12 (y − y ′ )2 .
+    Any bSQ algorithm repeatedly makes a query and then computes what query to perform next from the results
+of the previous queries. So, our neural net will have a component designed so that we can make it update targeted
+edge weights by an amount proportional to the value of an appropriate query on the current batch and a component
+designed to allow us to perform computations on these edge weights. We will start by proving that we can make
+the latter component work correctly. More formally, we assert the following.
+
+
+                                                         29
+                                                                                                                              ′
+Lemma 10 (Backpropagation-proofed noise-tolerant circuit emulation). Let h : {0, 1}m → {0, 1}m be a function
+that can be computed by a circuit made of AND, OR, and NOT gates with a total of b gates. Also, consider a neural
+                                         ′ , and choose real numbers y (0) < y (1) for each 1 ≤ i ≤ m. It is possible
+net with m input 11 vertices v1′ , ..., vm                             i      i
+to add a set of at most b new vertices to the net, including output vertices v1′′ , ..., vm
+                                                                                          ′′ , along with edges leading to
+                                                                                            ′
+
+them such that for any possible addition of edges leading from the new vertices to old vertices, if the net is trained
+                                                  (0)              (1)
+by bSGD, the output of vi′ is either less than yi or more than yi for every i in every timestep, then the following
+hold:
+
+1. The derivative of the loss function with respect to the weight of each edge leading to a new vertex is 0 in every
+   timestep, and no paths through the new vertices contribute to the derivative of the loss function with respect to
+   edges leading to the vi′ .
+                                                                                                       (0)                                   (1)
+2. In any given time step, if the output of vi′ encodes xi with values less than yi and values greater than yi
+   representing 0 and 1 respectively for each i, then the output of vj′′ encodes hj (x1 , ..., xm ) for each j with −2
+   and 2 encoding 0 and 1 respectively.
+
+Proof. In order to do this, we will add one new vertex for each gate and each input in a circuit that computes h.
+When the new vertices are used to compute h, we want each vertex to output 2 if the corresponding gate or input
+outputs a 1 and −2 if the corresponding gate or input outputs a 0, and we want the derivative of its activation
+with respect to its input to be 0. In order to do that, we need the vertex to receive an input of more than 2 if the
+corresponding gate outputs a 1 and an input of less than −3 if the corresponding gate outputs a 0.
+     In order to make one new vertex compute the NOT of another new vertex, it suffices to have an edge of weight
+−2 to the vertex computing the NOT and no other edges to that vertex. We can compute an AND of two new
+vertices by having a vertex with two edges of weight 2 from these vertices and an edge of weight −4 from the
+constant vertex. Similarly, we can compute an OR of two new vertices by having a vertex with two edges of weight
+2 from these vertices and an edge of weight 4 from the constant vertex. For each i, in order to make a new vertex
+corresponding to the ith input, we add a vertex and give it an edge of weight 8/(y (1) − y (0) ) from the associated vi′
+and an edge of weight −(4y (1) + 4y (0) )/(y (1) − y (0) ) from the constant vertex. These provide an overall input of
+at least 4 to the new vertex if vi′ has an output greater than y (1) and an input of at most −4 if vi′ has an output less
+than y (0) .
+     This ensures that if the outputs of the vi′ encode binary values x1 , ..., xm appropriately, then each of the new
+vertices will output the value corresponding to the output of the appropriate gate or input. So, these vertices
+compute h(x1 , ..., xm ) correctly. Furthermore, since the input to each of these vertices is outside of [−3, 2], the
+derivatives of their activation functions with respect to their inputs are all 0. As such, the derivative of the loss
+function with respect to any of the edges leading to them is always 0, and paths through them do not contribute to
+changes in the weights of edges leading to the vi′ .
+
+   Our next order of business is to show that we can perform queries successfully. So, we define the query
+subgraph as follows:
+
+Definition 2. Given τ > 0, let Q be the weighted directed graph with vertices v0 , v1 , v2 , v2′ , v3 , v4 , vc , and vir for
+0 ≤ i < log2 (1/τ ) and the following edges:
+
+1. An edge of weight 1/12 from v0 to v1
+
+2. Edges of weight 1 from v1 to v2 and v2′ , and from v2 and v2′ to v3 .
+
+3. An edge of weight 1/4 from v3 to v4 .
+
+4. An edge of weight 10 from vc to v2 .
+  11
+   Note that these will not be the n data input of the general neural net that is being built; these input vertices take both the data inputs and
+some inputs from the memory component.
+
+
+
+                                                                      30
+5. An edge of weight −10 from vc to v2′ .
+
+6. An edge of weight −1/4 from vc to v3 .
+
+7. An edge of weight 12/τ from v1 to vir for each i.
+
+8. An edge of weight −1/τ + 6 − 6 · 2⌈log2 (1/τ )⌉ from v0 to vir for each i.
+
+9. An edge of weight −3 · 2i from vir to vjr for each i > j.
+
+    Also, let Q′ be the graph that is exactly like Q except that in it the edge from v3 to v4 has a weight of −1.
+
+
+
+
+                                      v4r       v3r        v2r         v1r
+
+
+
+
+                                 v0             v1               v2
+
+                                                                             v3     v4
+
+                                                vc               v2′
+
+
+    The idea behind this construction is as follows. v0 will be the constant vertex, and v4 will be the output vertex.
+If vc has activation 2 then v2 will have activation 2 and v2′ will have activation −2, leaving v3 with activation 0. So,
+this subgraph will have no effect on the output and the derivative of the loss with respect to any of its edge weights
+will be 0. However, if vc has activation 0 then this subgraph will contribute to the net’s output, and the weights of
+the edges will change. So, when we do not want to use this subgraph to perform a query we simply set vc to 2. In a
+timestep where we do want to use it to perform a query, we set vc to 0 or 2 based on the query’s value on the current
+input so that the weight of the edge from v0 to v1 will change based on the value of the query. The activations of
+the v r will always give a binary representation of the activation of v1 . So, we can read off the current weight of the
+edge from v0 to v1 . This construction works in the following sense.
+
+Lemma 11 (Editing memory). Let b be an integer greater than 1, and 0 < τ < 1/12. Next, let (f, G) be a neural
+net such that G contains Q or Q′ as a subgraph with v0 as the constant vertex and v4 as G’s output vertex, and there
+are no edges from vertices outside this subgraph to vertices in the subgraph other than vc and v4 . Now, assume that
+this neural net is trained using bSGD with learning rate 2 and loss function L for T time steps, and the following
+hold:
+
+1. vc outputs 0 or 2 on every sample in every time step.
+
+2. The sample output is always ±1.
+
+3. There is at most one timestep in which the net has a sample on which vc outputs 0. On any such sample, the
+   output of the net is −2τ if the subgraph is Q and 1 + 2τ if the subgraph is Q′ .
+
+4. The derivatives of the loss function with respect to the weights of all edges leaving this subgraph are always 0.
+
+
+
+
+                                                           31
+The edge from v3 to v4 makes no contribution to v4 on any sample where vc is 2, a contribution of exactly 1/24
+on any sample where vc is 0 if the subgraph is Q, and a contribution of exactly −1/24 on any sample where vc
+is 0 if the subgraph is −Q. Also, if we regard an output of 2 as representing the digit 1 and an output of −2 as
+                                                                                        r
+representing the digit 0 then the binary string formed by concatenating the outputs of v⌈log             ,...,v0r is within
+                                                                                             2 (1/τ )⌉−1
+3/2 of the number of samples in previous steps where vc output 0 and the net’s output did not match the sample
+output divided by bτ plus double the total number of samples in previous steps where vc output 0 divided by b.
+Proof. First, let let t be the timestep on which there is a sample with vc outputting 0 if any, and T + 1 otherwise.
+We claim that none of the weights of edges in this subgraph change on any timestep except step t, and prove it by
+induction on t. First, observe that by the definition of t, given any sample the net receives on a timestep before t, vc
+has an output of 2. So, on any such sample v2 and v2′ will output 2 and −2 respectively, which results in v3 having
+an input of −1/2 and output of 0, and thus in both the derivative of v4 with respect to the weight of the edge from
+v3 to v4 and the derivative of v4 with respect to the input of v3 being 0. So, the derivative of the loss with respect
+to any of the edge weights in this component is 0 on all samples received before step t.
+    During step t, for any sample on which vc has an output of 0, v1 , v2 , and v2′ all have output 1/12. That results
+in v3 having an output of 1/6. So, the derivative of the loss with respect to the weight of the edge from v0 to v1 is
+τ if the net’s output agrees with the sample output and (1 + 2τ )/2 otherwise. That means that the weight of the
+edge from v0 to v1 increases by 1/b times the number of samples in this step for which vc had output 0 and the
+net’s output disagreed with the sample output plus 2τ /b times the total number of samples in this step for which
+vc had an output of 0 plus an error term of size at most 3τ /2. Meanwhile, all of the other edges in the subgraph
+change by at most 1 + 3τ , and the weights of the edges from v2 and v2′ to v3 are left with weights within 3τ of each
+other because the derivatives of the gradients with respect to their weights are the same by symmetry, so only the
+error term differentiates them. The weights of the edges from vc do not change because the samples for which this
+subgraph’s gradient is nonzero all have vc outputting 0 and thus making their weights irrelevant.
+    On any step after step t, vc gives an output of 2 on every sample. The weights of the edges from v1 to v2 and v2′
+have absolute value of at most 3, so the edges from vc still provide enough input to them to ensure that they output
+2 and −2 respectively. That means that the input to v3 is within 6τ of −1/2, and thus that v3 outputs 0. That in turn
+means that the derivative of the loss with respect to any of the edge weights in the subgraph are 0 so their weights
+do not change. All of this combined shows that the edge weights only ever change in step t as desired.
+    Now, define even m such that the weight of the edge from v0 to v1 increased by mτ in step t. We know that
+mτ is within 3τ /2 of the fraction of samples in step t for which vc output 0 and the net’s output did not match the
+sample output plus τ times the overall fraction of samples in step t for which vc output 0. The output of v1 is 1/12
+until step t and mτ + 1/12 after step t. Also, let k = ⌈log2 (1/τ )⌉. Now, pick some t′ > t and let ri be the output
+of vir on step t′ . In order to prove that the ri will be a binary encoding of m we induct on k − i. So, assume that
+ r ,...,v r                                                           r
+vi+1      k−1 encode the correct binary digits. Then the input to vi is
+
+                                                                                     k−1
+                                                                                     X
+                              (12/τ )(mτ + 1/12) − 1/τ + 6 − 6 · 2k −                      3 · 2j rj
+                                                                                   j=i+1
+                                                           k−1
+                                                           X                 k−1
+                                                                             X                 rj + 2
+                               = 12m + 6 − 6 · 2k +               6 · 2j −           12 · 2j
+                                                                                                  4
+                                                          j=i+1              j=i+1
+                                                    i+1            i+1
+                               = 12m + 6 − 6 · 2             ⌊m/2i+1 ⌋
+                                                          − 12 · 2
+                                                                 
+                               = 12 m − 2i+1 ⌊m/2i+1 ⌋ − 2i + 1/2
+
+
+If the 2i digit of m’s binary representation is 1 this will be at least 6 while if it is 0 it will be at most −6, so vir will
+output 2 if the digit is 1 and −2 if it is 0 as desired. Showing that they all output −2 before step t is just the m = 0
+case of this.
+     Finally, recall that on every sample received after step t, vc will output 2, v3 will output 0, and thus the edge
+from v3 to v4 will provide no input to v4 . During or before step t, the edges in this subgraph will all still have their
+
+                                                              32
+original weights. So, if vc outputs 2 then v3 outputs 0 and makes no contribution to v4 , while if vc outputs 0 then
+v3 outputs 1/6 and makes a contribution of magnitude 1/24 and the appropriate sign to v4 , as desired.
+                                                                                                        0/1
+Proof of Lemma 3b. At this point, we claim that we can build a neural net that emulates any bSQTM algorithm
+using the same value of b and an error of τ /4, provided τ < 1/3. In order to do that, we will structure our net as
+follows. First of all, we will have (p log2 (1/τ )+3)T copies of Q and Q′ . Then, we build a computation component
+that takes input from all the copies of the v r and computes from them what to output in the next step, what to query
+next, and what values those queries take on the current input. This component is built never to change as explained
+in Lemma 10. We will use a loss function of L and learning rate of 2 when we train this net.
+    The net will also have T primary output control vertices, (p log2 (1/τ ) + 3)T secondary output control vertices,
+and 1 final output control vertex. Each of these will have edges of weight 1 from two different outputs of the com-
+putation component and an edge of weight −1/2 from the constant vertex. That way, the computation component
+will be able to control whether each of these vertices outputs −2, 0, or 2. Each primary output control vertex will
+have an edge of weight (1 + 2ρ)/2 to the output, each secondary output control vertex will have an edge of weight
+1/48 to the output, and the final output control vertex will have an edge of weight 1/2 to the output. Our plan is
+to set a new group of output control vertices to nonzero values in each timestep and to use it to control the net’s
+output.
+    Each copy of vc will have an edge of weight 1/2 from an output of the computation component and an edge of
+weight 1 from the constant vertex so the computation component will be able to control if it outputs 0 or 2. That
+allows the computation component to query an arbitrary function to {0, 1} that is 0 whenever the sample output
+takes on the wrong value by setting vc to 0 on every input for which the function is potentially nonzero and 1 on
+every input on which it is 0 regardless of the sample output. Then the computation component can use a primary
+output control vertex to provide a value of ±(1+ 2ρ) to the output and use a set of secondary output control vertices
+to cancel out the effects of the copies of Q and Q′ on the output.
+    A little more precisely, we will have one primary output control vertex, (p log2 (1/τ ) + 3) secondary output
+control vertices, and (p log2 (1/τ ) + 3) copies of Q and Q′ associated with each time step. Then, in that step it
+                                        0/1
+will determine what queries the bSQTM algorithm it is emulating would have made, and use the copies of Q and
+Q′ to query the first ⌊log2 (1/τ )⌋ + 2 digits of each of them and the constant function 1. In order to determine the
+details of this, it will consider the current time step as being the first step for which the component querying the
+                                                                                                       0/1
+constant function still gives an output of 0 and consider each prior query performed by the bSQTM algorithm as
+having given an output equal to the sum over 1 ≤ i ≤ log2 (1/τ ) + 2 of ρ/2i times the value given by the copy
+of Q or Q′ used to query its ith bit. For any given input/output pair the actual value of the query will be within
+ρ/2 of the value given by its first ⌊log2 (1/τ )⌋ + 2 binary digits. Also, ifPthe conditions of Lemma 11 are satisfied
+then the value derived from the outputs of the Q and Q′ will be within i (7/2)ρ · 2−i ≤ (7/2)ρ of the average
+of the values of the first ⌊log2 (1/τ )⌋ + 2 bits of the queried function on the batch. So, the values used by the
+computation component will be within τ of the average values of the queried functions on the appropriate batches,
+as desired. Also, any component that was ever used to query the function 1 will always return a nonzero value, so
+the computation component will be able to track the current timestep correctly.
+    We claim that in every timestep the net will output −2ρ or 1 + 2ρ as determined by the computation component,
+the query subgraphs will update so that the computation component can read the results of the desired queries from
+them, and none of the edges will change in weight except the appropriate edges in copies of Q or Q′ and possibly
+weights of edges from the output control vertices used in this timestep to the output, and we can prove this by
+induction on the timesteps.
+    So, assume that this has held so far. In the current timestep all of the output control vertices except those
+designated for this timestep are set to 0, and the ones designated for this timestep are set to the value chosen by the
+computation component. The weights of the edges from the current output control vertices still have their original
+values because the only way they could not is if they had been set to nonzero values before. The edges from the
+other output control vertices to the output have no effect on its value so the primary output control vertices as a
+whole make a contribution of ±(1 + 2ρ) as chosen by the computation component to the output. Meanwhile, there
+at most (p log2 (1/τ ) + 3) copies of Q or Q′ that have vc set to 0 for any sample, so the computation component
+
+
+                                                          33
+can compute the contribution they make to the output and use the secondary output control vertices for the timestep
+to cancel it out. So, the input to the output vertex will be exactly what we wanted it to be, which means that the
+copies of Q and Q′ will update in the manner given by Lemma 11. That in turn means that the query subgraphs
+will update in the desired manner and the computation component will be able to determine valid values for the
+                 0/1
+queries the bSQTM algorithm would have made. None of the edges in or to the computation component will change
+by Lemma 10, and none of the edges from the computation component to any of the copies of vc or any output
+control vertices will change because they are always at flat parts of their activation functions. So, the net behaves as
+described. That means that the net continues to be able to make queries, perform arbitrary efficient computations
+on the results of those queries, and output the result of an arbitrary efficient computation.
+    Once it is done training the compuation component can use the final output control vertex to make the net
+output 0 or 1 based on the current input and the valuesof the previous queries. This process takes k steps to run,
+and uses a polynomial number of query subgraphs per step. Any Turing machine can be converted into a circuit
+with size polynomial in the number of steps it runs for, so this can all be done by a net of size polynomial in the
+parameters.
+
+
+D     bSGD versus PAC and SQ : Proofs of Theorems 1a to 1d
+Before proving Theorems 1a to 1d, we first prove Lemma 4, restated below for convenience.
+Lemma 4. (bSGD to bSQ) For all T, ρ, b, p, r, it holds that
+                                               ρ        
+                        bSQ k = T, τ = , b, p, r 0 bSGD(T, ρ, b, p, r) .
+                                                4
+Furthermore, for every poly-time computable activation σ, it holds that
+                                   ρ                                 
+              bSQTM k = T, τ = , b, p, r, T IME = poly(T, p, b, r) 0 bSGDσNN (T, ρ, b, p, r) .
+                                    4
+Proof. Let fw be some differentiable model. It suffices to show that a τ -approximate rounding of the clipped
+gradient ∇LS (fw ) can be guaranteed by querying a (τ /4)-precision bSQ oracle. Indeed, we issue a query Φ : X ×
+Y → [−1, 1]p where Φ(x, y) = [∇ℓ(fw (x), y)]1 , and get some response v satisfying kv − ES ∇ℓ(fw (x), y)k∞ ≤
+τ /4. Finally, observe that g := hviτ := arg minv′ ∈(τ Z)p kv − v ′ k∞ is a τ -approximate rounding of the required
+gradient. Indeed:
+
+                 kg − ∇LS (fw )k∞ ≤ kg − vk∞ + kv − ∇LS (fw )k∞ ≤ τ /2 + τ /4 ≤ 3τ /4 .
+
+Using the tools developed in Sections 4 and 5 we now prove Theorems 1a to 1d. We only show the proofs for the
+computationally unbounded case, as a near identical derivation achieves the required results for the computationally
+bounded case, since all relevant Theorems/Lemmas have both versions (except Lemmas 3a and 3b which are stated
+as different lemmas).
+
+Proof of Theorem 1a. From Lemma 1, we have that for all b and τ < 1/(2b), and k = O(mn/δ), p = n + 1 and
+r ′ = r + k log2 b, it holds that
+                                  bSQ0/1 (k, τ, b, p, r ′ ) δ/2 PAC(m, r)
+From Lemma 3a (correspondingly Lemma 3b for the computationally bounded case), we then have that for T =
+k = O(mn/δ), ρ = τ /4 < 1/(8b), p′ = r ′ + (p + 1)k = r + O((n + log b)mn/δ), it holds that
+
+                                  bSGD(T, ρ, b, p, r ′ ) δ/2 bSQ0/1 (k, τ, b, p, r ′ )
+
+The proof is complete by combining the above.
+
+Proof of Theorem 1b. Any bSGD(T, ρ, b, p, r) algorithm can be simulated by a PAC(m, r) algorithm with m = T b
+samples, since b samples are required to perform one bSGD iteration. Moreover, there is no loss in the error ensured
+by this simulation.
+
+                                                           34
+Proof of Theorem 1c. From Lemma 4 it holds for all T, ρ, b, p, r and k = T , τ = ρ/4 that
+                                    bSQ(k, τ, b, p, r) 0 bSGD(T, ρ, b, p, r) .
+And by Theorem 2c, there exists a constant C such that for k′ = kp = T p and τ ′ = τ2 = ρ8 it holds for all b such
+that bτ 2 > C log(kp/δ) that
+                                     SQ(k′ , τ ′ , r) δ bSQ(k, τ, b, p, r) .
+The proof is complete by combining the above.
+                                                                             l                m
+                                                                                 C log(k/δ)
+Proof of Theorem 1d. From Lemma 2, it holds for all b, τ ′ = τ4 , k′ = k ·           bτ 2
+                                                                                                  and p = 1 that
+
+                                      bSQ0/1 (k′ , τ ′ , b, p, r) δ SQ(k, τ, r)
+Finally, from Lemma 3a (correspondingly Lemma 3b for the computationally bounded case) we have that for T =
+         ′
+k, ρ = τ4 and p′ = r + (p + 1)k′ = r + 2k′ that
+                                                                                 
+                                bSGD T, ρ, b, p′ , r 0 bSQ0/1 k′ , τ ′ , b, p, r
+The proof is complete by combining the above.
+
+
+E    fbGD versus PAC and SQ : Proofs of Theorems 3a to 3d
+Before proving Theorems 3a to 3d, we state the analogs of Lemmas 3a, 3b and 4 relating fbGD and fbSQ (fbSQ0/1 )
+(the proofs follow in an identical manner, so we skip it).
+Lemma 12a. (fbSQ0/1 to fbGD) For all τ ∈ (0, 1) and m, k, p, r ∈ N, it holds that
+                              τ                                 
+             fbGD T ′ = k, ρ = , m, p′ = r + (p + 1)k, r ′ = r 0 fbSQ0/1 (k, τ, m, p, r) .
+                               4
+                    0/1
+Lemma 12b. (fbSQTM to fbGDσNN) For all τ ∈ (0, 31 ) and m, k, p, r ∈ N, and using the activation σ from Figure 1,
+it holds that
+                                                                     
+           σ    ′       τ     ′            1                      ′                0/1
+     fbGDNN T = k, ρ = , m, p = poly(k, , m, p, r, T IME ), r = r 0 fbSQTM (k, τ, m, p, r, T IME ) .
+                        4                  τ
+Lemma 13. (fbGD to fbSQ) For all T, ρ, m, p, r, it holds that
+                                             ρ          
+                        fbSQ k = T, τ = , m, p, r 0 fbGD(T, ρ, m, p, r) .
+                                              4
+Furthermore, for every poly-time computable activation σ, it holds for T IME = poly(T, p, m, r) that
+                                    ρ                                    
+             fbSQTM k = T, τ = , m, p, r, T IME = poly(T, p, m, r) 0 fbGDσNN(T, ρ, m, p, r) .
+                                     4
+Finally, we put together all the tools developed in Sections 4 and 5 along with the above Lemmas to prove
+Theorems 3a to 3d. As in Appendix D, we only show the proofs for the computationally unbounded case, as a
+near identical derivation achieves the required results for the computationally bounded case.
+
+Proof of Theorem 3a. From Lemma 6, we have that for all m, τ < 1/(2m) and r, it holds for k = 2m(n + 1),
+p = 1, r ′ = r that
+                                fbSQ0/1 (k, τ, m, p, r ′ ) 0 PAC(m, r)
+From Lemma 12a (correspondingly Lemma 12b for the computationally bounded case), we then have that for
+T = k = O(mn), ρ = τ /4 < 1/(8m), p′ = r ′ + (p + 1)k = r + O(mn), it holds that
+                                 fbGD(T, ρ, m, p′ , r ′ ) δ fbSQ0/1 (k, τ, m, p, r ′ )
+The proof is complete by combining the above.
+
+                                                          35
+Proof of Theorem 3b. Any fbGD(T, ρ, m, p, r) algorithm can be simulated by a PAC(m, r) algorithm with m sam-
+ples. Moreover, there is no loss in the error ensured by this simulation.
+
+Proof of Theorem 3c. From Lemma 13 it holds for all T, ρ, m, p, r and k = T , τ = ρ/4 that
+
+                                 fbSQ(k, τ, m, p, r) 0 fbGD(T, ρ, m, p, r) .
+
+And by Lemma 5c, there exists a constant C such that for k′ = kp = T p and τ ′ = τ2 = ρ8 it holds for all m such
+that mτ 2 > C(kp log(1/τ ) + log(1/δ)) that
+
+                                     SQ(k′ , τ ′ , r) δ bSQ(k, τ, m, p, r) .
+
+The proof is complete by combining the above.
+
+Proof of Theorem 3d. From Lemma 7, there exists a constant C such that for all m, τ ′ = τ4 satisfying mτ 2 ≥
+C(k log(1/τ ) + log(1/δ)) it holds for k′ = 2k and p = 1 that
+
+                                    fbSQ0/1 (k′ , τ ′ , m, p, r) δ SQ(k, τ, r)
+
+Finally, from Lemma 12a (correspondingly Lemma 12b for the computationally bounded case) we have that for
+               ′
+T = k′ , ρ = τ4 and p′ = r + (p + 1)k′ = r + 2k′ that
+                                                                                         
+                               fbGD T, ρ, m, p′ , r       0 fbSQ0/1 k′ , τ ′ , m, p, r
+
+The proof is complete by combining the above.
+
+
+
+
+                                                            36
+

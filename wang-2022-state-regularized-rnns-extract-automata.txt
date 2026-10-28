@@ -1,0 +1,997 @@
+                                         IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                                                                                 1
+
+
+
+
+                                         State-Regularized Recurrent Neural Networks to
+                                            Extract Automata and Explain Predictions
+                                                                     Cheng Wang† , Member IEEE, Carolin Lawrence, Mathias Niepert
+
+                                              Abstract—Recurrent neural networks are a widely used class of neural architectures. They have, however, two shortcomings. First, they
+                                              are often treated as black-box models and as such it is difficult to understand what exactly they learn as well as how they arrive at a
+                                              particular prediction. Second, they tend to work poorly on sequences requiring long-term memorization, despite having this capacity in
+                                              principle. We aim to address both shortcomings with a class of recurrent networks that use a stochastic state transition mechanism
+                                              between cell applications. This mechanism, which we term state-regularization, makes RNNs transition between a finite set of learnable
+
+
+
+
+arXiv:2212.05178v1 [cs.LG] 10 Dec 2022
+                                              states. We evaluate state-regularized RNNs on (1) regular languages for the purpose of automata extraction; (2) non-regular languages
+                                              such as balanced parentheses and palindromes where external memory is required; and (3) real-word sequence learning tasks for
+                                              sentiment analysis, visual object recognition and text categorisation. We show that state-regularization (a) simplifies the extraction of finite
+                                              state automata that display an RNN’s state transition dynamic; (b) forces RNNs to operate more like automata with external memory and
+                                              less like finite state machines, which potentiality leads to a more structural memory; (c) leads to better interpretability and explainability of
+                                              RNNs by leveraging the probabilistic finite state transition mechanism over time steps.
+
+                                               Index Terms—recurrent neural networks, memorization, automata extraction, state machine, interpretability, explainability.
+
+                                                                                                                      F
+
+                                         1    I NTRODUCTION
+                                                                                                                                                a-z             a-z             a-z
+
+
+                                         R     ECURRENT neural networks (RNNs) have found their
+                                               way into numerous applications. Still, RNNs have
+                                         two shortcomings. First, it is difficult to understand what
+                                                                                                                          S → (S) ∣ SS ∣ T
+                                                                                                                          T → a ∣ b ∣ ... ∣ z
+                                                                                                                                                      (
+                                                                                                                                                            (
+
+                                                                                                                                                            (
+                                                                                                                                                                            (
+
+                                                                                                                                                                            (
+
+
+                                                                                                                                                                            )
+                                                                                                                                                                                (     (
+                                                                                                                                                                                            q0, (, ⊥
+                                                                                                                                                                                            q0, ), •
+                                                                                                                                                                                            q0, a-z, •
+                                                                                                                                                                                                         q0
+                                                                                                                                                                                                         q1, A⊥
+                                                                                                                                                                                                         q1, X•
+                                                                                                                                                                                                         q0, •
+                                                                                                                                                                                                                         q1
+                                                                                                                                                                                                                  q1, (, A
+                                                                                                                                                                                                                  q1, (, B
+                                                                                                                                                                                                                  q1, ), A
+                                                                                                                                                                                                                               q1, BA
+                                                                                                                                                                                                                               q1, BB
+                                                                                                                                                                                                                               q0, ε
+                                                                                                                                                           )                                                      q1, ), B     q1, ε
+                                         concretely RNNs learn. However, some applications require                                                    a-z,(,)         a-z
+                                                                                                                                                                            )
+                                                                                                                                                                                      a-z                         q1, a-z, •   q1, • [•≠X]
+                                                                                                                                                                                                                  q1, •, X     q1, X
+                                         a close inspection of learned models before deployment
+                                         and RNNs are more difficult to interpret than rule-based
+                                                                                                                          Fig. 1: (Left) The context-free grammar for the language of
+                                         systems. There are a number of approaches for extracting
+                                                                                                                          balanced parentheses (BP). (Center) A DFA that recognizes
+                                         deterministic finite automata (DFAs) from trained RNNs [22],
+                                                                                                                          BP up to depth 4. (Right) A deterministic pushdown automa-
+                                         [61], [62] as a means to analyze their behavior. These
+                                                                                                                          ton (DPDA) that recognizes BP for all depths. The symbol •
+                                         methods apply extraction algorithms after training and it
+                                                                                                                          is a wildcard and stands for all possible tokens. The DPDA
+                                         remains challenging to determine whether the extracted DFA
+                                                                                                                          extrapolates to all sequences of BP, the DFA recognizes only
+                                         faithfully models the RNN’s state transition behavior. Most
+                                                                                                                          those up to nesting depth 4.
+                                         extraction methods are rather complex, depend crucially
+                                         on hyperparameter choices, and tend to be computationally
+                                         costly. Second, RNNs tend to work poorly on input sequences
+                                         requiring long-term memorization, despite having this ability                    towards addressing both of the aforementioned problems.
+                                         in principle. Indeed, there is a growing body of work                            State-regularized RNNs (SR -RNNs) are a class of recurrent
+                                         providing evidence, both empirically [3], [13], [56] and                         networks that utilize a stochastic state transition mechanism
+                                         theoretically [1], [42], [74], that recurrent networks offer no                  between cell applications. The stochastic mechanism models
+                                         benefit on longer sequences, at least under certain conditions.                  a probabilistic state dynamic that lets the SR -RNNs transition
+                                         Intuitively, RNNs tend to operate more like DFAs with a large                    between a finite number of learnable states. The parameters
+                                         number of states, attempting to memorize all the information                     of the stochastic mechanism are trained jointly with the
+                                         about the input sequence solely with their hidden states, and                    parameters of the base RNN.
+                                         less like automata with external memory.                                             SR -RNNs have several advantages over standard RNNs.
+                                             We propose state-regularized RNNs as a possible step                         First, instead of having to apply post-training DFA extraction,
+                                                                                                                          SR -RNNs determine their (probabilistic and deterministic)
+
+                                             † Work done while at NEC Laboratories Europe.
+                                                                                                                          state transition behavior more directly. We propose a method
+                                         •
+                                         •   Cheng Wang is with Amazon, Berlin, Germany. E-mail:
+                                                                                                                          that extracts DFAs truly representing the state transition
+                                             dr.rer.nat.chengwang@gmail.com.                                              behavior of the underlying RNNs. Second, we hypothesize
+                                         •   Carolin Lawrence is with NEC Laboratories Europe, Heidelberg, Germany,       that the frequently-observed poor extrapolation behavior of
+                                             E-mail: carolin.lawrence@neclab.eu.                                          RNNs is caused by memorization with hidden states. It is
+                                         •   Mathias Niepert is with NEC Laboratories Europe, Heidelberg, Germany
+                                             and the University of Stuttgart, Stuttgart, Germany, E-mail: math-           known that RNNs – even those with cell states or external
+                                             ias.niepert@neclab.eu.                                                       memory – tend to memorize mainly with their hidden states
+                                         •   Correspondence author: Cheng Wang.                                           and in an unstructured manner [28], [52]. We show that the
+                                         Manuscript received November 1, 2020; revised November 11, 2022.                 state-regularization mechanism shifts representational power
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                  2
+
+to memory components such as the cell state, resulting in         2.2   Deterministic Finite & Pushdown Automata
+improved extrapolation performance.                            We provide some background on deterministic finite au-
+    We support our hypotheses through experiments both         tomata (DFAs) and deterministic pushdown automata (DP-
+on synthetic and real-world datasets. We explore the im-       DAs) for two reasons. First, one contribution of our work is
+provement of the extrapolation capabilities of SR -RNNs and    a method for extracting DFAs from RNNs. Second, the state
+closely investigate their memorization behavior. For state-    regularization we propose is intended to make RNNs behave
+regularized LSTMs, for instance, we observe that memoriza-     more like DPDAs and less like DFAs by limiting their ability
+tion can be shifted entirely from the hidden state to the cell to memorize with hidden states.
+state. For text and visual data, state-regularization provides      A DFA is a state machine that accepts or rejects sequences
+more intuitive interpretations of the RNNs’ behavior. A        of tokens and produces one unique computation path for
+preliminary version of this work appeared in [59]              each input. Let Σ∗ be the language over the alphabet Σ
+                                                               and let  be the empty sequence. A DFA is a 5-tuple
+                                                               (Q, Σ, δ, q0 , F ) consisting of a finite set of states Q, a finite
+2 BACKGROUND                                                   set of input tokens Σ called the input alphabet, a transition
+                                                               functions δ : Q × Σ → Q, a start state q0 and a set of accept
+SR -RNNs add state-regularization to RNNs and therefore
+                                                               states F ⊆ Q. A sequence w is accepted by the DFA if the
+we first define RNNs (Section 2.1). Furthermore, given an SR -
+                                                               application of the transition function, starting with q0 , leads
+RNN, we describe how a DFA can be extracted faithfully and
+                                                               to an accepting state. Figure 1 (center) depicts a DFA for
+thus we describe deterministic finite & pushdown automata
+                                                               the language of balanced parentheses (BP) up to depth 4. A
+(Section 2.2).
+                                                               language is regular if and only if it can be described by a
+                                                               DFA.
+2.1 Recurrent Neural Networks (RNNs)                                A pushdown automata (PDA) is defined as a 7-tuple
+                                                               (Q, Σ, Γ, δ, q0 , ⊥, F ) consisting of a finite set of states Q; a
+RNNs are powerful learning machines. Siegelmann and finite set of input tokens Σ called the input alphabet, a
+Sontag [48], [49], [50], for instance, proved that a variant finite set of tokens Γ called the stack alphabet, a transition
+of Elman-RNNs [15] can simulate a Turing machine. Given function δ ⊆ Q × (Σ ∪ ) × Γ → Q × Γ∗ , a start state q0 ,
+an input xt at t-th time step:                                 the initial stack symbol ⊥, and a set of accepting states
+                                                               F ⊆ Q. Computations of the PDA are applications of the
+                ht = σ(Wh xt + Uh ht−1 + bh ),            (1) transition relations. The computation starts in q with the
+                                                                                                                       0
+                yt = σ(Wy xt + by ),                      (2) initial stack symbol ⊥ on the stack and sequence w as input.
+                                                               The pushdown automaton accepts w if after reading w the
+where W, U, bh , by are parameters, σ is the sigmoid acti- automaton reaches an accepting state. Figure 1 (right) depicts
+vation function, h is the hidden representation and y the a deterministic PDA for the language BP.
+output. The key issue for an RNN is to learn to preserve
+information over long time steps due to vanishing gradients.
+To alleviate this, several RNN variations have been proposed. 3 R ELATED W ORK
+Two popular ones are Long Short-Term Memories (LSTMs)
+[29] and Gated Recurrent Units (GRUs) [8]. An LSTM consists Our SR -RNNs and applications relate to four different lines
+of an input gate i, a forget gate f , a memory cell c and an of work. First, we discuss existing works that examine how
+output gate o:                                                 to extract DFAs from RNNs (Section 3.1). Second, we look
+                                                               at alternative options for regularizing RNNs (Section 3.2).
+                ft = σ(Wf xt + Uf ht−1 + bf ),            (3) Third, we describe other RNN extensions that modify the
+                                                               state or add an external memory (Section 3.3). Fourth, we
+                it = σ(Wi xt + Ui ht−1 + bi ),            (4)
+                                                               list approaches to better understand RNNs and discuss how
+                ot = σ(Wo xt + Uo ht−1 + bo ),            (5) SR -RNNs can support with this effort (Section 3.4).
+                cˆt = φ(Wc xt + Uc ht−1 + bc ),           (6)
+               ct = ft ct−1 + it      ĉt ,                 (7)
+                                                                  3.1   Extracting DFAs from RNNs
+               ht = ot φ(ct );                              (8)
+                                                                  Extracting DFAs from RNNs goes back to work on first-
+a GRU has an update gate z and an reset gate r:                   generation RNNs in the 1990s [22], [71]. These methods
+                                                                  perform a clustering of hidden states after the RNNs are
+              zt = σ(Wz xt + Uz ht−1 + bz ),                (9)   trained [18], [22], [60]. Recent work introduced more sophis-
+              rt = σ(Wr xt + Ur ht−1 + br ),               (10)   ticated learning approaches to extract DFAs from LSTMs and
+                                                                  GRUs [62]. The latter methods tend to be more successful in
+              ĥt = φ(Wh xt + rt     ht−1 + bh ,           (11)   finding DFAs behaving similar to the underlying RNN. In
+              ht = zt    ĥt + (1 − z)        ht−1 ,       (12)   contrast to all existing methods, SR -RNNs learn an explicit
+                                                                  set of states which facilitates the extraction of DFAs from
+where φ is hyperbolic tangent function and is the element-        memory-less SR -RNNs by modelling exactly their state
+wise multiplication operation. Recent work considers the          transition dynamics. A different line of work attempt to
+more practical situation where RNNs have finite precision         learn more interpretable RNNs [16], or rule-based classifiers
+and linear computation time in their input length [63].           from RNNs [44].
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                    3
+
+3.2   Regularizations of RNNs                                      4     S TATE -R EGULARIZED R ECURRENT N ETWORKS
+There is a large body of work on regularization techniques         The standard recurrence of an RNN is ht = f (ht−1 , xt )
+for RNNs. Most of these adapt regularization approaches            where ht−1 is the hidden state vector at time t − 1, and ht
+developed for feed-forward networks to the recurrent setting.      and xt are the hidden state and the input symbol at time t,
+Representative instances are dropout regularization [68],          respectively. We refer to RNNs whose unrolled cells are only
+variational dropout [19], weight-dropped LSTMs [41], Zone-         connected through gated hidden states h as RNNs without
+out [35] and noise injection [14]. Two approaches that can im-     ∞-memory. This is because values of gated hidden states h
+prove convergence and generalization capabilities are batch        can only be in a particular interval, such as [−1, 1] for tanh
+normalization [9] and weight initialization strategies [36]        and not (−∞, ∞). This limits, in this case, the information
+for RNNs. In contrast, the proposed SR -RNNs regularize            flow between cells to values between −1 and 1 and, therefore,
+the number of hidden states to a finite set of states. As a        memorization has to be performed with fractional changes.
+result, LSTMs with state regularization can learn in a more        The family of GRUs is without ∞-memory, while LSTMs
+structural manner, which leads to improved generalization.         have ∞-memory due to their cell state.
+                                                                      A cell of a state-regularized RNN (SR -RNN) consist of
+                                                                   two components. The first component, which we refer to as
+3.3   State and External Memory Extensions to RNNs                 the recurrent component, applies the function of a standard
+The work most similar to SR -RNNs are self-clustering              RNN cell
+RNNs [71]. These RNNs learn discretized states, that is,                              ut = f (ht−1 , ct−1 , xt ) .            (13)
+binary valued hidden state vectors, and it can be shown that       For the sake of completeness, we include the cell state c here,
+these networks generalize better to longer input sequences.        which is absent in RNNs without ∞-memory.
+Contrary to self-clustering RNNs, we propose an end-to-                We propose a second component which we refer to as
+end differentiable probabilistic state transition mechanism        stochastic component. The stochastic component is responsible
+between cell applications.                                         for modeling the probabilistic state transitions that let the
+    Stochastic RNNs are a class of generative recurrent mod-       RNN transition implicitly between a finite number of states.
+els for sequence data [4], [17], [23]. They model uncertainty in   Let d be the size of the hidden state vectors of the recurrent
+the hidden states of an RNN by introducing latent variables.       cells. Moreover, let ∆D := {λ ∈ RD      + :k λ k= 1} be the (D −
+In contrast to SR -RNNs, stochastic RNNs do not model              1) probability simplex. The stochastic component maintains
+probabilistic state transition dynamics. Hence, they do not        k learnable centroids s1 , ..., sk of size d which we often write
+address the problem of overfitting through hidden state            as the column vectors of a matrix S ∈ Rd×k . The weights
+memorization nor can they improve DFA extraction.                  of these centroids are global parameters shared among all
+    There are proposals for extending RNNs with various            cells. The stochastic component computes, at each time step
+types of external memory. Representative examples are the          t, a discrete probability distribution from the output ut of
+neural Turing machine [24], improvements thereof [25],             the recurrent component and the centroids of the stochastic
+memory network [64], associative LSTM [12], and RNNs               component
+augmented with neural stacks, queues, and deques [26].                              α = ω(S, ut ) with α ∈ ∆k .                 (14)
+Contrary to these proposals, we do not augment RNNs with
+differentiable data structures but regularize RNNs to make         Crucially, instances of ω should be differentiable to facilitate
+better use of existing memory components such as the cell          end-to-end training. Typical instances of the function ω are
+state. We hope, however, that differentiable neural computers      based on the dot-product, normalized into a probability
+could benefit from state-regularization.                           distribution
+                                                                                           exp ((ut · si )/τ )
+                                                                                    αi = Pk                                    (15)
+                                                                                          i=1 exp ((ut · si )/τ )
+3.4   Understanding RNNs
+                                                                   Here, · is the inner product between two vectors and τ is
+Approaches for understanding CNNs [51], [70], [72] have            a temperature parameter that can be used to anneal the
+been explored extensively. Studies for interpreting and            probabilistic state transition behavior. The lower τ the more
+explaining RNNs are less common. [32] revealed the                 α resembles the one-hot encoding of a centroid. The higher
+existence of interpretable LSTM cells with character-level         τ the more uniform α becomes. Equation 15 is reminiscent
+language models. [38] visualized neural language models.           of the equations of attentive mechanisms [2], [57]. However,
+[52] presented a visual analysis tool (namely, LSTMVIS) for        instead of attending to the hidden states, SR -RNNs attend
+visualizing the raw gate activations of LSTMs on under-            to the k centroids to compute transition probabilities. Each
+standing these hidden state dynamics over sequences. While         αi is the probability of the RNN to transition to centroid
+the methods can identify the semantic correlations between         (state) i given the vector ut for which we write put (i) = αi .
+hidden cells and abstract attributes or concepts, it is still      The method has been recently introduced to estimate the
+not obvious how to explain the prediction for given inputs.        uncertainty of RNN [58] and transformer models [45].
+One of the most recent methods from [44] describe a method
+to extract simple phrase patterns for determining LSTM
+predictions. With state-regularization we are able to increase     4.1   State Transition Mechanisms
+the interpretability of RNNs by inspecting the probabilistic       The state transition dynamics of an SR -RNN is that of a
+state transition over time steps and by directly extracting        probabilistic finite state machine. At each time step, when
+automata from trained RNN models.                                  in state ht−1 and reading input symbol xt , the probability
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                                                                        4
+
+                              centroids                                                  centroids                                                   centroids
+                                         ...                                                    ...                                                         ...
+   ht-1     RNN      ut                             ht   RNN     ht-1   RNN    ut                           ht   RNN       ht-1   RNN     ut                          ht   RNN
+                          x      x             x                                     x      x         x                                          x      x         x
+            cell                                         cell           cell                                     cell             cell                                     cell
+                           normalize                                                  normalize                                                      normalize
+                          soft argmax                                               gumbel-softmax
+             xt                                           xt+1           xt                                       xt+1             xt           α1 +α2 ...+αk =             xt+1
+
+
+                  Fig. 2: Three possible instances of an SR -RNN corresponding to equations 17, 19 and 20 respectively.
+
+                     τ = 0. 1                      τ = 0. 5      τ=1                 τ=5                     τ = 10          τ = 50
+      (S)
+
+      (1)                                                                                                                                                                   1
+                                                                                                                                                              1             0
+            1.0
+      (0) 0.5                                                                                                                                                         0
+            0.0                                                                                                                                               3             9
+                  0 2 4 6 8 10
+Fig. 3: (Left) State transition probabilities for the SR -GRU learned from the data for the Tomita 1 grammar, for temperatures
+τ and input sequence [10]. S is the start token. Centroids are listed on x-axis, probabilities on y-axis. Up to temperature τ = 1
+the behavior of the trained SR -GRUs is almost identical to that of a DFA. Despite the availability of k = 10 centroids, the
+trained SR -GRUs use the minimal set of states for τ ≤ 1. (Right) The extracted DFA for Tomita grammar 1 and temperature
+τ = 0.5.
+
+
+for transitioning to state si is αi . Hence, in its second phase,                               (k − 1)-dimensional probability simplex. Each instance αi ∈
+the stochastic component computes the hidden state ht at                                        α is assigned a probability, that is,
+time step t from the distribution α and the matrix S with a                                                      exp(((ut · si ) + gi )/τ )
+(possibly stochastic) mapping h : ∆k × Rd×k → Rd . Thus,                                                  αi = Pk                             , i ∈ [1 . . . k],                   (19)
+ht = h(α, S). An instance of h is to                                                                            j=1 exp((ut · sj ) + gj )/τ )
+
+                                                                                                where τ is a temperature and α approaches z as τ → 0.
+                     sample j ∼ put and set ht = sj .                               (16)        Recently [58] showed this approach is able to learn better-
+                                                                                                calibrated models.
+Assigning a particular centroid to be a hidden state, i.e.                                          Third, it is possible to set the hidden state ht to be the
+ht = sj , is equivalent to an one-hot encoding of centroids.                                    probabilistic mixture of the centroids
+However, the direct application of arg max renders the                                                                                  k
+SR -RNN not end-to-end differentiable. To ensure end-to-
+                                                                                                                                        X
+                                                                                                                               ht =           αi si .                              (20)
+end differentiability, there are three possible alternative to                                                                          i=1
+represent states sj : (1) soft argmax, (2) gumbel-softmax [27],
+[30], [33] and (3) mixture of centroids.                                                        Every internal state h of the SR -RNN, therefore, is computed
+                                                                                                as a weighted sum h = α1 s1 + ... + αk sk of the centroids
+    First, a soft and differentiable version of arg max can
+                                                                                                s1 , ..., sk with α ∈ ∆k . Here, h is a smoothed variant in
+be achieved using Equation 15 with a low temperature
+                                                                                                contrast to a hard assignment to one of the centroids. Figure 2
+parameter τ and as τ approaches 0, α approximates a one-
+                                                                                                depicts the three variants of the proposed SR -RNNs.
+hot distribution and is differentiable.
+                                                                                                     The probabilistic state transition mechanism is also
+                         exp ((ut · si )/τ )                                                   applicable when RNNs have more than one hidden layer.
+  α = ONE HOT arg max( Pk                       ) ,                                 (17)        In RNNs with l > 1 hidden layers, every such layer can
+                  i     j=1 exp ((ut · sj )/τ )                                                 maintain its own centroids and stochastic component. In this
+                                                                                                case, a global state of the SR -RNN is an l-tuple, with the lth
+when τ approaches 0, the α approximates one-hot distribu-
+                                                                                                argument of the tuple corresponding to the centroids of the
+tion, but it offers differentiablity to SR -RNN.
+                                                                                                lth layer.
+    Second, with the gumbel-trick it is possible to draw sam-                                        Even though we have augmented the original RNN
+ples z from a categorical distribution given by paramaters θ ,                                  with additional learnable parameter vectors, we are actually
+that is,                                                                                        constraining the SR -RNN to output hidden state vectors
+                                                                                               that are similar to the centroids. For lower temperatures and
+  z = ONE HOT arg max[gi + (ut · si )] , i ∈ [1 . . . k], (18)                                  smaller values for k , the ability of the SR -RNN to memorize
+                                     i
+                                                                                                with its hidden states is increasingly impoverished. We argue
+where gi are i.i.d. samples from the G UMBEL(0, 1), that is, g =                                that this behavior is beneficial for three reasons:
+− log(− log(u)), u ∼ UNIFORM(0, 1). Because the arg max                                            • First, it makes the extraction of interpretable DFAs
+operator breaks end-to-end differentiability, the categorical                                          from memory-less SR -RNNs straight-forward. Instead
+distribution z can be approximated using the differentiable                                            of applying post-training DFA extraction as in previous
+softmax function [30], [33]. This enables us to draw a k -                                             work [61], [62], we extract the true underlying DFA
+dimensional sample vector α ∈ ∆k−1 , where ∆k−1 is the                                                 directly from the SR -RNN. Specifically, SR -RNNs don’t
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                               5
+
+     need an intermediate step that extracts representations               Algorithm 1 Learning transition function (counts-based)
+     from pre-trained RNN models and performs clustering                   Input: model M, dataset D, alphabet Σ, start token s
+     e.g., k-means over the representations. This is automati-             Output: transition function δ
+     cally done by equations (14),(15),(16) and Algorithm11                 1: \* the transition prob. of start token *\
+   • Second, we hypothesize that overfitting in the context                 2: Φ[(si , xt , sj )] = 0, i, j ∈ {1, ..., k}, xt ∈ Σ
+     of RNNs is often caused by memorization via hidden                     3: α = M(s), α = {αi }, i ∈ {1, ..., k}
+     states. Indeed, we show that regularizing the state space              4: \* select the next state *\
+     pushes representational power to memory components                     5: i = arg maxi∈{1,...,k} [α], sstart = si
+     such as the cell state of an LSTM, resulting in improved               6: \* compute and update for each input symbol *\
+     extrapolation behavior.                                                7: for x = (x1 , x2 , ..., xT ) ∈ D do
+   • Third, the values of hidden states tend to increase in                 8:   for t ∈ [1, ..., T ] do
+     magnitude with the length of the input sequence, a                     9:      j = arg maxi∈{1,...,k} [M(xt )], send = sj
+     behavior that has been termed drifting [71]. The proposed             10:      Φ[(sstart , xt , send )] ← Φ[(sstart , xt , send )] + 1
+     state regularization stabilizes the hidden states for longer          11:      sstart = send
+     sequences.                                                            12:   end for
+    Next, let us explore some of the theoretical properties                13: end for
+of the proposed mechanism. We show that the addition                       14: \* compute transition function based on transition counts *\
+of the stochastic component, when capturing the complete                   15: for i, j ∈ {1, ..., k} and xt ∈ Σ do
+information flow between cells as, for instance, in the case of            16:   δ(si , xt ) = arg maxj∈{1,...,k} Φ[(si , xt , sj )]
+GRUs, makes the resulting RNN’s state transition behavior                  17: end for
+identical to that of a probabilistic finite state machine.
+Theorem 4.1. The state transition behavior of an SR -RNN
+without ∞-memory using Equation 16 is identical to that of                    Alternatively, we can learn the transition function based
+a probabilistic finite automaton.                                          on mean transition probability, rather than transition counts.
+                                                                           This can be achieved by computing the mean transition
+Theorem 4.2. For τ → 0 the state transition behavior of an SR -            probability:
+RNN without ∞-memory (using Equations 16 or 20) is equivalent
+to that of a deterministic finite automaton.                                Φ[(sstart , xt , send )] ← Φ[(sstart , xt , send )] + max[α]. (21)
+      The proofs of the theorems are part of the appendix.                 In this case, δ is learned by computing the maximum mean
+                                                                           transition probability
+4.2    Learning DFAs with State-Regularized RNNs
+                                                                                   δ(si , xt ) = arg max M EAN (Φ[(si , xt , sj )]) .     (22)
+Extracting DFAs from RNNs is motivated by applications                                          j∈{1,...,k}
+where a thorough understanding of learned neural models
+is required before deployment. SR -RNNs maintain a set                         As a corollary of Theorem 4.2, we have that, for τ → 0, the
+of learnable states and compute and explicitly follow state                extracted transition function becomes increasingly identical
+transition probabilities. It is possible, therefore, to extract            to the transition function of the DFA learned by the SR -
+finite-state transition functions that truly model the underly-            RNN. Figure 3 shows that for a wide range of temperatures
+ing state dynamics of the SR -RNN. The centroids do not have               (including the standard softmax temperature τ = 1) the
+to be extracted from a clustering of a number of observed                  transition behavior of an SR -GRU is identical to that of a
+hidden states but can be read off of the trained model. This               DFA, a behavior we can show to be common when SR -RNNs
+renders the extraction also more efficient.                                are trained on regular languages.
+    We developed two possible approaches, transition counts-
+based and mean transition probability-based, to extract DFAs.
+First, we adapt previous work [46], [61] to construct the tran-            4.3 Learning Non-Regular            Languages       with     State-
+sition function of an SR -RNN. We begin with the start token               Regularized LSTMs
+of an input sequence, compute the transition probabilities α,              For more complex languages, such as context-free languages,
+and move the SR -RNN to the highest probability state. We                  RNNs that behave like DFAs generalize poorly to longer
+continue this process until we have seen the last input token.             sequences. The DPDA shown in Figure 1, for instance,
+By doing this, we get a count of transitions from every state si           correctly recognizes the language of BP, while the DFA only
+and input token a ∈ Σ to the following states (including self-             recognizes it up to nesting depth 4. We want to encourage
+loops). After obtaining the transition counts, we keep only                RNNs with memory to behave more like DPDAs and less
+the most frequent transitions and discard all other transitions.           like DFAs. The transition function δ of a DPDA takes (a)
+Concretely, Algorithm 1 presents the pseudo-code of DFA                    the current state, (b) the current top stack symbol, and (c)
+extraction, where Φ[(si , xt , sj )] is a dictionary of transitions        the current input symbol and maps these inputs to (1) a
+and counts, where the tuple (si , xt , sj ) denotes a transition           new state and (2) a replacement of the top stack symbol (see
+from centroid si to sj given an input symbol xt and δ is the               Section 2). Hence, to allow an SR -RNN, such as the SR -LSTM,
+returned transition function.                                              to operate in a manner similar to a DPDA we need to give
+                                                                           the RNNs access to these three inputs when deciding what
+  1. It can be integrated to the training loop and output extract DFA at
+every epoch. Importantly, we don’t need to explicity tune the number of    to forget from and what to add to the memory. Precisely this
+clusters k.                                                                is accomplished for LSTMs with peephole connections [21].
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                         6
+                                                                                   1
+
+                                                 0
+                                                                                25
+                                    1                                       0
+                                    0                  1         0          0
+                                                 38        49          11          1           1                                  1
+                                                       1                                                                          0
+                           0                                                       0
+                                    4                                       1                          0     16
+                  3             1                                                                                 0
+                       1                                                                               1
+                                                                                               38                             0
+                       0   10                                                   35                           1         8          27
+
+
+
+Fig. 4: Extracted DFAs of the Tomita grammars 2-4. All DFAs are correct. The state numbers correspond to the index of the
+learned SR -GRU centroids.
+
+                 Dataset                              Large Dataset                                 Small Dataset
+                 Models                  LSTM         SR -LSTM       SR -LSTM- P       LSTM     SR -LSTM          SR -LSTM- P
+                 d ∈ [1, 10], l ≤ 100    0.005         0.038            0.000          0.068         0.037            0.017
+                 d ∈ [10, 20], l ≤ 100   0.334         0.255            0.001          0.472         0.347            0.189
+                 d ∈ [10, 20], l ≤ 200   0.341         0.313            0.003          0.479         0.352            0.196
+                 d = 5, l ≤ 200          0.002         0.044            0.000          0.042         0.028            0.015
+                 d = 10, l ≤ 200         0.207         0.227            0.004          0.409         0.279            0.138
+                 d = 20, l ≤ 1000        0.543         0.540            0.020          0.519         0.508            0.380
+
+
+TABLE 1: Error rates for the balanced parentheses (BP) test sets (d=depth, l=length, k =5 centroids, the training depth ≤ 5).
+
+
+Concretely, to update the memory, the cell state of a LSTM              4.5.1   Extracting RNN Model Prototypes
+incorporates forget, input and output gates:
+                                                                        To understand what RNN models learn on training data, we
+   ft = σ Wf xt + Rf ht−1 + pf ct−1 +bf ,
+                                            
+                                                        (23)            are interested in what each learned centroid can represent,
+             i        i
+   it = σ W xt + R ht−1 + p    i          i
+                                  ct−1 +b ,
+                                            
+                                                        (24)            because the learning of a centroid is essentially a “prototype-
+                                                                        based clustering” which is similar to learning vector quan-
+   ot = σ Wo xt + Ro ht−1 + po ct +bo ,
+                                            
+                                                        (25)            tization (LVQ) [34]. When RNN models are trained in a
+where ht−1 is the output of the previous cell’s stochastic com-         supervised manner, the centroids can be learned to represent
+ponent; Ws and Rs are the matrices of the original LSTM; the            the semantic meaning of each categorical class. To represent
+ps are the parameters of the peephole connections; and is               centroids with most representative inputs, we keep track
+the elementwise multiplication. We show empirically that the            of the input with highest probability for each centroid. The
+resulting SR -LSTM- P operates like a DPDA, incorporating               set of words or pixels with highest transition probability
+the current cell state when making decisions about changes              are used to represent a specific centroid. We summarize the
+to the next cell state.                                                 procedure in Algorithm 2.
+
+4.4   Practical Considerations                                          Algorithm 2 Generating model prototype
+Implementing SR -RNNs only requires extending existing                  Input: trained model M, training dataset Dtrain
+RNN cells with a stochastic component. We have found the                Output: the top N prototypical words for each centroid
+use of start and end tokens to be beneficial. The start token               Vi = {x}N  i , i ∈ {1, ..., k}
+is used to transition the SR -RNN to a centroid representing             1: \* initialise an empty set for each centroid *\
+the start state which then does not have to be fixed a                   2: si = {}, i ∈ {1, ..., k}
+priori. The end token is used to perform one more cell                   3: for x = (x1 , x2 , ..., xT ) ∈ Dtrain do
+application but without applying the stochastic component                4:    for t ∈ [1, ..., T ] do
+before a classification layer. The end token lets the SR -RNN            5:      \* select the centroid that word xt has highest prob. *\
+consider both the cell state and the hidden state to make the            6:      j = arg maxi∈{1,...,k} [M(xt )]
+accept/reject decision. We find that a temperature of τ = 1              7:      \* update the top N words for j -th centroid *\
+(standard softmax) and an initialization of the centroids with           8:      Vj .UPDATE(xt )
+values sampled uniformly from [−0.5, 0.5] work well across               9:    end for
+different datasets.                                                     10: end for
+
+4.5   Understanding RNN Models and Predictions
+State-regularization provides new ways to interpret the
+                                                                        4.5.2   Explaining RNN Predictions
+working of RNNs. Since SR -RNNs have a finite set of states,
+we can use the observed transition probabilities to visualize           When applying a trained model to predict on test samples,
+their behavior. We argue that the proposed probabilistic state          it is often difficult to understand how the model arrived at
+transition mechanism helps to understand RNN in: (1) model              the prediction. Probabilistic state transition offers a way to
+interpretation, what the RNN models learned from training               highlight the input symbols which trigger a high transition
+data and (2) prediction explanation, the explanation for a              probability to each centroid. This allows us to highlight the
+specific prediction. We use the concept and definition of               inputs which are highly relevant for the final predictions. We
+interpretation and explaination from Montavona et al. [43].             summarize this in Algorithm 3.
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                                                         7
+    1.0                                  5                                              1.0                                            5
+                                         4                                                                                             4
+    0.5                                  3                                              0.5                                            3
+                                         2                                                                                             2
+                                         1                                                                                             1
+    0.0                                  0                                              0.0                                            0
+                                         1                                                                                             1
+    0.5                                  2                                              0.5                                            2
+                                         3                                                                                             3
+                                         4                                                                                             4
+    1.0                                  5
+          (f)((v)(a))(((n))(k))              ( f ) ( ( v ) ( a ) ) ( ( ( n ) ) ( k ) ) 1.0 ( f ) ( ( v ) ( a ) ) ( ( ( n ) ) ( k ) )   5
+                                                                                                                                           (f)((v)(a))(((n))(k))
+            (a) ht of the LSTM                   (b) ct of the LSTM                           (c) ht of the SR -LSTM- P                    (d) ct of the SR -LSTM- P
+
+Fig. 5: Visualization of hidden state ht and cell state ct of the LSTM and the SR -LSTM- P for a specific input sequence from
+BP. Each color corresponds to one of 10 hidden units. The LSTM memorizes the number of open parentheses both in the
+hidden and, to a lesser extent, in the cell state (bold yellow lines). The memorization is not accomplished with saturated gate
+outputs and a drift is observable for both vectors. The SR -LSTM- P maintains two distinct hidden states (accept and reject)
+and does not visibly memorize counts through its hidden states. The cell state is used to cleanly memorize the number of
+open parentheses (bold red line) with saturated gate outputs (±1). For SR -LSTM- P, a state vector drift is not observable;
+solutions with less drift generalize better [20].
+
+
+Algorithm 3 Explaining model prediction                                                Theano [53] 2 . All experiments were performed on a single
+Input: model M, a test sample U = {ut }T1 , vocabulary Σ                               Titan Xp with 12G memory. The hyper-parameter were tuned
+    (in language task)                                                                 to make sure the vanilla RNNs achieve the best performance.
+Output: model prediction y and its explanation.
+ 1: \* initialise an empty word-centroid transition matrix Pti ,                       5.1      Regular Languages and DFA Extraction
+    i ∈ {1, ..., k} *\                                                                 We evaluate the DFA extraction algorithm for SR -RNNs on
+ 2: \* compute transition prob. for each word u *\                                     RNNs trained on the Tomita grammars [55], which have
+ 3: for u = (u1 , u2 , ..., uT ) ∈ U do                                                been used as benchmarks in previous work [61], [62]. We use
+ 4:    \* output y , last centroid index j , and Pti *\                                available code [62] to generate training and test data for the
+ 5:    y, j, Pti ⇐ M(u)                                                                regular languages. We first trained a single-layer GRU with
+ 6:    generate explanations (e.g.,heatmap or highlight words) with                    100 units on the data. We use GRUs since they are memory-
+       {ut }T1 , {Ptj }T1 , Σ by mapping Pjt to ut .                                   less and, hence, Theorem 4.2 applies. Whenever the GRU
+ 7: end for                                                                            converged within 1 hour to a training accuracy of 100%, we
+                                                                                       also trained an SR -GRU based on Equations 15 and 20 with
+     Number of centroids         k=2     k=5           k = 10        k = 50            k = 50 and τ = 1. This was the case for the Grammars 1-4
+     d ∈ [1, 10], l ≤ 100        0.019   0.017          0.021         0.034            and 7. The difference in time to convergence between the
+     d ∈ [10, 20], l ≤ 100       0.096   0.189          0.205         0.192            vanilla GRU and the SR -GRU was negligible. We applied
+     d ∈ [10, 20], l ≤ 200       0.097   0.196          0.213         0.191            the transition function extraction outlined in Section 4.2. In
+     d = 5, l ≤ 200              0.014   0.015          0.012         0.047
+     d = 10, l ≤ 200             0.038   0.138          0.154         0.128            all cases, we could recover the minimal and correct DFA
+     d = 20, l ≤ 1000            0.399   0.380          0.432         0.410            corresponding to the grammars. Figure 4 depicts the DFAs
+                                                                                       for Grammars 2-4 extracted by our approach. Remarkably,
+TABLE 2: Error rates of the SR -LSTM- P on the small BP test                           even though we provide more centroids (possible states;
+data for various numbers of centroids k (d=depth, l=length).                           here k = 50) the SR -GRU only utilizes the required minimal
+                                                                                       number of states for each of the grammars. Figure 3 visualizes
+                                                                                       the transition probabilities for different temperatures and
+5         E XPERIMENTS                                                                 k = 10 for Grammar 1. The numbers on the states correspond
+We conduct four types of experiments to investigate our                                directly to the centroid numbers of the learned SR -GRU. One
+hypotheses. First, we apply a simple algorithm for extracting                          can observe that the probabilities are spiky, causing the SR -
+DFAs and assess to what extent the true DFAs can be                                    GRU to behave like a DFA for τ ≤ 1.
+recovered from input data. Second, we compare the behavior
+of LSTMs and state-regularized LSTM on non-regular                                     5.2      Non-regular Languages
+languages, such as the languages of balanced parentheses                               We conducted experiments on non-regular languages where
+and palindromes. Third, we investigate the performance of                              external memorization is required. This allows us to in-
+state-regularized LSTMs on non-synthetic datasets. Last, we                            vestigate whether SR -LSTM behave more like DPDAs and,
+visualize the probabilistic state transitions to understand                            therefore, extrapolate to longer sequences. To this end, we
+RNN models and explain their predictions.                                              used the context-free language “balanced parentheses” (BP;
+    Unless otherwise indicated we always (a) use single-                               see Figure 1 (left)) over the alphabet Σ = {a, ..., z, (, )}, used
+layer RNNs, (b) learn an embedding for input tokens before                             in previous work [62]. We created two datasets for BP. A
+feeding it to the RNNs, (c) apply A DADELTA [69] for regular                           large one with 22,286 training sequences (positive: 13,025;
+language and RMS PROP [54] with a learning rate of 0.01                                negative: 9,261) and 6,704 validation sequences (positive:
+and momentum of 0.9 for the rest; (d) do not use dropout or                            3,582; negative: 3,122). The small dataset consists of 1,008
+batch normalization of any kind; and (e) use state-regularized                         training sequences (positive: 601; negative: 407), and 268
+RNNs based on Equations 15 and 20 with a temperature of
+τ = 1 (standard softmax). We implemented SR -RNNs with                                    2. http://www.deeplearning.net/software/theano/
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                  8
+                         0.3                                                      Max Length     100    200    500
+                                          k=2              k=50
+                                          k=5              k=100                  LSTM           31.2   42.0   47.7
+                         0.2              k=10
+
+           Valid Error
+                                                                                  LSTM- P        28.4   36.2   41.5
+                                                                                  SR -LSTM       28.0   36.0   44.6
+                         0.1                                                      SR -LSTM- P    10.5   16.7   29.8
+
+                         0.0                                        TABLE 3: Error rates in % on sequences of varying lengths
+                               0   5         10       15       20   from the Palindrome test set.
+                                       Iterations×104
+Fig. 6: SR -LSTM- P curves on the small BP validation data.
+                                                                    (with peepholes).
+
+validation sequences (positive: 142; negative: 126). Both           5.3   Performance on Real-world Tasks
+datasets have 1000 test samples. The training sequences have        Next we test our state regularization on real world datasets,
+nesting depths d ∈ [1, 5], the validation sequences d ∈ [6, 10]     namely on the tasks for sentiment analysis (Section 5.3.1) and
+and the test sequences d ∈ [0, 20]. We trained the LSTM             digit recognition (Section 5.3.2).
+and the SR -RNNs using curriculum learning as in previous
+work [62], [67] and using the validation error as stopping          5.3.1 Sentiment Analysis
+criterion. We then applied the trained models to unseen
+                                                                    We evaluated state-regularized LSTMs on the IMDB review
+sequences. Table 1 lists the results on 1,000 test sequences
+                                                                    dataset [39]. It consists of 100k movie reviews (25k training,
+with the respective depths and lengths. The results show that
+                                                                    25k test, and 50k unlabeled). We used only the labeled
+both SR -LSTM and SR -LSTM- Ps extrapolate better on longer
+                                                                    training and test reviews. Each review is labeled as positive
+sequences and sequences with deeper nesting. Moreover,
+                                                                    or negative. Table 4 lists the results. The SR -LSTM- P is
+the SR -LSTM- P performs almost perfectly on the large data,
+                                                                    competitive with state of the art methods that also do not
+indicating that peephole connections are indeed beneficial.
+                                                                    use the unlabeled data.
+    To explore the effect of the hyperparameter k , that is, the
+number of centroids of the SR -RNNs, we ran experiments                    Methods                                 Error
+on the small BP dataset varying k and keeping everything                           use additional unlabeled data
+else the same. Table 2 lists the error rates and Figure 6 the              Full+unlabelled+BoW ( [39])             11.1
+error curves on the validation data for the SR -LSTM- P and                LSTM with tuning and dropout ( [11]) 13.50
+different values of k . While two centroids (k = 2) result in              LM-LSTM+unlabelled ( [11])              7.6
+the best error rates for most sequence types, the differences              SA-LSTM+unlabelled ( [11])              7.2
+are not very pronounced. This indicates that the SR -LSTM-                      do not use additional unlabeled data
+P is robust to changes in the hyperparameter k . A close
+                                                                           seq2-bown-CNN ( [31])                   14.7
+                                                                           Vartional Dropout ( [19])3              10.56
+inspection of the transition probabilities reveals that the SR -
+                                                                           WRRBM+BoW(bnc) ( [10])                  10.8
+LSTM- P mostly utilizes two states, independent of the value               JumpLSTM ( [66])                        10.6
+of k . These two states are used as accept and reject states.
+                                                                           LSTM                                    10.1
+These results show that SR -RNNs generalize and tend to                    LSTM- P                                 10.3
+utilize a minimal set states similar to DPDAs.                             SR -LSTM (k = 10)                       9.4
+    A major hypothesis of ours is that the state-regularization            SR -LSTM- P (k = 10, eq. 17)            11.1
+encourages RNNs to operate more like DPDAs. To explore                     SR -LSTM- P (k = 10, eq. 19)            11.0
+this hypothesis, we trained an SR -LSTM- P with 10 units                   SR -LSTM- P (k = 10, eq. 20)            9.2
+                                                                           SR -LSTM- P (k = 50)                    9.8
+on the BP data and visualized both the hidden state ht
+and the cell state ct for various input sequences. Similar
+state visualizations have been used in previous work [52],                    TABLE 4: Test error rates (%) on IMDB.
+[63]. Figure 5 plots the hidden and cell states for a specific
+input, where each color corresponds to a dimension in the
+respective state vectors. As hypothesized, the LSTM relies          5.3.2 Pixel-by-Pixel MNIST
+primarily on its hidden states for memorization. The SR -           We also explored the impact of state-regularization on pixel-
+LSTM- P, on the other hand, does not use its hidden states          by-pixel MNIST [36], [37]. Here, the 784 pixels of MNIST
+for memorization. Instead it utilizes two main states (accept       images are fed to RNNs one by one for classification. This
+and reject) and memorizes the nesting depth cleanly in the          requires the ability to memorize long-term dependencies.
+cell state. The visualization also shows a drifting behavior for    Table 5 shows the results. The classification function has the
+the LSTM, in line with observations made for first-generation       final hidden and cell state as input. Our SR -LSTM- Ps do
+RNNs [71]. Drifting is not observable for the SR -LSTM- P.          not use dropout, batch normalization, sophisticated weight-
+    We also performed experiments for the non-regular               initialization, and are based on a simple single-layer LSTM.
+language ww−1 (Palindromes) [47] over the alphabet Σ =              We can observe that SR -LSTM- Ps achieve competitive results,
+{a, ..., z}. We follow the same experiment setup as for             outperforming the vanilla LSTM and LSTM-P. We also
+BP.Results are presented in Table 3. This experiment adds           conducted additional experiments with state-regularization
+evidence for the improved generalization and memorization           on vanilla RNNs and GRUs (with the same number of hidden
+behavior of state-regularized LSTMs over vanilla LSTMs              units as SR -LSTM- Ps). We achieve 31.9 and 13.6 test error,
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                                 9
+
+                Methods                            Error               a limited number of centroids are meaningful, for example,
+                IRNN [36]                           3.0                the 3rd and 4th represent positive and negative sentiment5 .
+                URNN [1]                            4.9                    Figure 7 presents the prototypes for digits 0, 3, 7. In-
+                Full URNN [65]                      2.5
+                sTANH-RNN [73]                      1.9                terestingly, we also find the transition functions for each
+                Skip LSTM [6]                       2.7                learned centroid are more like the “kernels” in CNNs. Each
+                r-LSTM Full BP [56]                 1.6                centroid intends to capture the different types of features.
+                BN-LSTM [9]                         1.0                For example, the 7th centroid pays most of its attention to
+                Dilated GRU [7]                     0.8                the left part of digits, and the 2nd centroid intends to capture
+                LSTM                                2.3                the bold property of digits.
+                LSTM- P                             1.5
+                SR -LSTM (k = 100)                  1.4
+                SR -LSTM- P (k = 100, eq.17)        4.1
+                SR -LSTM- P (k = 100, eq.19)        6.7
+                SR -LSTM- P (k = 100, eq. 20)       0.8
+                SR -LSTM- P (k = 50)                1.4
+
+       TABLE 5: Test error (%) on the sequential MNIST.
+                                                                       Fig. 7: Visualization of the mean transition probability to
+      cent.   words with top-4 highest transition probabilities
+                                                                       centroid of SR -RNNs (k = 10 centroids) models on the
+      1       but (0.97) hadn (0.91) college (0.87) even (0.85)        Sequential MNIST. The mean transition probabilities can be
+      2       not (1.0) or (1.0) italian (1.0) never (0.99)
+      3       loved (1.0) definitely (1.0) 8 (0.99) realistic (0.99)   seen as a “categorical prototype” for each digit class. Each
+      4       no (1.0) worst (1.0) terrible (1.0) poorly (1.0)         row represents a digit class and each column depicts the
+                                                                       “categorical prototype” .
+TABLE 6: The learned centroids and their prototypical words
+with the top-4 highest transition probabilities on the IMDB                Table 7 shows the prototypical words for some categories
+dataset. This interprets the SR -LSTM- P model with centroids.         in the 20NewsGroup dataset and the corresponding transi-
+The 3rd (4th ) centroid is “positive” (“negative”).                    tion probabilities. As shown, the selected words with the
+                                                                       highest probabilities are quite sensible (representative) to
+                                                                       represent the corresponding class. For example, “domain,
+respectively, for SR -RNNs and SR -GRUs, which is worse than           information, source, core, message” for representing class
+the results for the SR -LSTM- Ps. On MINST both networks               label “comp.windows.x”. To some extent, this is similar to
+failed to converge with same number of training epochs. This           the topical words generated by topic models (e.g., Latent
+suggests the importance of a cell state and ∞-memory which             Dirichlet Allocation (LDA) [5]). Differently, SR -RNNs learn
+we regularized to be used in a more structured manner.                 the typical words from sequential text data.
+
+                                                                       6.2   Explaining RNN Predictions
+6 U NDERSTANDING RNN S WITH P ROBABILISTIC
+S TATE T RANSITIONS
+In this section, we visualize the learned centroids and the
+corresponding transition probabilities to understand the
+working of RNNs. We use the models trained on IMDB and
+sequential MNIST from the previous section. Additionally,
+we train a new SR -RNN model on 20NewsGroup dataset.4
+The dataset consists of 18,846 samples, among which 15,076
+samples are used for training, and 3,770 samples are used
+for testing. The task is to classify text document into 20             Fig. 8: For given test samples (top), SR -RNN (k = 10) gives
+categories. We built a vocabulary with a size of 10,003 and            the correct predictions on the sequential MNIST. To find
+each word is encoded as one-hot representation. SR -LSTM               the evidences to explain those predictions, we can look at
+is able to achieve classification accuracy of 85.6%. We also           the highest transition probabilities which lead to correct
+trained an SR -RNN (k = 20) on a more clean version of the             predictions. The 2nd to 4th rows present the highest transition
+dataset by removing header and footnotes, which achieves               probabilities to the 1st (top), the 3rd (middle) and the 4th
+an accuracy of 65.7%.                                                  centroid respectively.
+
+                                                                          Figure 8 gives the visual explanations for RNNs pre-
+6.1     Understanding RNN Models                                       dictions on 10 randomly selected MNIST test samples.
+Table 6 lists, for each state (centroid), the word with the            Table 8 presents the explanations of two sample texts from
+top transition probabilities leading to this state. Here the
+SR -RNN is trained with k = 5 centroids. As we can see, only              5. As each centroid s has same dimension as hidden state h, we use
+                                                                       learned classifier (sofmax layer) to classify centroid so as to decide its
+                                                                       categorical label, e.g. positive or negative. If an input word has high
+  3. The number is taken from [58]                                     transition (>0.5) probability to positive centroid, the word is treated as
+  4. http://qwone.com/∼jason/20Newsgroups/                             positive as well.
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                                                                                                    10
+
+            concept                                    the top prototypical words and transition probabilities
+            talk.politics.misc                         comment (0.58) damage (0.53)           right (0.51)     drug (0.50)                                                      obligation (0.49)
+            talk.politics.mideast                      state (0.55)      expansion (0.49)     woman (0.43) escape (0.35)                                                        nation (0.34)
+            comp.graphics                              interrupt (0.83) driver (0.80)         version (0.75) video (0.55)                                                       network (0.54)
+            comp.windows.x                             domain (0.48)     information (0.39) source (0.34)      core (0.31)                                                      message (0.30)
+
+                           TABLE 7: Interpretation of SR -RNN (k = 20 centroids) model trained on the 20NewsGroup.
+
+    misc.forsale                                                                                                     sci.space
+     for    sale      one     complete         set          UNK              equipment             including         (...) long    term      planetary           monitoring        mission         occasional
+     base      unit        portable     transmitter                 UNK               plus        days     free      chance       UNK       something            like     top     UNK         mission      like
+     UNK       service       description       item          convenient                   secure        anyone       galileo       UNK           it     unlikely        much           happening          pluto
+     whose      home         broken     whose              parents           live         alone        children      would        worth      monitoring            UNK          difficult     mission       fly
+     elderly       parents      UNK          heart           attack              stroke        temporarily           without       new      propulsion          technology        something         planetary
+     permanently disabled superior features allows talk UNK                                                          community           firmly         UNK        UNK          UNK         the     combined
+     center using transmitter help sent soon possible allows                                                         need      arrive      pluto       within      reasonable          amount      time    kill
+     personal         freedom         independence                  deal          item            worth         us   nearly       cruise     velocity          settle   orbit      beyond          reasonably
+     open      market        asking     best           offer        interested               please      email       done      current      UNK          propulsion        most        done       well    earth
+     UNK UNK stanford edu call will send UNK delivery                                                                the    things       done         better     voyager        like    spacecraft        UNK
+     relevant      documents                                                                                         need      enter     orbit        around     planet
+
+
+TABLE 8: Explaining the SR -RNN prediction on two 20NewsGroup test samples (stronger highlight indicates higher
+transition probability).
+
+    Prediction        Test samples
+                                                                                                                        N-gram Phase Extraction. With probabilistic finite state
+    Negative           no      comment             -        stupid             movie          ,      acting          transition, we can extend word-level to phrase-level in-
+                       average         or     worse               ...        screenplay            -      no         terpretability and explainability. This can be achieved by
+                       sense     at    all     ...         skip         it   !                                       maintaining an attention window with a size of n on the
+                                                                                                                     input sequence. The phrases with the highest mean transition
+    Positive           i     thought        this       was          one          of       those        really        probability can be extracted. Table 10 demonstrates the
+                       great     films        to           see          with          a      bunch        of         extracted n-gram phrases for explaining predictions on the
+                       close     friends       .       i    laughed              and         cried       and         IMDB dataset.
+                       laughed        and      cried           at        the      same         time                          2-gram                             4-gram
+                                                                                                                             worst movie                        terrible , terrible ,
+TABLE 9: For a negative (top) and positive (bottom)                                                                          bad choice                         not a decent performance
+IMDB prediction, the SR -RNN highlights the words ac-                                                                        odd details                        writing : 1 / 10
+                                                                                                                             incredibly awful                   movie is extremely boring
+cording to the probability of transitioning to the nega-                                                                     wasted moments                     overacting , see it
+tive(top)/positive(bottom) centroid (stronger highlight indi-                                                                great acting                       10 / 10 .
+cates higher transition probability).                                                                                        superbly crafted                   very impressed with this
+                                                                                                                             10 !                               movie . great storyline
+                                                                                                                             absolutely incredible              extremely well composed movie
+                                                                                                                             exceptional .                      great cast all around
+20NewsGroup which are categorized to “misc.forsale” and
+“sci.space” categories. The highlighted words “sale, asking,                                                         TABLE 10: The n-gram phrases extracted from 1K random
+offer delivery” and “planetary, orbit, spacecraft, planet” are                                                       IMDB samples for positive (green) and negative (red) predic-
+highly associative to the RNN predictions.                                                                           tions.
+    Table 9 presents the predictions of two examples (a
+positive sample and a negative sample). At each time step,
+                                                                                                                         Transitions as Features. The pattern of probabilistic finite
+the input words are transitioned between the learned “posi-
+                                                                                                                     state transition that the SR -RNN learnt can be used as a
+tive” and “negative” centroids. In the negative example, the
+                                                                                                                     representation. Figure 9 shows the t-SNE [40] of finite state
+representative negative words “no, stupid, worse, skip” are
+                                                                                                                     transition probabilities for test samples. We find that the
+given high transition probabilities to the negative centroid.
+                                                                                                                     transition probabilities of categories are discriminative.
+Similarly, in the bottom example, the words “great” and
+                                                                                                                         Dimensionality Reduction. Note that, Figure 9 is not
+“laughed” are associated with the positive centroid.
+                                                                                                                     the visualization of d-dimension intermediate representation
+                                                                                                                     X ∈ Rd , but the state transition probabilities P ∈ Rk of pixel
+7     D ISCUSSION                                                                                                    sequences over k centroids. In most cases k  d (in this
+We believe that the probabilistic finite state transition has                                                        case, k = 10, d = 256), which also suggests a possibility of
+some additional nice properties, which we discuss in the                                                             using probabilistic finite state transition as dimensionality
+following.                                                                                                           reduction method.
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                                      11
+                      100
+
+
+                                                                             [11] Andrew M Dai and Quoc V Le. Semi-supervised sequence learning.
+                       50
+                                                                                  In NIPS, pages 3079–3087, 2015.
+                        0
+                                                                             [12] Ivo Danihelka, Greg Wayne, Benigno Uria, Nal Kalchbrenner, and
+                                                                                  Alex Graves. Associative long short-term memory. In ICML, pages
+                       50
+                                                                                  1986–1994, 2016.
+                                                                             [13] Michal Daniluk, Tim Rocktäschel, Johannes Welbl, and Sebastian
+                             50     0     50     100
+                                                                                  Riedel. Frustratingly short attention spans in neural language
+                                                                                  modeling. 2017.
+Fig. 9: t-SNE visualization of the extracted finite state tran-
+                                                                             [14] Adji B Dieng, Rajesh Ranganath, Jaan Altosaar, and David M Blei.
+sition probabilities for test samples with SR -RNNs (k = 10)                      Noisin: Unbiased regularization for recurrent neural networks.
+trained on the MNIST.                                                             ICML, 2018.
+                                                                             [15] Jeffrey L Elman. Finding structure in time. Cognitive science,
+                                                                                  14(2):179–211, 1990.
+                                                                             [16] Jakob N Foerster, Justin Gilmer, Jascha Sohl-Dickstein, Jan
+8     C ONCLUSION                                                                 Chorowski, and David Sussillo. Input switched affine networks:
+State-regularization provides new mechanisms for under-                           An rnn architecture designed for interpretability. In ICML, pages
+                                                                                  1136–1145. JMLR. org, 2017.
+standing the workings of RNNs. Inspired by recent DFA                        [17] Marco Fraccaro, Søren Kaae Sø nderby, Ulrich Paquet, and Ole
+extraction work [62], our work simplifies the extraction                          Winther. Sequential neural models with stochastic layers. In
+approach by directly learning a finite set of states and an                       NeurIPS, pages 2199–2207. 2016.
+                                                                             [18] Paolo Frasconi and Yoshua Bengio. An em approach to grammatical
+interpretable state transition dynamic. Even on realistic tasks,                  inference: input/output hmms. In ICPR, pages 289–294. IEEE, 1994.
+such as sentiment analysis, exploring the learned centroids                  [19] Yarin Gal and Zoubin Ghahramani. A theoretically grounded
+and the transition behavior of SR -RNNs makes for more                            application of dropout in recurrent neural networks. In NeurIPS,
+interpretable RNN models whithout sacrificing accuracy:                           pages 1019–1027, 2016.
+                                                                             [20] Felix A Gers and E Schmidhuber. Lstm recurrent networks
+a single-layer SR -RNNs is competitive with state-of-the-                         learn simple context-free and context-sensitive languages. IEEE
+art methods. The purpose of our work is not to surpass                            Transactions on Neural Networks, 12(6):1333–1340, 2001.
+all existing state of the art methods but to gain a deeper                   [21] Felix A. Gers and Jürgen Schmidhuber. Recurrent nets that time
+understanding of the dynamics of RNNs.                                            and count. In IJCNN (3), pages 189–194, 2000.
+                                                                             [22] C Lee Giles, D Chen, CB Miller, HH Chen, GZ Sun, and YC Lee.
+    State-regularized RNNs operate more like automata                             Second-order recurrent neural networks for grammatical inference.
+with external memory and less like DFAs. This results in                          In IJCNN, volume 2, pages 273–281. IEEE, 1991.
+a markedly improved extrapolation behavior on several                        [23] Anirudh Goyal, Alessandro Sordoni, Marc-Alexandre Côté, Nan
+datasets. We do not claim, however, that SR -RNNs are a                           Ke, and Yoshua Bengio. Z-forcing: Training stochastic recurrent
+                                                                                  networks. In NeurIPS, pages 6713–6723. 2017.
+panacea for all problems associated with RNNs did. For                       [24] Alex Graves, Greg Wayne, and Ivo Danihelka. Neural turing
+instance, we could not observe an improved convergence of                         machines. arXiv preprint arXiv:1410.5401, 2014.
+SR -RNNs. Sometimes SR -RNNs converged faster, sometimes                     [25] Alex Graves, Greg Wayne, Malcolm Reynolds, Tim Harley, Ivo
+                                                                                  Danihelka, Agnieszka Grabska-Barwinska, Sergio Gomez Col-
+vanilla RNNs. While we have mentioned that the computa-                           menarejo, Edward Grefenstette, Tiago Ramalho, John Agapiou,
+tional overhead of SR -RNNs is modest, it still exists, and this                  Adrià Puigdomènech Badia, Karl Moritz Hermann, Yori Zwols,
+might exacerbate the problem that RNNs often take a long                          Georg Ostrovski, Adam Cain, Helen King, Christopher Summer-
+to be trained and tuned. We plan to investigate variants of                       field, Phil Blunsom, Koray Kavukcuoglu, and Demis Hassabis.
+                                                                                  Hybrid computing using a neural network with dynamic external
+state regularization and the ways in which it could improve                       memory. Nature, 538(7626):471–476, 2016.
+differentiable computers with RNN controllers in the future.                 [26] Edward Grefenstette, Karl Moritz Hermann, Mustafa Suleyman,
+                                                                                  and Phil Blunsom. Learning to transduce with unbounded memory.
+                                                                                  In NeurIPS, pages 1828–1836, 2015.
+R EFERENCES                                                                  [27] Emil Julius Gumbel. Statistical Theory of Extreme Values and Some
+                                                                                  Practical Applications. A Series of Lectures. Number 33. US Govt.
+[1]  Martin Arjovsky, Amar Shah, and Yoshua Bengio. Unitary evolu-                Print. Office, 1954.
+     tion recurrent neural networks. In ICML, pages 1120–1128, 2016.         [28] Yiding Hao, William Merrill, Dana Angluin, Robert Frank, Noah
+[2] Dzmitry Bahdanau, Kyunghyun Cho, and Yoshua Bengio. Neural                    Amsel, Andrew Benz, and Simon Mendelsohn. Context-free
+     machine translation by jointly learning to align and translate. ICLR,        transductions with neural stacks. In EMNLP workshops, 2018.
+     2015.                                                                   [29] Sepp Hochreiter and Jürgen Schmidhuber. Long short-term
+[3] Shaojie Bai, J. Zico Kolter, and Vladlen Koltun. An empirical                 memory. Neural Comput., 9(8):1735–1780, 1997.
+     evaluation of generic convolutional and recurrent networks for          [30] Eric Jang, Shixiang Gu, and Ben Poole. Categorical reparam-
+     sequence modeling. CoRR, abs/1803.01271, 2018.                               eterization with gumbel-softmax. In ICLR, year = 2017, url =
+[4] Justin Bayer and Christian Osendorfer. Learning stochastic recur-             https://openreview.net/forum?id=rkE3y85ee,.
+     rent networks. arXiv preprint arXiv:1411.7610, 2014.                    [31] Rie Johnson and Tong Zhang. Effective use of word order for text
+[5] David M Blei, Andrew Y Ng, and Michael I Jordan. Latent dirichlet             categorization with convolutional neural networks. NAACL HLT,
+     allocation. JMLR, 2003.                                                      2015.
+[6] Vı́ctor Campos, Brendan Jou, Xavier Giró-i Nieto, Jordi Torres,         [32] Andrej Karpathy, Justin Johnson, and Li Fei-Fei. Visualizing and
+     and Shih-Fu Chang. Skip rnn: Learning to skip state updates in               understanding recurrent networks. ICLR workshop, 2016.
+     recurrent neural networks. ICLR, 2018.                                  [33] Alex Kendall and Yarin Gal. What Uncertainties Do We Need in
+[7] Shiyu Chang, Yang Zhang, Wei Han, Mo Yu, Xiaoxiao Guo, Wei                    Bayesian Deep Learning for Computer Vision? In NIPS, 2017.
+     Tan, Xiaodong Cui, Michael Witbrock, Mark A Hasegawa-Johnson,           [34] Teuvo Kohonen. Learning vector quantization. In Self-organizing
+     and Thomas S Huang. Dilated recurrent neural networks. In NIPS,              maps, pages 175–189. Springer, 1995.
+     pages 77–87, 2017.                                                      [35] David Krueger, Tegan Maharaj, János Kramár, Mohammad
+[8] Junyoung Chung, Caglar Gulcehre, KyungHyun Cho, and Yoshua                    Pezeshki, Nicolas Ballas, Nan Rosemary Ke, Anirudh Goyal,
+     Bengio. Empirical evaluation of gated recurrent neural networks              Yoshua Bengio, Aaron Courville, and Chris Pal. Zoneout: Reg-
+     on sequence modeling. arXiv preprint arXiv:1412.3555, 2014.                  ularizing rnns by randomly preserving hidden activations. ICLR,
+[9] Tim Cooijmans, Nicolas Ballas, César Laurent, Çağlar Gülçehre,           2017.
+     and Aaron Courville. Recurrent batch normalization. ICLR, 2017.         [36] Quoc V Le, Navdeep Jaitly, and Geoffrey E Hinton. A simple
+[10] George E Dahl, Ryan P Adams, and Hugo Larochelle. Training                   way to initialize recurrent networks of rectified linear units. arXiv
+     restricted boltzmann machines on word observations. ICML, 2012.              preprint arXiv:1504.00941, 2015.
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                                          12
+
+[37] Yann LeCun, Léon Bottou, Yoshua Bengio, and Patrick Haffner.                    extraction from recurrent neural networks. Neural Computation,
+     Gradient-based learning applied to document recognition. Proceed-                30(9):2568–2591, 2018.
+     ings of the IEEE, 86(11):2278–2324, 1998.                                   [62] Gail Weiss, Yoav Goldberg, and Eran Yahav. Extracting automata
+[38] Jiwei Li, Xinlei Chen, Eduard Hovy, and Dan Jurafsky. Visualizing                from recurrent neural networks using queries and counterexamples.
+     and understanding neural models in nlp. In NAACL-HLT, pages                      In ICML, volume 80, pages 5247–5256, 2018.
+     681–691, 2016.                                                              [63] Gail Weiss, Yoav Goldberg, and Eran Yahav. On the practical com-
+[39] Andrew L. Maas, Raymond E. Daly, Peter T. Pham, Dan Huang,                       putational power of finite precision rnns for language recognition.
+     Andrew Y. Ng, and Christopher Potts. Learning word vectors for                   2018.
+     sentiment analysis. In ACL-HLT, pages 142–150, Portland, Oregon,            [64] Jason Weston, Sumit Chopra, and Antoine Bordes. Memory
+     USA, June 2011. Association for Computational Linguistics.                       networks. 2015.
+[40] Laurens van der Maaten and Geoffrey Hinton. Visualizing data                [65] Scott Wisdom, Thomas Powers, John Hershey, Jonathan Le Roux,
+     using t-sne. JMLR, 9(Nov):2579–2605, 2008.                                       and Les Atlas. Full-capacity unitary recurrent neural networks. In
+[41] Stephen Merity, Nitish Shirish Keskar, and Richard Socher. Regu-                 D. D. Lee, M. Sugiyama, U. V. Luxburg, I. Guyon, and R. Garnett,
+     larizing and optimizing lstm language models. ICLR, 2018.                        editors, NIPS, pages 4880–4888. 2016.
+[42] John Miller and Moritz Hardt. When recurrent models don’t need              [66] Adams Wei Yu, Hongrae Lee, and Quoc V Le. Learning to skim
+     to be recurrent. CoRR, abs/1805.10369, 2018.                                     text. ACL, 2017.
+                                                                                 [67] Wojciech Zaremba and Ilya Sutskever. Learning to execute. CoRR,
+[43] Grégoire Montavon, Wojciech Samek, and Klaus-Robert Müller.
+                                                                                      abs/1410.4615, 2014.
+     Methods for interpreting and understanding deep neural networks.
+                                                                                 [68] Wojciech Zaremba, Ilya Sutskever, and Oriol Vinyals. Recurrent
+     Digital Signal Processing, 73:1–15, 2018.
+                                                                                      neural network regularization. arXiv preprint arXiv:1409.2329, 2014.
+[44] W James Murdoch and Arthur Szlam. Automatic rule extraction                 [69] Matthew D Zeiler. Adadelta: an adaptive learning rate method.
+     from long short term memory networks. In ICLR, 2017.                             arXiv preprint arXiv:1212.5701, 2012.
+[45] Jiahuan Pei, Cheng Wang, and György Szarvas. Transformer                   [70] Matthew D Zeiler and Rob Fergus. Visualizing and understanding
+     uncertainty estimation with hierarchical stochastic attention. In                convolutional networks. In ECCV, pages 818–833. Springer, 2014.
+     Proceedings of the AAAI Conference on Artificial Intelligence, volume 36,   [71] Zheng Zeng, Rodney M Goodman, and Padhraic Smyth. Learning
+     pages 11147–11155, 2022.                                                         finite state machines with self-clustering recurrent networks. Neural
+[46] Ingo Schellhammer, Joachim Diederich, Michael Towsey, and                        Computation, 5(6):976–990, 1993.
+     Claudia Brugman. Knowledge extraction and recurrent neural                  [72] Quanshi Zhang, Ying Nian Wu, and Song-Chun Zhu. Interpretable
+     networks: An analysis of an elman network trained on a natural                   convolutional neural networks. In CVPR, pages 8827–8836, 2018.
+     language learning task. In Proceedings of the Joint Conferences on New      [73] Saizheng Zhang, Yuhuai Wu, Tong Che, Zhouhan Lin, Roland
+     Methods in Language Processing and Computational Natural Language                Memisevic, Ruslan R Salakhutdinov, and Yoshua Bengio. Architec-
+     Learning, pages 73–78, 1998.                                                     tural complexity measures of recurrent neural networks. In NIPS,
+[47] Jürgen Schmidhuber, F Gers, and Douglas Eck. Learning nonregular                pages 1822–1830, 2016.
+     languages: A comparison of simple recurrent networks and lstm.              [74] Julian Georg Zilly, Rupesh Kumar Srivastava, Jan Koutnı́k, and
+     Neural Computation, 14(9):2039–2041, 2002.                                       Jürgen Schmidhuber. Recurrent highway networks. In ICML, pages
+[48] Hava T Siegelmann. Neural networks and analog computation: beyond                4189–4198. JMLR. org, 2017.
+     the Turing limit. Springer Science & Business Media, 2012.
+[49] Hava T Siegelmann and Eduardo D Sontag. On the computational
+     power of neural nets. In Proceedings of the fifth annual workshop on
+     Computational learning theory, pages 440–449. ACM, 1992.
+[50] Hava T Siegelmann and Eduardo D Sontag. Analog computation                                         Cheng Wang is a machine learning scientist. He
+     via neural networks. Theoretical Computer Science, 131(2):331–360,                                 received his Dr. rer. nat. degree from Hasso Plat-
+     1994.                                                                                              tner Institute, the University of Potsdam (2017).
+[51] Karen Simonyan, Andrea Vedaldi, and Andrew Zisserman. Deep                                         His research interests are machine learning,
+     inside convolutional networks: Visualising image classification                                    multimodal deep learning and recurrent neural
+     models and saliency maps. arXiv preprint arXiv:1312.6034, 2013.                                    networks with applications in language and vision,
+[52] Hendrik Strobelt, Sebastian Gehrmann, Bernd Huber, Hanspeter                                       information retrieval tasks. He is a PC member
+     Pfister, Alexander M Rush, et al. Visual analysis of hidden state                                  of ICML, NeurPS, ICLR, NAACL, ACL, EMNLP,
+     dynamics in recurrent neural networks. CoRR, abs/1606.07461, 2016.                                 AAAI, IJCAI, ACMMM and an invited reviewer of
+[53] Theano Development Team. Theano: A Python framework for                                            AIJ, IEEE TNNLS, IEEE TIP, IEEE TKDE, IEEE
+     fast computation of mathematical expressions. arXiv e-prints,                                      TMM etc.. He is IEEE and ACM member.
+     abs/1605.02688, 2016.
+[54] Tijmen Tieleman and Geoffrey Hinton. Lecture 6.5-rmsprop:                                          Carolin Lawrence is a manager at NEC Labo-
+     Divide the gradient by a running average of its recent magnitude.                                  ratories Europe. She received her PhD with the
+     COURSERA: Neural networks for machine learning, 4(2):26–31, 2012.                                  highest distinction in Computational Linguistics
+[55] M. Tomita. Dynamic construction of finite automata from examples                                   from Heidelberg University, Germany (2019). Her
+     using hill-climbing. In Proceedings of the Fourth Annual Conference of                             research focus includes explainable AI, human-
+     the Cognitive Science Society, pages 105–108, 1982.                                                centric AI, NLP and knowledge graphs. She is a
+[56] Trieu H Trinh, Andrew M Dai, Thang Luong, and Quoc V Le.                                           senior programm committee member of top-tier
+     Learning longer-term dependencies in rnns with auxiliary losses.                                   NLP conferences (ACL, NAACL, EMNLP). She
+     ICML, 2018.                                                                                        won the outstanding paper award at the leading
+[57] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit,                                        conference for knowledge graphs, Automated
+     Llion Jones, Aidan N Gomez, Ł ukasz Kaiser, and Illia Polosukhin.                                  Knowledge Base Construction (AKBC), in 2021.
+     Attention is all you need. In I. Guyon, U. V. Luxburg, S. Bengio,
+     H. Wallach, R. Fergus, S. Vishwanathan, and R. Garnett, editors,                                  Mathias Niepert is a professor at the University
+     NIPS, pages 5998–6008. 2017.                                                                      of Stuttgart, a faculty member of the Max Planck
+[58] Cheng Wang, Carolin Lawrence, and Mathias Niepert. Uncertainty                                    Research School for Intelligent Systems and
+     estimation and calibration with finite-state probabilistic {rnn}s. In                             ELLIS, and Chief Scientific Advisor at NEC Labs
+     ICLR, 2021.                                                                                       Europe. He received his PhD from Indiana Uni-
+[59] Cheng Wang and Mathias Niepert. State-regularized recurrent                                       versity (2009) and was a postdoctoral researcher
+     neural networks. In ICML, pages 6596–6606. PMLR, 2019.                                            at the University of Washington, Seattle. His
+[60] Qinglong Wang, Kaixuan Zhang, II Ororbia, G Alexander, Xinyu                                      research interests include deep geometric learn-
+     Xing, Xue Liu, and C Lee Giles. A comparison of rule extraction                                   ing, unsupervised and semi-supervised learning,
+     for different recurrent neural network models and grammatical                                     and probabilistic graphical models. He has won
+     complexity. arXiv preprint arXiv:1801.05420, 2018.                                                several best paper awards and grants such as a
+[61] Qinglong Wang, Kaixuan Zhang, Alexander G. Ororbia II, Xinyu                Google Research Award. He is a PC member and/or area chair of top
+     Xing, Xue Liu, and C. Lee Giles. An empirical evaluation of rule            conferences such as ICML, NeurIPS, UAI, ICLR, AAAI and IJCAI.
+IEEE TRANSACTIONS ON PATTERN ANALYSIS AND MACHINE INTELLIGENCE                                                                         13
+
+S UPPLEMENTARY M ATERIALS                                               Proof. Let us consider the softmax function with temperature
+                                                                        parameter τ
+Proofs of Theorems 4.1 and 4.2
+                                                                                                     exp (bi /τ )
+Theorem 4.1: The state transition behavior of an SR -RNN                                    αi = Pk
+                                                                                                    i=1 exp (bi /τ )
+without ∞-memory using equation 16 is identical to that
+of a probabilistic finite automaton.                                    for 1 ≤ i ≤ k . SR -RNNs use this softmax function to
+                                                                        normalize the scores (from a dot product) into a probability
+Proof. The state transition function δ of a probabilistic finite        distribution. First, we show that for τ → 0+ , that there is
+state machine is identical to that of a finite deterministic            exactly one M ∈ {1, ..., k} such that αM = 1 and αi = 0 for
+automaton (see section 2) with the exception that it returns a          all i ∈ {1, ..., k} with i 6= M . Without loss of generality, we
+probability distribution over states. For every state q and             assume that there is a M ∈ {1, ..., k} such that bM > bi for all
+every input token a the transition mapping δ returns a                  i ∈ {1, ..., k}, i 6= M . Hence, we can write for 1 , ..., k > 0
+probability distribution                                                as shown in equation(26,27,28).
+                                                                            Now, for τ → 0 we have that αM → 1 and for all
+                   α = (α1 , ..., αk ) = δ(q, a)                 (29)   other i 6= M we have that αi → 0. Hence, the probability
+that assigns a fixed probability to each possible state q ∈ Q           distribution α of the SR -RNN is always the one-hot encoding
+with |Q| = k . The automaton transitions to the next state              of a particular centroid.
+according to this distribution. Since by assumption the SR -                By an argument analog to the one we have made for
+RNN is using equation 16, we only have to show that                     Theorem 4.1, we can prove that for every state q ∈ Q and
+the probability distribution over states computed by the                every input token a ∈ Σ, the probability distribution α of
+stochastic component of an SR -RNN without ∞-memory                     the SR -RNN is the same irrespective of the previous input
+is identical for every state q and every input token a                  sequences and visited states. Finally, by plugging in the
+irrespective of the previous input sequence a = {a1 , ..., an }         one-hot encoding α in both equations 16 and 20, we can
+and corresponding state transition history q = {q1 , ..., qn }.         conclude that the transition function of an SR -RNN without
+                                                                        ∞-memory is identical to that of a DFA, because we always
+             δ(q1 , ..., qn , q, a1 , ..., an , a) = δ(q, a)     (30)   chose exactly one new state.
+
+   More formally, for every pair of input token sequences a1
+and a2 with corresponding pair of resulting state sequences
+q1 = (qi1 , ..., qin , q) and q2 = (qj1 , ..., qjm , q) in SR -RNN
+without ∞-memory, we have to prove, for every token a ∈ Σ,
+that α1 and α2 , the probability distributions over the states
+returned by the stochastic component for state q and input
+token a, are identical.
+
+           δ(qi1 , ..., qin , q, a) = δ(qj1 , ..., qjm , q, a)   (31)
+
+    Now, since the RNN is, by assumption, without ∞-
+memory, we have for both a1 , q1 and a2 , q2 that the only
+inputs to the RNN cell are exactly the centroid sq correspond-
+ing to state q and the vector representation of token a. Hence,
+under the assumption that the parameter weights of the RNN
+are the same for both state sequences q1 and q2 , we have
+that the output u of the recurrent component (the base RNN
+cell) is identical for q1 and q2 . Finally, since by assumption
+the centroids s1 , ..., sk are fixed, we have that the returned
+probability distributions α1 and α2 are identical. Hence,
+the transition behavior of SR -RNN without ∞-memory is
+identical to that of a probabilistic finite automaton.
+
+Theorem 4.2: For τ → 0 the state transition behavior of an
+SR -RNN without ∞-memory (using equations 16 or 20) is
+equivalent to that of a deterministic finite automaton.
+
+
+                                                          exp (bi /τ )
+                       αi =                                                                                                          (26)
+                              exp((bM − 1 )/τ ) + ... + exp (bM /τ ) + ... + exp((bM − k )/τ )
+                                                                     exp (bi /τ )
+                              =                                                                                                      (27)
+                                 exp(bM /τ ) exp(1 /τ ) + ... + exp(bM /τ ) + ... + exp(bM /τ ) exp(k /τ )−1
+                                                        −1
+
+                                                         exp (bi /τ )
+                              =                                                               .                                      (28)
+                                 exp(bM /τ ) [exp(1 /τ )−1 + ... + 1 + ... + exp(k /τ )−1 ]
+

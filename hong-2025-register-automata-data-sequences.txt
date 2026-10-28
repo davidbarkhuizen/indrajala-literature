@@ -1,0 +1,1395 @@
+                                         Synthesis and Verification of Register Automata
+                                                      over Data Sequences
+
+                                               Chih-Duo Hong1 , Hongjian Jiang2 , Anthony W. Lin3,4 , Oliver
+                                                       Markgraf2 , Julian Parsert2 , and Tony Tan5
+                                                                 1
+                                                               National Chengchi University, Taiwan
+                                                             2
+                                                              RPTU Kaiserslautern-Landau, Germany
+                                                           3
+
+
+
+
+arXiv:2511.19100v2 [cs.AI] 21 Oct 2026
+                                                              Technical University of Munich, Germany
+                                                       4
+                                                         Max Planck Institute for Software Systems, Germany
+                                                            5
+                                                              University of Liverpool, United Kingdom
+
+
+                                               Abstract. Data sequences, such as time series, traces, and sensor
+                                               streams, are words over large or infinite data domains. Their properties
+                                               often depend on comparisons between values at different positions, which
+                                               finite automata cannot express directly. We study synthesis and verifi-
+                                               cation for Deterministic Register Automata (DRAs) over ordered data
+                                               sequences. DRAs combine finite control with registers for remembered
+                                               data values, providing compact symbolic descriptions of quantitative
+                                               sequence languages. Our technical core is a local-search synthesis pro-
+                                               cedure and an exact robustness checker for DRAs. We fix the alphabet
+                                               theory to ordered rationals (Q; <, =) with rational guard constants
+                                               and use non-negative affine accumulator costs. For a fixed number of
+                                               DRA registers, the checker runs in polynomial time; its dependence on
+                                               that number is exponential. It reduces robustness to coverability and
+                                               then to a shortest-path problem. Since the search ranges over Q+ , it
+                                               produces variable-length witnesses and, for RAA-definable alignment
+                                               costs such as DTW, explores a counterexample space with no a priori
+                                               length bound. As an application, we use learned DRAs as interpretable
+                                               surrogates for queried neural sequence classifiers. A probably approxi-
+                                               mately correct (PAC) validation loop refines rejected candidates, returns
+                                               genuine non-robustness witnesses for the classifier when found, and ac-
+                                               cepts a surrogate only with statistical guarantees for fidelity and local
+                                               stability. We implement the framework in RAExc, enabling the synthe-
+                                               sis of interpretable automata and the verification of their robustness.
+                                               We evaluate the approach on benchmark languages and sequentialized
+                                               MNIST, demonstrating high accuracy while verifying the robustness of
+                                               the learned automata.
+
+
+                                         1   Introduction
+                                         Data sequences are words whose positions carry values from an infinite, or very
+                                         large, data domain such as integers, rationals, or reals. They arise naturally in
+                                         execution traces, sensor streams, event logs, financial indicators, and other time
+                                         series data. Classical finite automata provide a canonical model of regular lan-
+                                         guages over finite alphabets, but they cannot directly express properties whose
+2       Hong et al.
+
+truth depends on comparing data values across positions, such as whether suc-
+cessive peaks increase, whether future values exceed remembered thresholds, or
+whether a signal preserves a quantitative trend. This limitation motivates au-
+tomata models over data words and data sequences, including data automata,
+nominal automata, and register automata [11,9,42,10,8]. Register automata ex-
+tend finite control with finitely many registers that store selected input values
+and compare later inputs with those stored values or with constants. Over or-
+dered domains such as (Q; <, =), they give a compact symbolic language for
+global quantitative patterns while retaining useful algorithmic properties, with
+applications in verification and synthesis [1,34,18].
+    This paper studies the synthesis and verification of deterministic register
+automata (DRAs) over numeric data sequences. On the synthesis side, we ask
+how to construct a small DRA from labelled sequence data or from a classifier
+that can be queried on examples. On the verification side, we ask whether the
+language recognised by a DRA is locally stable around a given data sequence
+under a quantitative perturbation cost. These two questions support one another:
+synthesis produces an interpretable symbolic model, and verification makes that
+model an object on which robustness questions can be answered exactly.
+    A timely source of such queried classifiers is modern sequence modelling with
+Recurrent Neural Networks (RNNs), LSTMs, and transformers [25,52,55]. These
+models are widely used on sequence data, but their internal decision procedures
+are difficult to inspect. A popular way to explain them is therefore to extract
+an automaton that approximates the trained network and then analyse that au-
+tomaton instead of the original model. This idea has been studied for RNNs,
+weighted automata, and transformers [54,47,41,56,2]. Existing extraction meth-
+ods, however, predominantly target automata over finite alphabets. This is a
+serious mismatch for numeric time series: discretising the values can obscure
+comparisons between positions, while a finite automaton cannot remember and
+compare data values in the way required by many natural quantitative rules.
+DRAs are a natural replacement because their registers provide precisely the
+finite memory needed for order and equality comparisons over data values.
+    For an automaton to be a useful explanation, agreement with the neural
+model is not enough. The explanation should also be stable under perturbations
+that are small according to the intended semantics of the data. If a surrogate
+changes its classification after an imperceptible or semantically insignificant edit,
+then it may describe a brittle boundary artefact rather than a robust pattern. We
+therefore seek robust automata explanations: compact DRAs that agree with the
+queried model on the inputs of interest and whose classifications persist through
+a neighbourhood of those inputs. The following example shows why numeric
+comparisons call for DRAs and why robustness matters.
+
+Example 1. Consider daily closing prices for a market index, represented by
+a sequence x1 , . . . , xn . We use the DRA in Fig. 2 as the formal definition of
+the “higher highs and higher lows” indicator. It first identifies a trough and a
+following peak; thereafter, it requires the price to remain above the most recently
+confirmed trough until a new, higher trough is identified, and it then requires a
+                             Synthesis and Verification of Register Automata         3
+
+
+
+
+Fig. 1. Two S&P 500 price sequences. Red and blue triangles mark lows and highs,
+respectively. The left uptrend is robust to small last value decreases, while the right
+uptrend is fragile.
+
+higher peak. Thus the DRA gives a streaming version of the usual higher-highs-
+higher-lows pattern, including a margin between confirmed extrema. Fig. 1 shows
+two historical S&P 500 price segments (Feb 1–26 and Jun 1–26, 2024). Both
+are classified as uptrends by this rule. However, under a small perturbation to
+the final price, the left sequence is robust: the signal flips only if the price drops
+below the previous low. The right sequence is fragile: even a slight drop can
+violate the DRA’s running trough constraint and flip the signal. In practice,
+positive signals that are not robust warrant caution [44].
+
+    The robustness question raised by Example 1 exposes two limitations of exist-
+ing robustness checkers for neural sequence models [36,17,31,43,57,39,50,38,27].
+First, most RNN checkers propagate bounds or abstractions through specific
+recurrent cells, and transformer checkers reason about self-attention layers us-
+ing convex relaxations, linear bounds, or path constraints. These methods can
+provide formal guarantees for the analysed neural architecture, but they require
+access to the model structure, parameters, and internal operations. Second, these
+checkers typically fix the shape of the input tensor before verification. For se-
+quence models, this means that the input length is bounded in advance: the
+checker only perturbs the values of the original sequence.
+    This fixed-length view is appropriate for length-preserving Lp perturbations
+or for analyses with an explicit window bound, but it does not directly answer the
+language-theoretic question whether there exists some data sequence w ∈ Q+ in
+the neighbourhood of the original sequence that flips the label. The distinction
+matters for edit and alignment distances. Under edit costs, counterexamples
+may have lengths different from the original input. Under dynamic time warping
+(DTW) and related alignment costs, the length of a potential counterexample is
+not bounded by the original input length [46]. Thus, fixed-length neural checkers
+can miss the very counterexamples that sequence level robustness is intended to
+rule out.
+    Our approach is to verify robustness on the extracted DRA itself. Perturba-
+tion costs are specified by Register Automata with Accumulator (RAA), which
+scan a reference sequence and a candidate perturbed sequence while accumulat-
+ing their distance. Given a DRA A, a sequence v, and a cost function D rep-
+resented by an RAA, local robustness asks whether Bδ (v) ∩ L(Ac ) = ∅, where
+Bδ (v) = {w ∈ Q+ : D(v, w) < δ}. The search ranges over all data sequences
+w ∈ Q+ rather than over a fixed-dimensional perturbation space. Consequently,
+4      Hong et al.
+
+the checker can search for witnesses of variable length, and for costs definable by
+RAAs such as DTW and edit distance, it is not tied to any a priori bound on the
+counterexample length. For a fixed number of registers, we reduce this robustness
+problem to coverability for bounded projected RAAs and then to a single-source
+shortest path computation. When robustness fails, the same construction yields
+a concrete witness that flips the DRA label.
+    It remains to justify why the verified DRA explains the neural model. Our
+method uses the neural model only as a labelling oracle. It is therefore indepen-
+dent of the model architecture: the same extraction and validation loop can be
+applied to LSTMs, transformers, or any other classifier over numeric data se-
+quences. The cost is that the guarantee transferred from the DRA to the neural
+model is statistical rather than absolute. This is the standard model-agnostic
+setting, where explanations are validated relative to a reference input distribu-
+tion. Popular post-hoc explainers such as LIME, Anchors, and SHAP likewise
+characterise model behaviour through background samples or perturbation dis-
+tributions [48,49,40]. Our loop learns a compact DRA from labelled samples,
+tests agreement with the neural model on fresh samples, and invokes the ex-
+act DRA robustness checker on samples where the two models agree. A failed
+robustness check either refines the learner or, if the neural model also flips on
+the returned witness, produces a genuine witness that the neural model is not
+robust. If the loop accepts, the DRA has PAC statistical guarantees for both
+fidelity and local stability under the reference distribution [33,5].
+
+
+Contributions We make the following major contributions in this work.
+– Robustness verification for DRAs over data sequences. We give a
+  polynomial-time robustness checker for DRAs with a fixed number of registers
+  over (Q; <, =), with perturbation costs specified by RAAs. Unlike fixed-length
+  neural robustness checkers, the procedure searches over w ∈ Q+ and there-
+  fore supports variable-length counterexamples and, for metrics such as DTW,
+  counterexample spaces of unbounded length.
+– Reduction to shortest paths. We reduce DRA robustness to coverability
+  for bounded projected RAAs and then to a single-source shortest- path prob-
+  lem. When robustness fails, the algorithm constructs a concrete label-flipping
+  witness whose cost is within any prescribed ϵ > 0 of the minimal cost (the
+  minimum itself need not be attained under strict guards).
+– DRA synthesis from black-box sequence classifiers. We develop a local
+  search learner that synthesises compact DRAs from labelled samples generated
+  by a queried sequence classifier. The learner is architecture-agnostic.
+– PAC-validated robust explanations. We combine learning and exact DRA
+  robustness checking in a validation loop that refines rejected candidates, re-
+  turns genuine non-robustness witnesses, or accepts a DRA with statistical
+  guarantees for fidelity and local stability under a reference distribution.
+– Implementation and evaluation. We implement the framework in RAExc
+  and evaluate it on synthetic data languages and sequentialised MNIST, show-
+                                    Synthesis and Verification of Register Automata                     5
+
+    ing that compact DRAs can approximate neural sequence classifiers and ex-
+    pose non-robust behaviour in the learned surrogates.
+Organisation. The rest of this paper is organised as follows. Sec. 2 illustrates
+how our automata learning and robustness verification procedures operate on a
+practically motivated example. Sec. 3 introduces register automata, their vari-
+ants, and the local robustness property. Sec. 4 describes an efficient robustness
+checking procedure for DRAs. Sec. 5 presents our learning algorithm, its in-
+tegration with the robustness checker, and the resulting statistical guarantees.
+Sec. 6 reports our experimental results. We discuss related work and conclude
+in Sec. 7.
+
+
+2     Motivating Example
+
+In this section, we elaborate on the higher-highs-higher-lows concept in Ex-
+ample 1 and offer an intuitive account of how our robustness verification and
+automata learning algorithms operate on it. A DRA embodying this concept
+is depicted in Fig. 2. To simplify our presentation, we focus on the case where
+the price decreases first (since the case of increasing first is symmetric), and
+normalise the price data by setting the initial price to zero.
+         r1 ≥ curr                 r2 ≤ curr             r3 ≥ curr, r1 < curr              r3 ≤ curr
+         r1 := curr                r2 := curr                 r3 := curr                   r3 := curr
+
+                                                r2 > curr,
+                      r1 < curr                 r1 < curr                   r3 < curr
+ start       q0                        q1                         q2                           q3
+                      r2 := curr                r3 := curr             r1 := r3 , r3 := curr
+
+                                                                        r3 > curr, r2 < r3
+                                                                       r2 := r3 , r3 := curr
+
+
+Fig. 2. A deterministic register automaton A that identifies the higher-highs-higher-
+lows price pattern.
+
+   The DRA A in Fig. 2 maintains three registers r1 , r2 , and r3 (initialised
+to zero) representing the last trough, the last peak, and the previous value,
+respectively. It descends in q0 until it reaches a trough, ascends in q1 to a peak,
+and then alternates as follows: it remains in q2 while the price stays above r1 ;
+upon detecting a higher trough, it moves to q3 ; and upon a higher peak, it returns
+to q2 . As an illustration, consider the price sequence v := 0, −1, 5, 3, 7, 9, 6, 8,
+which exhibits peaks at 5 and 9 and troughs at −1, 3, and 6. Since both the
+peaks and the troughs are strictly increasing, this sequence represents an uptrend
+and is therefore accepted by A.
+
+Robustness. Suppose we ask whether v remains an uptrend when its final value
+is perturbed by less than δ: does some w ∈ Q+ \ L(A) satisfy D(v, w) < δ,
+where D((v1 , . . . , vn ), (w1 , . . . , wn )) := |vn − wn | is the last-letter distance? We
+build an automaton AD,v with an accumulator register: on reading the i-th letter
+wi of w = w1 , . . . , wn , the transition taken adds ai wi + bi to the accumulator,
+6       Hong et al.
+
+where the rationalsP    ai , bi are fixed by that transition (and may depend on v),
+                         n
+so that AD,v (w) = i=1 (ai wi + bi ). For the last-letter distance, ai = bi = 0 for
+i < n, while at i = n the automaton takes (an , bn ) = (−1, vn ) if vn > wn and
+(an , bn ) = (1, −vn ) otherwise, i.e. it adds |vn − wn |, giving AD,v (w) = D(v, w).
+    Taking the product A′ of AD,v and Ac (the complement of A) gives A′ (w) =
+D(v, w) and L(A′ ) = L(Ac ) ∩ Qn , reducing robustness to whether some w ∈
+L(A′ ) satisfies A′ (w) < δ — exactly what the procedure of Sec. 4 decides for
+general A, v, and δ. Here, v admits an adversarial instance iff δ > 8 − 3 = 5,
+since v stops being an uptrend once the last value 8 drops to 3 or below.
+
+Learning. Suppose we have an accurate trading model N that classifies the two
+sequences in Fig. 1 as uptrends. Recall that the right-hand sequence is unstable
+under the last-letter distance: even an arbitrarily small perturbation (ε > 0) of
+the final price violates the relevant running constraint and flips the signal. For
+this sequence, our pipeline identifies a nearby sample as a witness of instability
+and refrains from certifying a robust DRA for N . In contrast, the left-hand se-
+quence is stable under the same metric—its signal remains unchanged unless the
+last price falls below the previous low. Consequently, we can learn a robust DRA
+for N over a neighbourhood of the left-hand sequence. By explicitly targeting
+robustness, the learned automaton captures the intended pattern with a mar-
+gin: agreed sequences are locally stable, spurious counterexamples are filtered,
+and genuine non-robust witnesses are reported. This design turns the extracted
+DRA into an interpretable surrogate that provides both agreement and stability
+guarantees.
+
+
+3    Preliminaries
+
+We fix the ordered-rational alphabet theory (Q; <, =), with rational constants
+in guards. Q+ denotes the non-empty rational sequences; registers initially hold
+0.
+Register automata. A k-register automaton (k-RA) is A = (Q, ∆, q0 , F ),
+where Q is finite, q0 ∈ Q, F ⊆ Q, and ∆ is a finite set of transitions (p, φ, ψ, q).
+It has registers r̄ = (r1 , . . . , rk ). A guard φ(r̄, curr) is a conjunction of atoms
+x ∼ y, where ∼∈ {<, ≤, =, ̸=, ≥, >} and x, y ∈ r̄ ∪ {curr} ∪ Q. An assignment
+ψ is a parallel update in which every ri receives a constant, a register value, or
+the current symbol.
+    A configuration is (p, ν) with p ∈ Q and ν : r̄ → Q. On reading a, the
+transition (p, φ, ψ, q) is enabled exactly when φ(ν, a) holds; it changes (p, ν) to
+(q, ψ(ν, a)). A word is accepted if its run from (q0 , 0) ends in F ; its language is
+L(A). The RA is deterministic (a DRA) if at most one outgoing transition is en-
+abled in every configuration. Missing transitions reject. We totalise a DRA, when
+needed, by adding a non-accepting sink, and then complement it by swapping fi-
+nal and non-final states. DRA languages are closed under Boolean operations [8];
+write Ac for a DRA recognising Q+ \ L(A).
+                               Synthesis and Verification of Register Automata          7
+
+Register automata with accumulators. A k-register automaton with accu-
+mulator (k-RAA) AD = (Q, ∆, q0 , F ) reads a pair (v, w) ∈ Q+ × Q+ with one
+head per sequence and computes a cost. Its transitions (p, φ, ψ, χ, q, mov) ex-
+tend those of RAs: guards and assignments may refer to the letters curr1 , curr2
+under the two heads, mov ∈ {1, 2, both} names the head(s) that advance, and
+χ : acc += a1 · curr1 + a2 · curr2 + b (a1 , a2 , b ∈ Q) is an affine accumulator incre-
+ment, required to be non-negative whenever φ holds (so that the shortest-path
+reduction of Sec. 4 has non-negative edges).
+    A configuration (p, i, j, ν) records the state, both head positions and the
+register valuation; the run starts in (q0 , 1, 1, 0). A transition is enabled if its guard
+holds and every head it reads or advances is not yet exhausted; a transition that
+ignores an exhausted head may still fire, which allows insertions and deletions at
+the end of a sequence. It updates the registers, advances the heads in mov (the
+others re-read their letter), and adds χ(vi , wj ) to the cost. A run is accepting if it
+ends in a final state with both heads exhausted. The accumulator is write-only:
+guards never test it. RAAs are non-deterministic, which lets them choose, e.g.,
+an alignment of v and w; AD (v, w) is the minimum cost over all accepting runs
+(∞ if there is none), and AD computes D if AD (v, w) = D(v, w) for all (v, w).
+Registers store letters for later comparison, as in RAs; in Sec. 4, the registers of
+the DRA under analysis become registers of a product RAA. Define
+
+          wt(AD ) =     inf    AD (v, w),      wt(AD , v) = inf+ AD (v, w).
+                      v,w∈Q+                                  w∈Q
+
+
+Robustness. For δ > 0, let Bδ (v) = {w ∈ Q+ : D(v, w) < δ}. A DRA language
+L(A) is δ-robust at v ∈ L(A) iff Bδ (v) ∩ L(Ac ) = ∅. Hence robustness asks
+whether a word of cost below δ can reach the complement language. The RAAs
+computing Hamming, DTW, edit, Manhattan, and last-letter distance are given
+in Appendix A.
+
+
+4    Verifying Robustness of DRAs
+
+In this section, we develop the decision procedure behind the following theorem.
+
+Theorem 1. For any fixed number of registers k and any fixed perturbation-cost
+RAA with non-negative updates, checking whether a k-DRA is robust at a given
+sequence is decidable in polynomial time. Moreover, whenever robustness fails, a
+concrete witness to non-robustness can also be constructed in polynomial time.
+
+The polynomial is in the automaton, the sequence, and the finite constant set in-
+duced by the instance. The graph constructed below has O(|v||Q||C|k+1 ) vertices
+and O(|v||∆||C|k+2 ) edges, so the running time of our algorithm is exponential
+in k. Some super-polynomial dependence on k is expected: robustness subsumes
+DRA emptiness, which is PSPACE-complete when k is part of the input [15],
+so no algorithm can be polynomial jointly in the automaton size and k unless
+P = PSPACE.
+8      Hong et al.
+
+    Our proof proceeds in two reductions: robustness of a k-DRA to coverabil-
+ity for a restricted class of RAA, bounded projected RAA, then coverability to
+single-source shortest paths. Both reductions run in polynomial time, and since
+all accumulator updates (hence all graph edges) are non-negative, Dijkstra’s al-
+gorithm solves the shortest-path problem in polynomial time, giving Theorem 1.
+    For the first reduction, we use coverability, a thresholded min-cost question
+in the sense of cost-register automata over finite alphabets [3]; when accumulator
+updates are identically zero, it collapses to the usual reachability problem for
+register automata with linear arithmetic [13]. For an RAA AD , a sequence v,
+and a constant δ ∈ Q, we say that AD is covered at v by δ if wt(AD , v) < δ.
+The coverability problem asks, given AD , v, and δ, whether AD is covered at v
+by δ. Robustness reduces to coverability: the product between A and AD gives
+an RAA A′D accepting (v, w) iff w ∈     / L(A) and (v, w) ∈ L(AD ), so L(A) is
+δ-robust at v iff A′D is not covered at v by δ. The reduction can be strengthened
+so that A′D is a bounded projected RAA: for some α > 0, A′D is α-bounded and
+v-projected if A′D (u, w) ̸= ∞ implies u = v and every letter d occurring in w
+satisfies |d| ≤ α. The formal reduction is the following lemma.
+
+Lemma 1 (Reducing robustness to coverability). Given a DRA A, a se-
+quence v ∈ L(A), an RAA AD , and a rational number δ > 0, we can construct
+in polynomial time a rational number α > 0 and α-bounded v-projected RAA
+A′D such that L(A) is not δ-robust at v if and only if A′D is covered at v by δ.
+
+Proof. Product. Restrict the first tape of AD to v by conjoining curr1 = vi to
+every transition that reads the i-th letter, tracking i in the control state; every
+increment then has the form a · curr2 + b. Totalise A, let A be its complement,
+and form the product in which A moves exactly when the second head advances:
+a transition of AD with mov = 1 leaves the A-component unchanged, and one
+with mov ∈ {2, both} is paired with a transition of A whose guard and update
+are evaluated at curr2 . (A mov = 1 transition rereads the current letter of w,
+which the DRA must read only once.) With final states FA × FAD , the product
+A′′D accepts (v, w) with cost AD (v, w) iff AD accepts it and w ∈  / L(A). It has
+polynomial size, non-negative increments, and the registers of both automata.
+Hence L(A) is not δ-robust at v iff A′′D is covered at v by δ.
+Bounding. Let C0 contain 0, the letters of v, and the constants of A′′D , and let
+                                                                              
+α := 1+max {|c| : c ∈ C0 }∪{|b/a|, |(δ−b)/a| : acurr2 +b an increment, a ̸= 0} .
+
+On a run of cost below δ, each increment satisfies 0 ≤ acurr2 + b < δ, which
+confines every letter read with a ̸= 0 to [−α+1, α−1]. After propagating register
+assignments, every other letter of w occurs only in atoms wi ∼ wj or wi ∼ c with
+c ∈ C0 . Replacing these letters by rationals in [−α, α] with the same order type
+relative to the fixed letters and C0 , which exist by density of Q (the margin +1
+leaves room beyond all fixed values), preserves every guard and the cost. Hence
+conjoining −α ≤ curr2 ≤ α to every transition yields an α-bounded v-projected
+RAA A′D that is covered at v by δ iff A′′D is.
+                             Synthesis and Verification of Register Automata       9
+
+  For the second reduction, we show that minimal-cost witnesses can be found
+among sequences over a finite set of values. We need two auxiliary facts.
+
+Lemma 2. Let Π ⊆ Qn , let cl(Π) be its closure in Rn , let δ > 0, and let
+f : Rn → R be continuous. Then f (x) < δ for some x ∈ Π iff f (x) < δ for some
+x ∈ cl(Π).
+
+Proof. The forward direction is immediate. Conversely, if x ∈ cl(Π) and f (x) <
+δ, then by continuity f < δ on an open neighbourhood of x, which contains a
+point of Π.
+
+Lemma 3. Let C ⊆ Q contain 0, the constants of an RAA AD , and the letters
+of v. On every run of AD on (v, w) with all letters of w in C, every register
+value lies in C.
+
+Proof. By induction along the run: registers start at 0 ∈ C, and each assignment
+copies a constant, a register value, curr1 (a letter of v), or curr2 (a letter of w),
+all of which lie in C.
+
+Lemma 4 (Reducing coverability to shortest path). Let k be a fixed pos-
+itive integer. Given α-bounded v-projected k-RAA AD and a rational number
+δ > 0, we can construct in polynomial time a weighted graph G = (V, E), a
+source vertex s ∈ V and a set U ⊆ V of target vertices such that AD is covered
+at v by δ iff there is a path in G with weight < δ from the source vertex s to
+some vertex in U .6
+
+Proof. Since AD is v-projected, we write each increment as a × curr2 + b.
+Polytopes. Fix a transition sequence t = (t1 , . . . , tℓ ) consuming n letters of w;
+as mov = 1 transitions reread the current letter, ti reads coordinate wni , and
+several transitions may share one. Let Π(t) ⊆ Qn be the set of w on which t is an
+accepting run on (v, w). After substituting v and propagating register updates,
+every guard atom has the form wi ∼ wj or wi ∼ c, so Π(t) is a P      (not necessarily
+closed) polytope, and the cost is the linear function ft (w) = i (ai wni + bi ).
+Hence AD is covered at v by δ iff ft (w) < δ for some t and w ∈ Π(t), iff, by
+Lemma 2, the same holds for some w ∈ cl(Π(t)).
+Finitely many values. Let C consist of 0, the constants of AD , the letters of v,
+and ±α. As AD is α-bounded, cl(Π(t)) is bounded, so ft attains its minimum
+over it at a vertex w. Connect two coordinates of w whenever a constraint that is
+tight at w relates them. Every connected component contains a coordinate tied
+by a tight constraint to a constant in C: otherwise, shifting the whole component
+by ±ϵ preserves all tight constraints and, for small ϵ, all others, so w would be
+the midpoint of two feasible points. Hence every coordinate of w lies in C, and
+by Lemma 3 so does every register value along the run.
+The graph. G enumerates runs over values in C. A vertex (p, i, µ, z, τ ) records
+the control state p, the first-head position i, the register valuation µ ∈ C k , the
+6
+    A weighted graph G = (V, E) is a directed graph where every edge has a weight.
+    The weight of a path is the sum of the weights of its constituent edges.
+10     Hong et al.
+
+value z ∈ C ∪ {⋆} given to the current letter of w (⋆ if it has not been read
+yet, so that rereads by mov = 1 transitions agree), and a tag τ that orders the
+infinitesimal offsets of values sharing a base value in C; the tag decides strict
+and disequality atoms at boundary values, and the number of tags depends only
+on k. Every transition of AD , together with a value in C for the current letter
+when z = ⋆, yields an edge if its guard holds under the tag, weighted by its non-
+negative increment. The source s is the initial configuration, and U contains the
+vertices with a final state, i = |v| + 1, and z = ⋆, i.e. both heads exhausted. The
+tag semantics is spelled out in Appendix B.
+Correctness and size. (⇒) Given an accepting run of cost below δ on t, the
+minimising vertex w′ of cl(Π(t)) has coordinates in C and ft (w′ ) < δ; the
+direction from w′ into Π(t) yields tags satisfying all strict atoms, so following t
+gives a path from s to U of weight ft (w′ ) < δ. (⇐) A path of weight below δ
+determines t and a point w′ ∈ cl(Π(t)) with ft (w′ ) < δ; its tags give a rational
+perturbation into Π(t), which by Lemma 2 keeps the cost below δ. Finally, G
+has O(|v||Q||C|k+1 ) vertices and O(|v||∆||C|k+2 ) edges, which is polynomial for
+fixed k.
+
+Backtracking a shortest path yields, for every ϵ > 0, a concrete witness whose
+cost is within ϵ of the minimal cost. The minimum itself need not be attained
+when strict guards are tight, cf. Appendix B.
+
+Proof (Proof of Theorem 1). By Lemma 1, non-robustness of L(A) at v reduces
+in polynomial time to coverability of a bounded projected RAA with k plus the
+cost-RAA’s registers, a fixed number. By Lemma 4, this reduces in polynomial
+time to a shortest-path query on a graph with non-negative edge weights, solved
+by Dijkstra’s algorithm; backtracking the path yields the witness.
+
+    For cost functions such as Hamming distance, the witness w is forced to
+have the same length as v, so coverability can be solved by unrolling to that
+fixed length — an acyclic computation, polynomial in k as well. This fails once
+the constructed RAA permits witnesses of unbounded length (i.e. the unrolled
+computation may contain cycles), hence the graph construction above.
+
+
+5    Synthesis of Robust DRAs
+
+This section presents the full extraction pipeline: synthesising candidate DRAs
+and validating them as robust surrogates. Candidates are learned by a simulated-
+annealing heuristic, LLS , accepting mutations with a temperature-dependent
+probability so score-decreasing moves stay available and the search escapes local
+optima. At each round, a certification interface returns a genuine non-robustness
+witness, refines the labelled sample set, or accepts the candidate with statistical
+guarantees [33].
+                              Synthesis and Verification of Register Automata                11
+
+Synthesis Based on Simulated Annealing
+For fixed numbers of states, registers, and constants, the candidate DRA space
+is finite. We search this space by simulated annealing: a candidate is scored by
+its classification accuracy on the labelled sample set S = (S + , S − ), optionally
+up-weighting a distinguished “golden” positive subset G ⊆ S + ,
+                                                                  ( |S + |+|S − |
+                |S + ∩ L(A)| + |S − \ L(A)| + w |G ∩ L(A)|               10 |G|
+                                                                                    ,   G ̸= ∅,
+score(A, S) =                                              , w=
+                           |S + | + |S − | + w |G|                  0,                  G = ∅.
+
+ The golden subset thus contributes a fixed tenth of the weight of S, irrespective
+of its size, and its elements are counted twice, once through S + and once through
+G; when G = ∅ the score reduces to plain classification accuracy.
+    The search space is finite because guards and assignments are drawn from
+finite menus. Fix a finite constant pool K ⊆ Q. A guard atom is an interval
+constraint ℓ ▷◁1 curr ▷◁2 u with ▷◁1 , ▷◁2 ∈ {<, ≤} and bounds ℓ, u ∈ r̄∪K ∪{±∞},
+and an assignment maps each register to an element of r̄ ∪ {curr} ∪ K; the
+atom space is the finite set of such guard–assignment pairs. At each step, the
+learner selects a weighted mutation: resampling a state’s outgoing transitions
+from the atom space, flipping/optimising accepting states, or splitting a frontier
+transition to activate a fresh state; non-accepted moves are reverted in place,
+and a near-neutral split (activating a state while lowering the score by at most
+one sample’s weight) is retained. Algorithm 1 gives the full procedure, keeping
+the best automaton A∗ separate from the current A. LLS is a heuristic: it returns
+the best-scoring DRA found within its budget, which need not be optimal and
+may be a local optimum. All guarantees we state for extracted DRAs come from
+the validation phase below, not from the search.
+Algorithm 1 SimulatedAnnealing(S, A0 , T0 , ρ, Tmin , max iter, max time)
+ 1: A ← A0 ; A∗ ← A0 ; T ← T0 ; i ← 0; tstart ← now()
+ 2: while i < max iter and elapsed(tstart ) < max time do
+ 3:    A′ ← Mutate(A)                    ▷ weighted choice of the three operators above
+ 4:    ∆ ← score(A′ , S) − score(A, S)
+ 5:    if ∆ ≥ 0 or Bernoulli(exp(∆/T )) succeeds then
+ 6:        A ← A′                                               ▷ annealing acceptance
+ 7:    else if A′ activates a fresh state and ∆ ≥ −1/|S| then
+ 8:        A ← A′                                         ▷ near-neutral split, retained
+ 9:    end if
+10:    if score(A, S) > score(A∗ , S) then A∗ ← A
+11:    T ← ρ · T ; if T < Tmin then T ← T0                                      ▷ reheat
+12:    i←i+1
+13: end while
+14: return A∗
+
+
+
+PAC Validation and End-to-End Extraction
+We couple simulated-annealing learning with black-box validation. The user fixes
+a target agreement threshold p ∈ (0, 1), an accuracy tolerance γ ∈ (0, 1) (the
+12      Hong et al.
+
+slack allowed between p and the guaranteed agreement), and an error probability
+ε ∈ (0, 1). For each candidate DRA, draw n = ⌈ln(1/ε)/(2γ 2 )⌉ fresh samples from
+the reference distribution D and permit at most dmax = ⌊n(1−p)⌋ disagreements
+with N . On each agreeing sample, invoke the checker from Sec. 4. A label-flipping
+neighbour on which N also flips is returned as a genuine witness. The candidate
+is accepted iff it has at most dmax disagreements over the n samples and the
+checker finds no label-flipping neighbour whose label under N equals that of its
+centre; otherwise every such neighbour, together with the disagreement samples,
+refines the labelled set before the next synthesis iteration. An accepted candidate
+is a statistically faithful and locally stable surrogate in the sense of Theorem 2.
+
+Equivalence Checking Exact equivalence against a black-box model with no
+equivalence oracle is generally unavailable, so our equivalence phase adopts a
+probably-approximately-correct (PAC) view [33]: replace the oracle with i.i.d.
+draws from the reference distribution D, accept only if the empirical disagree-
+ment stays below a threshold, and lift this via a one-sided Hoeffding bound to a
+distribution-level fidelity guarantee. Accordingly, Accept means PAC-validated
+fidelity under D, not exact equivalence between A and N .
+
+Lemma 5 (PAC fidelity guarantee). Let p, ε, γ ∈ (0, 1) and consider one
+validation phase for a candidate DRA A, with n = ⌈ln(1/ε)/(2γ 2 )⌉ and dmax =
+⌊n(1 − p)⌋. If the phase accepts A, then, with probability at least 1 − ε over its
+random sampling process, Prw∼D [N (w) = A(w)] ≥ p − γ.
+
+Proof. Condition on the candidate DRA selected before this validation phase.
+Let Xi = 1[N (wi ) ̸= A(wi )] and q = Prw∼D [N (w) ̸= A(w)]. P   The Xi are i.i.d.
+                                                              1   n
+Bernoulli variables with mean q. If the phase accepts,
+                                                 Pn      then n   i=1 Xi ≤ 1 − p.
+                                               1
+Hence, if q > 1 − p + γ, acceptance implies n i=1 Xi − q < −γ. Hoeffding’s
+                                                           2
+inequality therefore gives Pr[the phase accepts] ≤ e−2nγ ≤ ε. Thus the proba-
+bility that the phase accepts while q > 1 − p + γ is at most ε. Equivalently, with
+probability at least 1 − ε, acceptance implies the stated agreement bound.
+
+Robustness Checking The validation procedure checks local stability only on
+samples where A and N agree. For such a sample w, the checker from Sec. 4
+searches Bδ (w) for a point on which A flips. If the network flips as well, the
+algorithm returns a genuine witness; otherwise the point is a refinement example
+for the learner. We write Stabδ (A, w) := ∀w′ ∈ Bδ (w) : A(w′ ) = A(w).
+
+Lemma 6 (PAC instability-mass bound on agreed inputs). Assume the
+checker of Sec. 4 is complete for Bδ , that is, on every queried input w it reports
+some w′ ∈ Bδ (w) with A(w′ ) ̸= A(w) whenever such a w′ exists. Let λ :=
+Prw∼D [N (w) = A(w)∧¬Stabδ (A, w)]. Suppose a validation phase checks (N , A)
+with sample size n. For any confidence parameter η ∈ (0, 1), if the phase accepts
+then, with confidence at least 1 − η, it holds that λ ≤ 1 − η 1/n .
+
+Proof. Condition on the candidate DRA selected before this validation phase.
+For each sample, let Zi indicate A(wi ) = N (wi ) ∧ ¬Stabδ (A, wi ). These are i.i.d.
+                            Synthesis and Verification of Register Automata       13
+
+Bernoulli variables of mean λ. Checker completeness implies that acceptance
+entails Zi = 0 for every i. If λ > 1 − η 1/n , the probability of the latter event is
+(1 − λ)n < η. Hence the probability that the phase accepts while λ > 1 − η 1/n
+is below η, which proves the claim.
+
+   Combining Lemmata 5 and 6 with a union bound yields the following theo-
+rem.
+
+Theorem 2 (End-to-end PAC guarantee for an accepted DRA). Define
+Goodδ (N , A, w) := (A(w) = N (w)) ∧ Stabδ (A, w). Let n = ⌈ln(1/ε)/(2γ 2 )⌉ be
+the sample size used by the validation procedure. For any η ∈ (0, 1), if it returns
+an accepted DRA A, then with confidence at least 1 − ε − η,
+
+                 Prw∼D Goodδ (N , A, w) ≥ p − γ − 1 − η 1/n .
+                                                         
+
+
+Proof. By definition, with all probabilities taken over w ∼ D,
+
+Pr[Goodδ (N , A, w)] = Pr[A(w) = N (w)] − Pr[A(w) = N (w) ∧ ¬Stabδ (A, w)].
+
+With confidence at least 1−ε, Lemma 5 lower-bounds the first term by p−γ; with
+confidence at least 1 − η, Lemma 6 bounds the second term above by 1 − η 1/n .
+A union bound yields the stated result.
+
+Remark 1. The theorem is a guarantee about A, not N : Stabδ (A, w) holds for
+the surrogate, but N may still flip somewhere in Bδ (w) where A does not. It
+also concerns one validation phase, whereas extraction performs up to B of them
+and returns the first acceptance; since each phase draws its n samples afresh,
+independent of the candidate, a union bound over the B phases gives Theorem
+2 at confidence 1 − B(ε + η), restored to the stated confidence by running each
+phase at ε/B, η/B, costing only ln B/(2γ 2 ) extra samples per phase.
+
+
+6   Experimental Evaluation
+
+We evaluate RAExc [26], which extracts deterministic register automata (DRAs)
+as interpretable surrogates for neural sequence classifiers. It combines local-
+search DRA synthesis with fixed-register robustness checking under last-letter,
+edit, Hamming, and Manhattan, and DTW distance through the RAA construc-
+tion. We focus on the following research questions:
+– (RQ1) Do the benchmark languages admit compact DRAs, and are the net-
+  works accurate on them?
+– (RQ2) How effective is the PAC validation loop at accepting surrogates or
+  finding robustness violations?
+– (RQ3) How do learning and checking scale with the numbers of states and
+  registers and with the input length?
+14      Hong et al.
+
+Benchmarks. Table 1 lists the benchmarks. L1 –L7 are the Tomita-style lan-
+guages [54] with a and b encoded as distinct data values, including counting
+modulo a constant (L5 , L6 ). S1 –S11 are idealised trend patterns from technical
+analysis [44], whose membership depends on comparing values at different posi-
+tions; the learner is given one (S1 –S8 ) or two (S9 –S11 ) registers. MNIST reads
+each image as the sequence of its row-mean intensities and has no ground-truth
+DRA.
+Table 1. Benchmarks and RQ1 results. Li : Tomita languages; Si : trend patterns over
+rational sequences, incl. the higher-highs/higher-lows family of Example 1 (S9 –S11 ).
+Acc: balanced test accuracy (%); Time: synthesis time (s); S/R/T : states/registers/-
+transitions.
+
+                                                         NLSTM NT                    LLS
+Language Description                                     Acc   Acc         Acc      Time     S R T
+L1         a∗                                            100.00   100.00   100.00   1.00     212
+L2         (ab)∗                                         100.00   100.00   99.95    20.08    418
+L3         an bm with odd n and even m                   100.00   100.00   100.00   0.53     414
+L4         No symbol repeats three times consecutively    97.90   99.30    99.45    27.90    428
+L5         a(a|b)∗ with even counta , countb             100.00   100.00   79.00    753.26   417
+L6         a(a|b)∗ with counta ≡3 countb                 100.00   100.00   100.00   11.72    326
+L7         a+ b∗ a∗ b∗                                   100.00 98.20 100.00 335.81 5 1 10
+S1         Strictly increasing                            99.80 99.65 100.00 2.06   213
+S2         Strictly decreasing                           99.80 99.30 100.00 39.85 2 1 2
+S3         Non-strictly increasing                       100.00 100.00 100.00 0.30  213
+S4         Non-strictly decreasing                        99.90 100.00 100.00 2.66  214
+S5         Single peak                                   100.00 99.35 100.00 353.90 4 1 8
+S6         Single valley                                 100.00 98.30 100.00 310.51 4 1 7
+S7         Two peaks                                      99.95 97.75 99.80 262.98 5 1 10
+S8         Three peaks                                   100.00 99.65 100.00 83.02 6 1 12
+S9         Higher highs/lows                              99.65 99.80 99.90 543.55 5 2 10
+S10        Higher highs, lower lows                      99.55 98.75 99.60 504.28 5 2 10
+S11        Lower highs/lows                              100.00 100.00 99.40 387.35 5 2 10
+MNIST      Row-mean pixel intensity, digit 1 vs. rest    98.63 98.50 95.37 832.09 4 1 7
+
+
+
+Experimental Setup. We use p = 0.95 and ε = γ = 0.05 (n = 600, dmax = 30),
+strict neighbourhoods with δ = 1 (δ = 1.5 for Hamming and edit distance),
+and per-configuration budgets of 30 minutes for learning and 60 minutes for
+checking. Further details, including neural network training and the local-search
+hyperparameters, are given in Appendix C.1.
+
+RQ1: Language identifiability. Table 1 shows that LLS finds DRAs with 2–6
+states and 1–2 registers reaching at least 99.4% on all synthetic benchmarks
+but L5 (79.0%) and 95.37% on MNIST. We compare LLS with two alternatives
+in Appendix C.4. An SMT-based learner, given the same samples and budget,
+reaches 91.05–100% on L1 –L7 and S1 –S8 , as it stops at 90–95% training accu-
+racy, is slower on most of them (median 82 s vs. 28 s), and times out on the
+two-register patterns S9 –S11 . The active learner RALib [16] instead queries the
+language: it learns L1 –L7 and S1 –S8 exactly within 30 s, but times out or fails
+on S9 –S11 and cannot run on MNIST, which has no membership oracle. Thus
+                               Synthesis and Verification of Register Automata        15
+
+only LLS handles all benchmarks. Both networks reach at least 97.75% on every
+synthetic benchmark and 98.5% on MNIST, so RQ2 is not confounded by poorly
+trained black boxes.
+
+RQ2: End-to-end robustness checking. For each of the 190 combinations of
+benchmark, network and metric, we run the full validate–check–refine loop of
+Sec. 5, not a single checker call. A run ends robust when a surrogate is PAC-
+accepted, non-robust when a witness also flips the network, and inconclusive
+after 10 rounds otherwise. 180 runs concluded (38 robust, 142 non-robust, no
+timeouts) with a median of 186 s and at most 1659 s; learning took 92.0% of the
+runtime and checking 2.8%; cf. Appendix C.5.
+Table 2. Validation loop per metric (38 configurations each). Multi/Max : concluded
+runs with several rounds / most rounds; Spur.: spurious witnesses in concluded runs;
+Cost: confirmed witness costs; |w| ̸= |v|: witnesses changing the length.
+
+             Metric        +/ − /?   Multi   Max   Spur.      Cost       |w| ̸= |v|
+             Last letter   21/14/3     8      5     358       0.0625        0
+             Edit          0/36/2      6      6     362          1          5
+             Hamming       2/35/1      5      5      50          1          0
+             Manhattan     15/19/4    11      9     835    0.011–0.106      0
+             DTW            0/38/0     6      5     232      0–0.083        36
+
+
+    Table 2 details the loop. 36 concluded runs needed refinement, which dis-
+carded 1,837 spurious witnesses that flip the DRA but not the network. Ac-
+cepted surrogates agree with the network on at least 95.2% (median 99.6%) of
+the validation samples. Of the 10 inconclusive runs, seven still exceeded dmax
+after 10 rounds and three kept producing spurious witnesses.
+    Robustness holds mainly under in-place perturbations: last-letter and Man-
+hattan distance account for 36 of the 38 accepted surrogates, and their witnesses
+cost at most 0.11. One substitution or edit flips the network in 35 and 36 of 38
+configurations, respectively. DTW exposes non-robustness in all 38: 26 witnesses
+cost 0, so realignment alone flips the label, and 36 change the input length, which
+fixed-length checkers cannot detect.
+
+RQ3: Scalability. We use three families: strictly increasing sequences of length n
+(one register, n + 1 states, n ∈ {20, 40, . . . , 100}); length-n sequences of pairwise
+distinct values (n registers, n + 2 states, n ∈ {2, 4, 6}); and S1 with maximum
+training length 20–100. For each point, LLS learns a DRA of the stated size,
+which we test on 1,000 and check on 100 fresh sequences under last-letter distance
+(δ = 1).
+    As shown in Fig. 3, learning is the bottleneck. For increasing sequences, it
+exhausts the budget from 20 states on, yet reaches 94.7–98.4% test accuracy;
+for distinct values, its time grows from 6 s to 1029 s between 2 and 6 registers;
+input length hardly matters (every S1 point within 9 s, at least 99.5% accuracy).
+Checking stays cheap, at most 11 s per sequence: its time grows roughly linearly
+with the number of states (0.27–3.37 s), mildly with input length (0.08–0.43 s),
+and not with registers (0.01 s).
+16                   Hong et al.
+
+                   1,000
+ Learning            100
+                      10
+    (s)                1
+                     0.1
+                     10
+      Checking        1
+                     0.1
+    (s/sequence)    0.01
+                           20   40    60      80   100   2      4        6   20   40   60   80   100
+                                     States                  Registers       Max. sequence length
+
+
+     Fig. 3. Learning time and checking time per sequence under last-letter distance.
+
+7             Related Work and Conclusion
+Automata learning underlies grammatical inference, from graph-colouring and
+SAT-based DFA identification [24,23] to EDSM-style state merging [22,37]. Re-
+lated register-automata learners [16,42,6] do not learn constants in transition
+guards, which our benchmarks require. Formal explainability studies complexity
+and constraint-based explanations [7,51], while extraction methods derive DFAs,
+weighted automata, or Moore machines from RNNs and transformers [20,54,4,47,53,2].
+These use finite alphabets; we learn DRAs over data domains. For robustness,
+solver and abstraction methods [32,19,36,17,31,43,57,39,50,38,27,28] are mostly
+white-box, whereas probabilistic approaches [35] match our black-box validation
+setting. Our counterexamples are minimum-change contrastive explanations, in
+contrast to subset-minimal abductive or contrastive explanations [29,30,7].
+    Beyond DRAs, symbolic register automata [14], data automata [9,18], and
+variable automata [18,21] suggest richer future surrogates, for instance for LRA
+guards in financial indicators [44]. In summary, we give a polynomial-time ro-
+bustness checker for DRAs with a fixed number of registers and combine it with
+local-search learning and PAC validation into a black-box pipeline that extracts
+compact surrogates and non-robustness witnesses for sequence classifiers.
+    Several limitations remain. The polynomial bound assumes a fixed number
+of registers; scaling to many registers needs better symbolic reductions. The
+validation guarantee is distributional: an accepted DRA is faithful on the ref-
+erence distribution, not on all sequences. The learner is heuristic and may fail
+when the network has no compact DRA approximation. Natural future work in-
+cludes probabilistic and nondeterministic surrogates, richer LRA-based guards,
+and properties such as fairness, monotonicity, and temporal specifications.
+
+Acknowledgments. Jiang, Lin, Markgraf, and Parsert are supported by the Euro-
+pean Research Council (ERC) under the European Union’s Horizon 2020 research and
+innovation programme under grant number 101089343. Chih-Duo Hong is supported by
+the National Science and Technology Council, Taiwan, under grant numbers 112-2222-
+E004-001-MY3 and 114-2634-F-004-002-MBK. We thank the anonymous SETTA 2026
+reviewers for their helpful comments and suggestions.
+                               Synthesis and Verification of Register Automata            17
+
+References
+
+ 1. Abdulla, P.A., Atig, M.F., Kara, A., Rezine, O.: Verification of dynamic register
+    automata. In: FSTTCS. pp. 653–665 (2014)
+ 2. Adriaensen, R., Maene, J.: Extracting moore machines from transformers using
+    queries and counterexamples. In: IDA. pp. 419–431 (2025)
+ 3. Alur, R., D’Antoni, L., Deshmukh, J., Raghothaman, M., Yuan, Y.: Regular func-
+    tions and cost register automata. In: LICS. pp. 13–22 (2013)
+ 4. Angluin, D.: Learning regular sets from queries and counterexamples. Inf. Comput.
+    75(2), 87–106 (1987)
+ 5. Angluin, D.: Queries and concept learning. Mach. Learn. 2, 319–342 (1988)
+ 6. Balachander, M., Filiot, E., Gentilini, R.: Passive learning of regular data languages
+    in polynomial time and data. In: CONCUR. pp. 10:1–10:21 (2024)
+ 7. Barceló, P., Monet, M., Pérez, J., Subercaseaux, B.: Model interpretability through
+    the lens of computational complexity. NeurIPS 33, 15487–15498 (2020)
+ 8. Bojanczyk, M.: Slightly infinite sets. www.mimuw.edu.pl/~bojan/upload/main-10.
+    pdf (2019)
+ 9. Bojanczyk, M., David, C., Muscholl, A., Schwentick, T., Segoufin, L.: Two-variable
+    logic on data words. ACM Trans. Comput. Log. 12(4), 27:1–27:26 (2011)
+10. Bojanczyk, M., Klin, B., Lasota, S.: Automata theory in nominal sets. Log. Meth-
+    ods Comput. Sci. 10(3) (2014)
+11. Bojanczyk, M., Muscholl, A., Schwentick, T., Segoufin, L., David, C.: Two-variable
+    logic on words with data. In: LICS. pp. 7–16 (2006)
+12. Cassel, S., Howar, F., Jonsson, B., Steffen, B.: Learning extended finite state ma-
+    chines. In: Giannakopoulou, D., Salaün, G. (eds.) Software Engineering and Formal
+    Methods. pp. 250–264. Springer International Publishing, Cham (2014)
+13. Chen, Y.F., Lengál, O., Tan, T., Wu, Z.: Register automata with linear arithmetic.
+    In: LICS. pp. 1–12 (2017)
+14. D’Antoni, L., Ferreira, T., Sammartino, M., Silva, A.: Symbolic register automata.
+    In: CAV. pp. 3–21 (2019)
+15. Demri, S., Lazic, R.: LTL with the freeze quantifier and register automata. ACM
+    Trans. Comput. Log. 10(3), 16:1–16:30 (2009)
+16. Dierl, S., Fiterau-Brostean, P., Howar, F., Jonsson, B., Sagonas, K., Tåquist, F.:
+    Scalable tree-based register automata learning. In: TACAS. pp. 87–108 (2024)
+17. Du, T., Ji, S., Shen, L., Zhang, Y., Li, J., Shi, J., Fang, C., Yin, J., Beyah, R., Wang,
+    T.: Cert-RNN: Towards certifying the robustness of recurrent neural networks. In:
+    CCS. pp. 516–534 (2021). https://doi.org/10.1145/3460120.3484538
+18. Figueira, D., Lin, A.W.: Reasoning on data words over numeric domains. In: LICS.
+    pp. 37:1–37:13 (2022)
+19. Gehr, T., Mirman, M., Drachsler-Cohen, D., Tsankov, P., Chaudhuri, S., Vechev,
+    M.T.: AI2: safety and robustness certification of neural networks with abstract
+    interpretation. In: IEEE S&P. pp. 3–18 (2018)
+20. Giles, C.L., Miller, C.B., Chen, D., Chen, H.H., Sun, G.Z., Lee, Y.C.: Learning
+    and extracting finite state automata with second-order recurrent neural networks.
+    Neural Comput. 4(3), 393–405 (1992)
+21. Grumberg, O., Kupferman, O., Sheinvald, S.: Variable automata over infinite al-
+    phabets. In: LATA. pp. 561–572 (2010)
+22. Heule, M., Verwer, S.: Software model synthesis using satisfiability solvers. Empir.
+    Softw. Eng. 18(4), 825–856 (2013)
+18      Hong et al.
+
+23. Heule, M.J., Verwer, S.: Exact dfa identification using sat solvers. In: ICGI. pp.
+    66–79 (2010)
+24. de la Higuera, C.: Grammatical Inference: Learning Automata and Grammars.
+    Cambridge University Press (2010)
+25. Hochreiter, S., Schmidhuber, J.: Long short-term memory. Neural Comput. 9(8),
+    1735–1780 (Nov 1997). https://doi.org/10.1162/neco.1997.9.8.1735, https:
+    //doi.org/10.1162/neco.1997.9.8.1735
+26. Hong, C.D., Jiang, H., Lin, A.W., Markgraf, O., Parsert, J., Tan, T.: Synthesis
+    and verification of transformer programs (Oct 2026). https://doi.org/10.5281/
+    zenodo.23451085, https://doi.org/10.5281/zenodo.23451085
+27. Hong, C.D., Yang, C.C., Wang, Y., Yu, F.: Influence-guided concolic testing
+    of transformer robustness. arXiv:2509.23806 (2025). https://doi.org/10.48550/
+    arXiv.2509.23806
+28. Huang, M.I., Hong, C.D., Yu, F.: Concolic testing on individual fairness of neural
+    network models. arXiv:2509.06864 (2026)
+29. Ignatiev, A., Narodytska, N., Marques-Silva, J.: Abduction-based explanations for
+    machine learning models. In: AAAI. pp. 1511–1519 (2019)
+30. Ignatiev, A., Narodytska, N., Marques-Silva, J.: From contrastive to abductive
+    explanations and back again. In: AIxIA. pp. 335–355 (2021)
+31. Jacoby, Y., Barrett, C., Katz, G.: Verifying recurrent neural networks using invari-
+    ant inference. In: ATVA (2020)
+32. Katz, G., Barrett, C.W., Dill, D.L., Julian, K., Kochenderfer, M.J.: Reluplex: An
+    efficient SMT solver for verifying deep neural networks. arXiv:1702.01135 (2017)
+33. Kearns, M.J., Vazirani, U.: An introduction to computational learning theory. MIT
+    press (1994)
+34. Khalimov, A., Kupferman, O.: Register-bounded synthesis. In: CONCUR. pp.
+    25:1–25:16 (2019)
+35. Khmelnitsky, I., Neider, D., Roy, R., Xie, X., Barbot, B., Bollig, B., Finkel, A.,
+    Haddad, S., Leucker, M., Ye, L.: Analysis of recurrent neural networks via property-
+    directed verification of surrogate models. STTT 25(3), 341–354 (2023)
+36. Ko, C., Lyu, Z., Weng, T., Daniel, L., Wong, N., Lin, D.: POPQORN: Quantifying
+    robustness of recurrent neural networks. In: ICML. pp. 3468–3477 (2019)
+37. Lang, K.J., Pearlmutter, B.A., Price, R.A.: Results of the abbadingo one dfa learn-
+    ing competition and a new evidence-driven state merging algorithm. In: Grammat-
+    ical Inference. pp. 1–12 (1998)
+38. Liao, B.H., Cheng, C., Esen, H., Knoll, A.: Are transformers more robust? towards
+    exact robustness verification for transformers. In: SafeComp (2023). https://doi.
+    org/10.1007/978-3-031-40923-3_8
+39. Lin, L.J., Hong, C.D.: Robustness verification of recurrent neural networks with
+    abstraction refinement. arXiv:2606.12490 (2026)
+40. Lundberg, S.M., Lee, S.: A unified approach to interpreting model predictions. In:
+    NeurIPS. pp. 4765–4774 (2017)
+41. Merrill, W., Tsilivis, N.: Extracting finite automata from rnns using state merging.
+    arXiv:2201.12451 (2022)
+42. Moerman, J., Sammartino, M., Silva, A., Klin, B., Szynwelski, M.: Learning nom-
+    inal automata. In: POPL. pp. 613–625 (2017)
+43. Mohammadinejad, S., Paulsen, B., Wang, C., Deshmukh, J.V.: DiffRNN: Differen-
+    tial verification of recurrent neural networks. arXiv:2007.10135 (2020)
+44. Murphy, J.J.: Technical analysis of the financial markets. New York Institute of
+    Finance (1999)
+                             Synthesis and Verification of Register Automata         19
+
+45. Neider, D., Jansen, N.: Regular model checking using solver technologies and
+    automata learning. In: NASA Formal Methods Symposium. pp. 16–31. Springer
+    (2013)
+46. Nielsen, A.: Practical Time Series Analysis: Prediction with Statistics and Machine
+    Learning. O’Reilly (2019)
+47. Okudono, T., Waga, M., Sekiyama, T., Hasuo, I.: Weighted automata extraction
+    from recurrent neural networks via regression on state spaces. In: AAAI. pp. 5306–
+    5314 (2020)
+48. Ribeiro, M.T., Singh, S., Guestrin, C.: ”why should i trust you?”: Explaining the
+    predictions of any classifier. In: KDD. pp. 1135–1144 (2016)
+49. Ribeiro, M.T., Singh, S., Guestrin, C.: Anchors: High-precision model-agnostic
+    explanations. In: AAAI. pp. 1527–1535 (2018)
+50. Shi, Z., Zhang, H., Chang, K., Huang, M., Hsieh, C.: Robustness verification for
+    transformers. In: ICLR (2020). https://doi.org/10.48550/arXiv.2002.06622
+51. Shrotri, A.A., Narodytska, N., Ignatiev, A., Meel, K.S., Marques-Silva, J., Vardi,
+    M.Y.: Constraint-driven explanations for black-box ML models. In: AAAI. pp.
+    8304–8314 (2022)
+52. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A.N., Kaiser,
+    L., Polosukhin, I.: Attention is all you need. NeurIPS 30 (2017)
+53. Wei, Z., Zhang, X., Sun, M.: Extracting weighted finite automata from recurrent
+    neural networks for natural languages. arXiv:2206.14621 (2022)
+54. Weiss, G., Goldberg, Y., Yahav, E.: Extracting automata from recurrent neural
+    networks using queries and counterexamples. In: ICML. pp. 5244–5253 (2018)
+55. Wen, Q., Zhou, T., Zhang, C., Chen, W., Ma, Z., Yan, J., Sun, L.: Transformers
+    in time series: A survey. In: IJCAI. pp. 6778–6786 (2023)
+56. Zhang, X., Du, X., Xie, X., Ma, L., Liu, Y., Sun, M.: Decision-guided weighted
+    automata extraction from recurrent neural networks. In: AAAI. pp. 11699–11707
+    (2021)
+57. Zhang, Y., Du, T., Ji, S., Tang, P., Guo, S.: RNN-Guard: Certified robustness
+    against multi-frame attacks for recurrent neural networks. arXiv:2304.07980 (2023)
+
+
+
+A     RAAs for the Distance Metrics
+
+We give the RAAs for the five metrics used in Sec. 6: Hamming, DTW, Man-
+hattan, edit, and last-letter distance. Transitions are written (p, φ, ψ, χ, q, mov)
+as in Sec. 3, with ∅ denoting the empty register assignment.
+
+
+A.1    Hamming Distance
+
+The following zero-register construction keeps the cost model concrete; non-
+negativity of each increment follows from its guard. Use one initial/accepting
+state and three self-loops moving both heads: curr1 = curr2 adds 0, while curr1 <
+curr2 and curr1 > curr2 each add 1. Thus, accepting runs have equal-length
+words and exactly their Hamming cost.
+20      Hong et al.
+
+A.2    Dynamic Time Warping
+Use an initial non-final state qs and final state q. For every mov ∈ {1, 2, both},
+put the following transitions both from qs to q and as self-loops on q:
+
+curr1 ≤ curr2 : acc += curr2 −curr1 ,            curr1 > curr2 : acc += curr1 −curr2 .
+
+Every run is an alignment of v and w: a mov = 1 step matches the next letter
+of v with the current letter of w again, and symmetrically for mov = 2. Since
+the RAA is non-deterministic, minimising over runs minimises over alignments,
+which yields DTW. Since either head may advance alone, the witness word has
+no a priori length bound.
+
+A.3    Manhattan Distance
+For two sequences v = v1 , . . . , vn and w = w1 , . . . , wn of the same length, their
+Manhattan distance is:
+                                             X
+                       DMan (v, w) :=              |vi − wi |
+                                                1≤i≤n
+
+Similar to the Hamming RAA above, we define the Manhattan distance between
+sequences of different length to be ∞. The following RAA captures this metric.
+
+                      curr1 ≤ curr2 , ∅, acc += curr2 − curr1 , both
+
+
+
+
+                               start       q0
+
+
+
+
+                      curr1 > curr2 , ∅, acc += curr1 − curr2 , both
+
+
+Intuitively on input (v, w), it reads each letter from v and w simultaneously.
+When curr2 ≥ curr1 , it increments acc by curr2 −curr1 . Otherwise, it increments
+acc by curr1 − curr2 .
+
+A.4    Edit Distance
+The edit distance between two sequences v = v1 · · · vn and w = w1 · · · wm is
+the minimum number of operations (insertion, deletion and substitution of a
+                              Synthesis and Verification of Register Automata          21
+
+single letter) required to transform v into w. To define it formally, we need the
+following notation. Let M = ((i0 , j0 ), . . . , (iℓ , jℓ )) be a sequence where each pair
+(ih , jh ) ∈ {1, . . . , n} × {1, . . . , m}. We say that it is a monotone matching (over
+(n, m)), if for every h < h′ we have ih < ih′ and jh < jh′ . Intuitively, such M
+represents insertion/deletion/substitution as follows.
+ – A pair (i, j) that appears in M represents a substitution of vi with wj .
+ – An index i ∈ {1, . . . , n} that does not appear in M represents the deletion
+   of the letter vi .
+ – An index j ∈ {1, . . . , m} that does not appear in M represents the insertion
+   of the letter wj into v.
+   Obviously, we can also view such index j as representing the deletion of the
+   letter wj .
+The edit distance between v and w w.r.t. M is defined as:
+                                            
+                            X
+         Dedt,M (v, w) :=       f (vi , wj ) + cinsdel (n + m − 2|M |),
+                               (i,j)∈M
+
+where f (vi , wj ) denotes the cost of substituting vi with wj and cinsdel is the
+cost of deleting all the letters that are not involved in the matching M . We will
+consider the usual choice f (a, a) = 0, f (a, b) = 1 for a ̸= b and cinsdel = 1, unless
+specified otherwise. The edit distance between v and w is defined as:
+
+                           Dedt (v, w) := min dedt,M (v, w)
+                                            M
+
+As an example, let v = 1, 2, 3, 7, 9 and w = 1, 3, 7, 10. For a monotone matching
+M = {(1, 1), (3, 2), (4, 3)} the edit distance between v and w w.r.t. M is 3. By
+routine inspection, Dedt (v, w) = 2.
+   The RAA for Dedt is as follows.
+
+
+
+                                  t1
+                                                       t3
+
+
+
+
+                                start       q0                t4
+
+
+
+
+                                                       t5
+                                  t2
+
+
+
+
+where:
+22       Hong et al.
+
+ – t1 is (q0 , curr1 ̸= curr2 , ∅, acc += 1, q0 , both).
+ – t2 is (q0 , curr1 = curr2 , ∅, acc += 0, q0 , both).
+ – t3 is (q0 , ⊤, ∅, acc += 2, q0 , both).
+ – t4 is (q0 , ⊤, ∅, acc += 1, q0 , 1).
+ – t5 is (q0 , ⊤, ∅, acc += 1, q0 , 2).
+Intuitively, the RAA “guesses” the monotone matching M . In applying each
+transition, it guesses whether the positions of both heads should be in the mono-
+tone matching M . If the guess is positive, i.e., the pair is in M , it applies ei-
+ther transition t1 or t2 , which corresponds to the case when curr1 ̸= curr2 or
+curr1 = curr2 . It the negative, it applies either transition t3 , t4 or t5 , which
+correspond to the case when both heads move, only the first head moves or only
+the second head moves. Transition t4 reads neither letter and advances only the
+first head, so by the semantics of Sec. 3 it does not need the second head; it can
+therefore delete letters of v after w has been read completely, and symmetrically
+t5 can insert letters of w after v has been read completely. Without this, the
+RAA could not edit the ends of the sequences and would overestimate, e.g., the
+distance between 1, 2, 3 and 1, 2.
+
+A.5      Last-Letter Distance
+The last-letter distance between v = v1 , . . . , vn and w = w1 , . . . , wm is:
+                           
+                           
+                            ∞            if m ̸= n
+                             ∞            if m = n and there is
+                           
+             Dll (v, w) :=
+                           
+                                             1 ≤ i < n where vi ̸= wi
+                             |vn − wm | if m = n
+                           
+
+The RAA for this distance can be defined as follows.
+
+                       curr1 = curr2 , ∅, acc += 0, both
+
+
+
+
+                                                     t
+
+                          start       q0                          p
+
+                                                     t′
+
+where:
+ – t is transition (q0 , curr1 ≥ curr2 , ∅, acc += curr1 − curr2 , p, both),
+ – t′ is transition (q0 , curr1 < curr2 , ∅, acc += curr2 − curr1 , p, both).
+Intuitively, on input (v, w) the RAA checks that they are equal up to the last
+letter. If so, it increments the accumulator register acc by the absolute value of
+their difference.
+                              Synthesis and Verification of Register Automata          23
+
+B    Graph Construction for Lemma 4
+
+Sec. 4 proves Lemma 4 and describes the graph informally. Here we restate the
+lemma and give the full construction, in particular the pending second-head
+value and the tangent tags that handle strict guards at boundary values. The
+proof uses Lemma 2 and Lemma 3 from Sec. 4.
+Lemma 4 (Reducing coverability to shortest path). Let k be a fixed positive
+integer. Given an α-bounded v-projected k-RAA AD and a rational number δ >
+0, we can construct in polynomial time a weighted graph G = (V, E), a source
+vertex s ∈ V , and a set U ⊆ V of target vertices such that AD is covered at v
+by δ iff there is a path in G of weight < δ from s to some vertex in U .
+
+Proof. Throughout, AD is v-projected, so its first head always reads v; we write
+each accumulator increment as acurr2 + b after substituting the corresponding
+letter of v for curr1 . Recall that a transition with mov = 1 advances only the
+first head, so the next transition reads the same second-head letter again; any
+RAA may contain such transitions (in the DTW RAA they align several letters
+of v with one letter of w). The construction below handles them uniformly.
+    Step 1: transition polytopes. Fix a transition sequence t = (t1 , . . . , tℓ ) of AD ,
+and let n be the number of its transitions with mov ∈ {2, both}, i.e. the length
+of the second sequence consumed by t. For each i ≤ ℓ, let ni ∈ {1, . . . , n} be the
+second-head position that ti reads; consecutive transitions linked by mov = 1
+steps have the same ni , and hence share one coordinate of w. Let Π(t) ⊆ Qn be
+the set of w such that t is an accepting run on (v, w), i.e. such that all guards of
+t hold after substituting v, substituting wni for curr2 in ti , and propagating the
+register updates. After this substitution every guard atom has the form wi ∼ wj
+or wi ∼ c, so Π(t) is a (not necessarily closed) polytope, and its closure cl(Π(t))
+in Rn is a closed polytope. The cost of t on w ∈ Π(t) is the linear function
+          Pℓ
+ft (w) = i=1 (ai wni + bi ), where ai curr2 + bi is the increment of ti . Hence AD
+is covered at v by δ iff inf x∈Π(t) ft (x) < δ for some t.
+    Step 2: optimal points use finitely many constants. Let C consist of 0, the
+constants in the guards and assignments of AD , the letters of v, and −α, α.
+Since ft is linear and cl(Π(t)) is bounded (as AD is α-bounded), its minimum
+over cl(Π(t)) is attained at a vertex, i.e. a point that is not a proper convex
+combination of two other points of cl(Π(t)). Let w be a vertex. Call a constraint
+tight at w if it holds with equality there, and connect two coordinates whenever a
+tight constraint relates them. Each connected component contains a coordinate
+tied by a tight constraint to a constant of C: otherwise, shifting all coordinates of
+the component by a small ±ϵ keeps every tight constraint (differences within the
+component are unchanged) and every non-tight one (by continuity), exhibiting
+w as the midpoint of two feasible points. Hence every coordinate of w lies in C,
+and by Lemma 3 so does every register value along the run of t on w.
+    Step 3: strict guards. A vertex of cl(Π(t)) need not satisfy the strict and dis-
+equality atoms of t. We therefore record, besides the values in C, an infinitesimal
+perturbation: a tangent tag is the order of the coefficients dx in x + ϵdx among
+the registers and the pending second-head letter (defined below) that share a
+24       Hong et al.
+
+base value in C (constants have coefficient 0). We keep only tags realisable by
+rationals. For fixed k there are Ok (1) tags, and assignments, which only copy
+values, update them locally. A guard is taken to hold under a tag if it holds for
+all sufficiently small ϵ > 0; hence the tags along a finite path have a common
+rational realisation of all strict and disequality atoms.
+    Step 4: the graph. Let V = Q × {1, . . . , |v| + 1} × C k × (C ∪ {⋆}) × Tk . A
+vertex (p, i, µ, z, τ ) records the control state, the first-head position, the register
+valuation, the pending value of the current second-head letter, and a tangent
+tag. The pending value is ⋆ when the current letter of w has not been read
+yet, and otherwise equals the value it was given; this is how repeated reads
+of one letter through mov = 1 transitions are forced to agree. For a transition
+t = (p, φ, ψ, χ, q, mov) that needs head 2 (in the sense of Sec. 3): if z = ⋆, choose a
+value c ∈ C together with its tangent coefficient; otherwise let c = z. A transition
+that does not need head 2 reads no letter of w and leaves z unchanged. Add an
+edge from (p, i, µ, z, τ ) to (q, i′ , µ′ , z ′ , τ ′ ) iff i ≤ |v| whenever t needs head 1, the
+tagged valuation satisfies φ(µ, vi , c), and τ ′ is the tag induced by the update,
+where
+                       (
+                  ′       i + 1, mov ∈ {1, both},
+                 i =                                               µ′ = ψ(µ, vi , c),
+                          i,      mov = 2,
+                              
+                              ⋆, mov ∈ {2, both},
+                              
+                          ′
+                         z = c, mov = 1 and t needs head 2,
+                              
+                                z, otherwise.
+                              
+
+That is, the pending value is kept across mov = 1 transitions and reset exactly
+when the second head advances. The edge weight is the increment χ(vi , c) at
+the base values; it is non-negative because increments are non-negative on all
+valuations satisfying the guard, and hence also in the limit ϵ → 0. The source is
+s = (q0 , 1, 0̄, ⋆, τ0 ), where τ0 is the unique tag in which all values are constants,
+and U is the set of vertices with control state in F , first-head position |v| + 1,
+and pending value ⋆ (both heads exhausted).
+    Step 5: correctness. (⇒) Take an accepting run on (v, w) of cost below δ, with
+transition sequence t. By Step 2, ft attains its minimum over cl(Π(t)) at a vertex
+w′ with coordinates in C, and ft (w′ ) ≤ ft (w) < δ. Since Π(t) is nonempty, the
+direction from w′ towards a point of Π(t) yields a tangent tag satisfying all strict
+atoms. Following t with the values of w′ and these tags gives an s–U path of
+weight ft (w′ ) < δ. (⇐) An s–U path of weight below δ determines a transition
+sequence t and a point w′ ∈ cl(Π(t)) with ft (w′ ) < δ; its tags give a rational
+perturbation into Π(t), and by Lemma 2 it can be chosen small enough to keep
+the cost below δ.
+    Step 6: size and witnesses. The graph G has O(|v||Q||C|k+1 ) vertices and
+O(|v||∆||C|k+2 ) edges, as Tk has size depending only on k. Since all weights
+are non-negative, Dijkstra’s algorithm decides the instance in polynomial time
+for fixed k. By Step 5, the weight d∗ of a shortest s–U path is the infimum
+of AD (v, w) over all w. Backtracking that path and choosing sufficiently close
+                            Synthesis and Verification of Register Automata      25
+
+rational representatives yields, for every ϵ > 0, a concrete witness w with
+AD (v, w) < d∗ + ϵ. The infimum is attained when no strict or disequality atom is
+tight along the path, and then the witness is a closest one; otherwise a minimum-
+cost witness need not exist. For example, with a guard curr2 < 3 and the cost
+|v1 − w1 | for v1 = 5, the infimum 2 is approached but never reached.
+
+C     Detailed Experimental Results
+Appendix C.1 details the experimental setup. Appendices C.2 and C.3 describe
+the SMT-based and the active learner, and Appendix C.4 compares them with
+LLS for RQ1. Finally, Appendix C.5 lists the per-configuration outcomes of RQ2.
+
+C.1   Experimental Setup
+All experiments targeted an agreement threshold of p = 0.95, an error rate of
+ε = 0.05, and an accuracy tolerance of γ = 0.05 to obtain statistical guarantees,
+i.e. n = 600 validation samples and at most dmax = 30 disagreements per round
+(Sec. 5). The training sample of LLS is separate from these validation samples:
+we draw ⌈ln(2/ε)/(2γ 2 )⌉ = 738 sequences, split evenly into 369 positive and 369
+negative ones. This size follows the two-sided Hoeffding bound but is a heuristic
+choice; the guarantees of Sec. 5 rely only on the fresh validation samples. Neigh-
+bourhoods are strict, Bδ (v) = {w : D(v, w) < δ}; we use δ = 1 for last-letter,
+Manhattan and DTW distance and δ = 1.5 for the integer-valued Hamming and
+edit distance, so that one substitution, insertion or deletion is allowed. Each con-
+figuration gets a 30-minute learning budget, shared across refinement rounds, a
+60-minute budget for robustness checking, and at most 10 refinement rounds.
+We report one run with random seed 0, scheduling six configurations in parallel.
+The checker compiles each candidate DRA and metric once per validation phase,
+explores the product on demand, and forgets register values that cannot affect
+a future guard. Concrete witnesses are checked against the original automata
+before network confirmation.
+     We trained the LSTM and transformer models using binary cross-entropy
+loss and the AdamW optimiser with a learning rate of 0.001 and a dropout
+rate of 0.1. Each model was trained for up to 50,000 steps or terminated early
+once the validation set achieved 100% accuracy for three consecutive epochs.
+The LSTM models used 2–4 recurrent layers with hidden sizes ranging from
+64 to 256, while the transformer encoders employed 2–4 attention heads, 2–6
+layers, and model dimensions between 64 and 128. All models were trained on
+four NVIDIA Quadro RTX 8000 GPUs, except for eight networks (NT on L4 ,
+L5 , L6 , S4 , S9 , S11 and NLSTM on S4 , S11 ), which were trained on a CPU with
+the same optimiser on 40,000 balanced sequences drawn from the benchmark
+generators, and the two MNIST networks, which were trained on a CPU on the
+13,484 balanced row-mean sequences of the MNIST training images and read the
+raw intensities. For MNIST, the learner works over the rationals and may use the
+constant 8 in guards. For DRA learning, we use T0 = 1, ρ = 0.995, Tmin = 10−5 ,
+max iter = 5 · 104 .
+26      Hong et al.
+
+C.2    SMT-Based Learner
+Following SAT/SMT-based DFA synthesis [23,45], the SMT-based learner en-
+codes the existence of a k-DRA with n states Q = {q0 , . . . , qn−1 } over a constant
+set C that is consistent with a sample set S = (S+ , S− ) as a formula Φn,k (S),
+and reads a DRA off a model.
+
+Guards and updates. For a fixed k and C, only finitely many guards and updates
+are needed. Over the rational languages Si and MNIST, a guard is an interval
+λ ∧ ρ whose lower bound λ is curr > v, curr ≥ v, or absent, and whose upper
+bound ρ is curr < v, curr ≤ v, or absent, with v ∈ r̄ ∪ C; over the integer
+languages Li , a guard is curr = v, curr ̸= v, ⊤, or ⊥. Let Γ be this finite set
+of guards; an empty guard, such as curr > v ∧ curr < v, denotes a missing
+transition. An update in the finite set Υ assigns one register a register value or
+curr and leaves the others unchanged.
+
+Variables. For every pair of states p, q, an enumerated variable γp,q over Γ
+and an enumerated variable υp,q over Υ select the guard and update of the
+transition from p to q, and a Boolean fq states that q is accepting. For every
+prefix u ∈ Pref(S) of a sample, a Boolean xu,q states that the run on u reaches
+q, and rational variables r̄u = (ru,1 , . . . , ru,k ) hold the register values after u.
+
+Constraints. Φn,k (S) is the conjunction of the following formulas, where g, g ′ ∈
+Γ , υ ∈ Υ , ua ∈ Pref(S) with a ∈ Q, and p, q, q ′ ∈ Q range over all values:
+
+           |{q : γp,q non-empty}| ≤ m for every p                                   (1)
+                                ′                   ′                        ′
+           γp,q = g ∧ γp,q′ = g → ⊥ for q ̸= q and overlapping g, g                 (2)
+                   V
+           xε,q0 ∧ i rε,i = 0                                                       (3)
+           W
+             q xu,q  for every u ∈ Pref(S+ )                                        (4)
+           xu,p ∧ γp,q = g ∧ υp,q = υ ∧ g(r̄u , a) → xua,q ∧ υ(r̄u , a, r̄ua )      (5)
+           xu,p ∧ γp,q = g ∧ ¬g(r̄u , a) → ¬xua,q                                   (6)
+           V                      V
+             w∈S+ (xw,q → fq ) ∧     w∈S− (xw,q → ¬fq )                             (7)
+
+Formula (1) bounds the number of outgoing transitions by the benchmark’s edge
+limit m (for some benchmarks, with equality). Formula (2) makes the automa-
+ton deterministic: two guards overlap if some valuation of r̄ and curr satisfies
+both, which is decided once per pair of guards. Formula (3) fixes the initial
+configuration, and (4) requires every prefix of a positive sample to have a run.
+Formulas (5) and (6) encode one step of a run: an enabled transition must be
+taken and applies its update, written υ(r̄u , a, r̄ua ), while a disabled one cannot
+be taken. Formula (7) fixes the labels. Negative samples need not have a run, so
+no explicit rejecting sink state has to be synthesised.
+Lemma 7. If M |= Φn,k (S), then the automaton AM with states Q, initial
+state q0 , a transition (p, M(γp,q ), M(υp,q ), q) for every non-empty M(γp,q ), and
+final states {q : M(fq )} is an n-state k-DRA consistent with S.
+                           Synthesis and Verification of Register Automata     27
+
+Proof. AM is deterministic by (2). We show by induction on u ∈ Pref(S): if
+the run of AM on u ends in state q with register values µ, then M(xu,q ) holds
+and M(r̄u ) = µ. The base case is (3). For the step, let the run on ua take the
+transition from p to q with guard g and update υ. By the induction hypothesis,
+M(xu,p ) holds and g(M(r̄u ), a) is true, so (5) gives M(xua,q ) and M(r̄ua ) =
+υ(µ, a).
+     Now let w ∈ S+ . Its run exists: otherwise, for the longest prefix u with a
+run, ending in p, and the next letter a, every guard from p is false at a, so (6)
+gives ¬M(xua,q ) for all q, contradicting (4). By the claim, the run ends in some
+q with M(xw,q ), so q is accepting by (7). Finally, let w ∈ S− . If w has no run,
+it is rejected; otherwise its run ends in some q with M(xw,q ), which is rejecting
+by (7).
+
+Incremental solving. Since Φn,k (S) grows with the number of prefixes, the learner
+adds samples in batches of 15 positive and 15 negative ones (Li ) or 5 and 5 (Si ,
+MNIST) and calls Z3 after each batch. After each satisfiable batch, it decodes the
+model as in Lemma 7 and stops once the DRA’s accuracy on all training samples
+exceeds 95% (Li ) or 90% (Si , MNIST), or after seven batches. This early stop
+keeps the formulas small, and explains why some of its DRAs are less accurate
+than those of LLS .
+
+C.3   Active Learner
+RALib [16] implements the tree-based algorithm SLλ , a successor of SL∗ [12],
+and acts as an L∗ -style learner for register automata. It learns from membership
+queries, answered here by the ground-truth language, and adds states and regis-
+ters only when counterexamples require them, so it chooses their numbers itself.
+Given the registers learned so far, it enumerates the order types of r̄ and curr
+(we use its equality theory for Li and its inequality theory for Si ) and realises
+each by a concrete rational, for instance a midpoint between known values, to
+turn symbolic queries into membership queries. Equivalence queries are replaced
+by sampling, similarly to Sec. 5 but with a two-sided Hoeffding bound: each
+hypothesis is compared with the language on n = ⌈ln(2/ε)/(2γ 2 )⌉ = 738 fresh
+samples (ε = γ = 0.05, length at most 10), every disagreement is returned as a
+counterexample, and learning stops once the agreement reaches 1 − ε. Its DRAs
+include an explicit rejecting sink state. RALib cannot be applied to MNIST, for
+which no membership oracle exists.
+
+C.4   Comparison of DRA Learners
+Table 3 compares the local-search learner LLS with the SMT-based learner (Ap-
+pendix C.2) and the active learner (Appendix C.3) on the RQ1 benchmarks.
+
+Protocol. LLS and the SMT-based learner receive the same 369 positive and
+369 negative samples (length at most 10, seed 0) and the numbers of states and
+registers of Table 1. All three learners have a 30-minute budget, and all DRAs
+28         Hong et al.
+
+are scored with parallel register updates on the same balanced held-out samples
+as Table 1.
+
+Results. RALib is exact on L1 –L7 and S1 –S8 within 30 s, but times out on S9
+and S10 and stops on S11 with an internal error: its inequality theory rejects
+a compound guard. The SMT-based learner reaches 91.05–100% on L1 –L7 and
+S1 –S8 but is slower and times out on S9 –S11 . LLS is the only learner that handles
+all benchmarks; it is the least accurate on L5 (79.0%), where its search ends in
+a local optimum.
+Table 3. Learner comparison. Acc: balanced test accuracy (%); Time: learning time
+(s); S/R: states/registers.
+
+                                 LLS                 SMT-based                RALib (active)
+                   Lang      Acc Time S/R           Acc Time S/R              Acc Time S/R
+                   L1      100.00     1.0   2/1    99.80    23.7   2/1   100.00    4.7   3/1
+                   L2       99.95    20.1   4/1    98.40    78.5   4/1   100.00    5.2   5/2
+                   L3      100.00     0.5   4/1    99.75    55.1   4/1   100.00    6.5   6/2
+                   L4       99.45    27.9   4/2    99.85 507.2     4/2   100.00    3.5   4/1
+                   L5       79.00   753.3   4/1   100.00    82.3   4/1   100.00    4.0   4/2
+                   L6      100.00    11.7   3/2    96.65 328.7     3/2   100.00    2.9   3/1
+                   L7      100.00   335.8   5/1    99.80 544.4     5/1   100.00    8.0   6/2
+                   S1      100.00     2.1   2/1    96.60    15.2   2/1   100.00    3.7   3/1
+                   S2      100.00    39.9   2/1    99.45    30.5   2/1   100.00    4.2   3/1
+                   S3      100.00     0.3   2/1   100.00    48.7   2/1   100.00    8.1   3/1
+                   S4      100.00     2.7   2/1    91.05    45.0   2/1   100.00    5.4   3/1
+                   S5      100.00   353.9   4/1    95.60 401.0     4/1   100.00    5.4   5/1
+                   S6      100.00   310.5   4/1    94.05 335.5     4/1   100.00    5.2   5/1
+                   S7       99.80   263.0   5/1    95.25 453.2     5/1   100.00    9.8   6/1
+                   S8      100.00    83.0   6/1    94.00 651.7     6/1   100.00 29.1     7/1
+                   S9       99.90   543.5   5/2         timeout               timeout
+                   S10      99.60   504.3   5/2         timeout               timeout
+                   S11      99.40   387.4   5/2         timeout                 crash
+                   MNIST    95.37   832.1   4/1    94.13 1582.9    4/1           n/a
+
+
+
+
+C.5      RQ2 Outcomes
+
+Table 4 lists, for each metric, the configurations of the end-to-end procedure that
+did not end non-robust; the per-metric totals are also given in Table 2.
+Table 4. RQ2 outcomes per metric. Every configuration not listed is non-robust, with
+a witness confirmed on the network. (L)/(T): for NLSTM or NT only; otherwise for
+both.
+
+     Metric          +/ − /?    Robust (PAC-accepted surrogate)                   Inconclusive
+     Last letter     21/14/3    L2 (L), L3 , S1 , S2 (T), S5 (L), S6 –S11 ,       L7 , S5 (T)
+                                MNIST
+     Edit            0/36/2     –                                                 L5 (T), MNIST (T)
+     Hamming         2/35/1     L3                                                L6 (T)
+     Manhattan       15/19/4    L3 , S1 (L), S5 (L), S6 , S7 (T), S8 –S11         S5 (T), S7 (L), MNIST
+     DTW              0/38/0    –                                                 –
+

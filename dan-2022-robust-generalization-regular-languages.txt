@@ -1,0 +1,942 @@
+                                                Understanding Robust Generalization in Learning Regular Languages
+
+
+                                                                                 Soham Dan 1 Osbert Bastani 1 Dan Roth 1
+
+
+                                                                  Abstract
+                                              A key feature of human intelligence is the ability
+                                              to generalize beyond the training distribution, for
+
+
+
+
+arXiv:2202.09717v1 [cs.LG] 20 Feb 2022
+                                              instance, parsing longer sentences than seen in
+                                              the past. Currently, deep neural networks struggle
+                                              to generalize robustly to such shifts in the data
+                                              distribution. We study robust generalization in
+                                              the context of using recurrent neural networks
+                                              (RNNs) to learn regular languages. We hypothe-
+                                              size that standard end-to-end modeling strategies
+                                              cannot generalize well to systematic distribution                             100
+
+                                              shifts and propose a compositional strategy to ad-
+                                                                                                                             90
+                                              dress this. We compare an end-to-end strategy
+
+                                                                                                             Accuracy (%)
+                                              that maps strings to labels with a compositional
+                                                                                                                             80
+                                              strategy that predicts the structure of the determin-
+                                              istic finite state automaton (DFA) that accepts the
+                                                                                                                             70
+                                              regular language. We theoretically prove that the
+                                              compositional strategy generalizes significantly                               60
+                                              better than the end-to-end strategy. In our experi-                                 0   0.2       0.4       0.6       0.8   1   1.2
+                                              ments, we implement the compositional strategy                                             L∞ distance between P and Q
+
+                                              via an auxiliary task where the goal is to predict
+                                              the intermediate states visited by the DFA when             Figure 1. The parity task is to classify whether x ∈ {0, 1}∗ has
+                                              parsing a string. Our empirical results support             an odd (y = 1) or even (y = 0) number of zeros. We show the
+                                              our hypothesis, showing that auxiliary tasks can            edge Markov Chains for generating (a) training, and (b) shifted test
+                                              enable robust generalization. Interestingly, the            examples. We also plot test accuracies as a function of kP − Qk∞ ,
+                                              end-to-end RNN generalizes significantly better             where P and Q are the transition probabilities of the edge Markov
+                                              than the theoretical lower bound, suggesting that           chains (the train accuracy is always 100%). The test accuracy
+                                              it is able to achieve at least some degree of robust        drops significantly as kP − Qk∞ increases. We plot accuracy w.r.t
+                                              generalization.                                             the `∞ norm in order to compare with our theoretical bounds as
+                                                                                                          discussed in Sec. 5.3.
+
+
+                                         1. Introduction
+                                                                                                          sequent work have provided evidence of this failure across
+                                         A key challenge facing deep learning is its inability to gen-    different architectures (Dessı̀ & Baroni, 2019; Furrer et al.,
+                                         eralize robustly to shifts in the underlying distribution. For   2020) and tasks (Ruis et al., 2020; Kim & Linzen, 2020).
+                                         example, Lake & Baroni (2018) demonstrate that recurrent
+                                         neural networks (RNNs) have difficulty in generalizing to        Humans, on the other hand, are remarkably robust to such
+                                         longer sentences than those seen during training and is also     shifts, suggesting that robust generalization is possible in
+                                         unable to understand novel combinations of familiar com-         practice. Thus, a key question is how to design deep learning
+                                         ponents, i.e., they lack systematic compositionality. Sub-       algorithms that achieve this property. In the theoretical
+                                                                                                          direction, most work has focused on learning in the presence
+                                             1
+                                               Department of Computer and Information Science, Uni-       of covariate shift—i.e., shift in the distribution over inputs
+                                         versity of Pennsylvania.     Correspondence to:    Soham         (Blitzer et al., 2008; Pagnoni et al., 2018). However, these
+                                         Dan <sohamdan@seas.upenn.edu>, Osbert Bastani <obas-
+                                         tani@seas.upenn.edu>, Dan Roth <danroth@seas.upenn.edu>.         results largely rely on the shift being small (in particular,
+                                                                                                          bounded total variation (TV) distance), which does not hold
+                                         Preprint                                                         for many of the shifts considered in robust generalization.
+                            Understanding Robust Generalization in Learning Regular Languages
+
+Alternatively, the empirical work has focused primarily on        can exhibit some degree of robust generalization. Finally,
+devising new generalization splits on which existing models       our compositional strategy relies on additional supervision;
+fail (Lake & Baroni, 2018; Hupkes et al., 2020). However,         we demonstrate that it is possible to achieve some degree of
+without theoretical grounding, it is hard to interpret what       robust generalization even if we relax this supervision.
+degree of generalization can reasonably be expected.
+In this paper, we consider the problem of classifying regular
+languages, which is sufficiently simple that we can theoret-      Contributions. We formalize the problem of learning reg-
+ically analyze generalization in this setting. We consider        ular languages (Section 3). In the context of this problem,
+two approaches to train neural networks. First, we con-           we provide a theoretical analysis of robust generalization for
+sider an end-to-end approach that learns a model directly         both end-to-end and compositional learning, including theo-
+mapping strings to labels; this approach represents how neu-      retical bounds demonstrating the benefits of compositional
+ral networks are typically trained. Second, we consider a         learning, along with algorithms for obtaining unbiased es-
+compositional approach that is given access to intermediate       timates of the relevant TV distances (Section 4). We then
+supervision on the sequence of states visited by a determin-      empirically demonstrate that an auxiliary task of predicting
+istic finite state automaton (DFA) representing the language.     the DFA state achieves the compositional generalization
+Based on this extra information, the compositional strategy       bound and significantly outperforms the end-to-end strat-
+learns a model to predict the DFA transitions and final states.   egy, though the end-to-end strategy exhibits some degree of
+We consider a training distribution in the form of a Markov       robust generalization (Section 5). We also perform experi-
+model over strings that is constructed based on the DFA           ments to analyze the impact of “free” auxiliary signals, the
+(essentially a Markov chain, but where emissions are on the       number of examples, model cell choice, length of examples,
+edges); then, our goal is to generalize in the presence of        and the confidence calibration of the end-to-end and the
+shifts to this Markov model (Fig. 1). Small shifts in the         compositional models on the shifted distribution.
+Markov model probabilities can lead to large shifts in the
+distribution over strings—for instance, leading to signifi-       2. Related Work
+cantly longer strings on average.
+                                                                  Linguistics, automata, and RNNs. Linguistics has tradi-
+We provide two theoretical characterizations for each ap-         tionally been tightly coupled to automata theory (Knight &
+proach. First, we prove closed-form lower bounds on gen-          May, 2009; Suresh et al., 2021). Markov used finite state
+eralization of each strategy; these bounds rely on bounding       processes to predict sequences of vowels and consonants in
+the TV distance between the training and test distributions.      novels (Markov, 1956; Jurafsky & Martin), and Shannon
+Our results suggest that compositional approaches can gen-        extended this to predict letter sequences of English words us-
+eralize significantly better than the end-to-end strategy. In-    ing Markov processes (Shannon, 2001). Markov chains and
+tuitively, compositionality helps since the distribution over     DFAs have applications in transliteration, translation, lexical
+DFA transitions shifts significantly less than the distribution   processing, speech recognition, optical character recogni-
+over strings.                                                     tion, summarization, sequence tagging, and in sequence
+In practice, our bounds on the total variation distance can       generation such as speech synthesis and text generation.
+be overly conservative. Thus, we additionally propose algo-       (Knight & May, 2009; Gales & Young, 2008).
+rithms for producing unbiased estimates of the relevant TV        Recurrent neural networks (RNNs), which have been incred-
+distances, and use them to empirically study generalization.      ibly effective in natural language processing applications
+In our experiments, the end-to-end strategy is a recurrent        have renewed interest in automata theory in both linguistics
+neural network (RNN) trained to directly map strings to           and machine learning communities. RNNs have expressive-
+labels. For the compositional strategy, we train an RNN in        ness closely connected to that of DFAs (Rabusseau et al.,
+the same way, but provide it with an auxiliary task where         2019; Michalenko, 2019; Chen et al., 2018; Tiňo et al.,
+on each step, its goal is to predict the current state of the     1998). For instance, it is possible to extract the DFA from
+underlying DFA. Intuitively, this strategy should align the       an RNN trained on sequences generated by that DFA (Weiss
+RNN representation with the DFA state, making it easy to          et al., 2018; Giles et al., 1992b;a; Omlin & Giles, 1996;
+predict whether the DFA accepts a given string.                   Gers & Schmidhuber, 2001; Firoiu et al., 1998); there has
+Our empirical results demonstrate that the compositional          also been work trying to relate states of an RNN with those
+strategy generalizes significantly better than the end-to-end     of a DFA (Tiňo et al., 1998; Michalenko, 2019). These prop-
+strategy. Interestingly, however, the end-to-end strategy gen-    erties make RNNs ideal models for us to study. While exist-
+eralizes significantly better than expected according to the      ing work has focused on showing that RNNs can represent
+estimated bound, suggesting that even end-to-end learning         DFAs, their ability to learn DFAs in a way that generalize
+                                                                  robustly has not yet been studied.
+                             Understanding Robust Generalization in Learning Regular Languages
+
+Systematic generalization in deep learning. The ability            we call z = s1 ...sT +1 ∈ S ∗ the state sequence induced
+for neural networks to generalize robustly has been a long-        by x. We define L(M ) ⊆ Σ∗ to be the strings accepted
+standing question in cognitive science (Fodor & Pylyshyn,          by M —i.e., σ1 ...σT ∈ L(M ) if the induced state sequence
+1988). Recently, several benchmarks have been proposed             s1 ...sT +1 satisfies sT +1 ∈ F . We let X = Σ∗ be the strings
+to investigate systematic generalization on carefully crafted      over Σ, let Y = {0, 1}, and let f ∗ (x) = 1(x ∈ L(M ))
+train/test splits (e.g., the test set contains longer sequences    indicate whether x is accepted by M .
+than the training set) (Lake & Baroni, 2018; Lake, 2019;
+                                                                   Next, P is defined by converting M to a variant of a Markov
+Hupkes et al., 2020; Loula et al., 2018; Tsarkov et al., 2020;
+                                                                   chain. In particular, we assume given (i) probabilities P (σ |
+Ruis et al., 2020; Kim & Linzen, 2020). Although they are
+                                                                   s) of emitting σ in state s, and (ii) probabilities P (e | s)
+all motivated to measure systematic compositionality, there
+                                                                   (where e ∈ {0, 1}) of terminating upon reaching state s.
+is no theoretical framework to understand the generalization
+                                                                   Then, we sample x ∼ P as follows: initialize s1 ← s0 ;
+for the different choices of splits, making it hard to know if
+                                                                   on each step t, terminate with probability P (e | s) and
+generalization is at all possible for a given split; our goal in
+                                                                   return x = σ1 ...σt ; otherwise, sample σt ∼ P (· | st ),
+this paper is to take a step towards bridging this gap.
+                                                                   transition st+1 = δ(st , σt ), and continue. We call P an
+                                                                   edge Markov chain since it is essentially a Markov chain
+Learning theory and covariate shift. There has been sig-           with edge emissions.
+nificant theoretical work studying generalization in the pres-
+ence of covariate shift (Blitzer et al., 2008) (where the input    This strategy only samples positive examples x ∈ L(M ); to
+distribution changes), with a large focus on domain adapta-        sample negative examples, we use the same strategy with the
+tion (i.e., where we are given unlabeled examples from the         automaton M 0 for the complement X \ L(M ). We sample
+target domain). This has been widely studied in machine            positive and negative examples in equal proportion. Finally,
+learning (Pagnoni et al., 2018; Blitzer et al., 2008; Zhang        we define the test distribution Q similarly.
+et al., 2019; Koh et al., 2021) and natural language process-
+ing (Ben-David et al., 2021; Li, 2012). Redko et al. (2020)        4. Theoretical Analysis
+surveys theoretical work in this area. Robust generalization
+is essentially covariate shift, enabling us to adapt techniques    Next, we characterize the ability of algorithms for learn-
+from this area. One key challenge is that in general, learn-       ing DFAs to generalize to shifted distributions, considering
+ing with covariate shift is only possible if the shift is small    both the case where fˆ directly maps sequences to labels, as
+(e.g., small TV distance), yet the shifts in the robust gen-       well as a compositional strategy where fˆ learns the DFA
+eralization settings we consider, are typically large. Thus,       structure.
+we must leverage additional structure to learn in a provably
+generalizable way; we prove that compositional learning            4.1. Background on Covariate Shift
+can do exactly this by leveraging the DFA structure.
+                                                                   We provide background on generalization bounds in the
+                                                                   presence of covariate shift—i.e., when the training and test
+3. Learning Regular Languages                                      distributions P and Q differ. Let
+We formalize the learning problem we study. To do so,                            LP (fˆ) = Px∼P [fˆ(x) 6= f ∗ (x)]
+we need to define the following objects: (i) a classifier
+f ∗ : X → Y that we want to learn, (ii) a training distribution                         P , and similarly for LQ (fˆ). Letting
+                                                                   be the loss of fˆ on P
+P over x ∈ X , and (iii) a test distribution Q over inputs         TV(P (x), Q(x)) = x∈X |P (x) − Q(x)| be the total vari-
+x ∈ X . Then, the problem is to train a model fˆ on inputs         ation distance, we have the following.
+x1 , ..., xn ∼ P with labels yi = f ∗ (xi ), and then test fˆ on
+inputs x01 , ..., x0n0 ∼ Q with labels yi0 = f ∗ (x0i ).           Lemma 4.1. LQ (fˆ) ≤ LP (fˆ) + TV(P (x), Q(x))
+
+The classifier f ∗ is defined by a regular language L(M )          We give a proof in Appendix A.1. In other words, we
+represented by a deterministic finite-state automaton (DFA)        can characterize the loss of fˆ on the test distribution Q
+M = (S, Σ, δ, s0 , F ), where S is a finite set of states, Σ is    in terms of its loss on the training distribution P and
+the alphabet, δ : S × Σ → S is the state transition function,      TV(P (x), Q(x)).
+s0 ∈ S is the initial state, and F ⊆ S is a set of final
+states (Sipser, 1996). Given a string x = σ1 ...σT ∈ Σ∗ , we       4.2. Learning DFAs with Covariate Shift
+call T the length of x, and letting
+                                                                   Next, we provide bounds on TV(P (x), Q(x)). We focus on
+                                                                   a single pair of edge Markov chains P (x) and Q(x); given
+                   (
+                     s0              if t = 1
+             st =                                                  bound TV(P + (x), Q+ (x)) ≤ + for the positive example
+                     δ(st−1 , σt−1 ) otherwise,                    distributions and bound TV(P − (x), Q− (x)) ≤ − for the
+                             Understanding Robust Generalization in Learning Regular Languages
+
+negative example distributions, it is easy to check that            where s1 ...sT +1 is the state sequence induced by x. In
+                                                                    this case, because g and h take states as inputs, we directly
+                                        + + −                     consider shifts in the state distribution. In particular, the
+               TV(P (x), Q(x)) ≤                ,
+                                           2                        distribution Pt of states encountered by ĝ and ĥ on step t is
+where P (x) = (P + (x)+P − (x))/2 and similarly for Q(x).           given by Pt (s0 ) = 1(s0 = s0 ) if t = 1, and
+First, we have the following worst-case bound on the shift,
+specialized to the case where all strings are of a fixed length               Pt (s0 ) = Ps∼Pt−1 ,σ∼P (·|s) [s0 = δ(s, σ)]
+T.
+                                                                    otherwise, and similarly for Qt . In addition, we let
+Lemma 4.2. TV(P (x), Q(x)) ≤ 2T |S|T +1 , where  =
+maxs∈S TV(P (σ | s), Q(σ | s))                                                       Pt (s, σ) = Pt (s)P (σ | s).
+We give a proof in Appendix A.2.                                    Then, ĝ is trained on the distribution Pt (s, σ) (for t ∈
+Theorem 4.3. LQ (fˆ) ≤ LP (fˆ) + 2T |S|T +1                        {1, ..., T }), and ĥ is trained on PT +1 (s). Similar to be-
+                                                                    fore, we have the following worst-case bound on the shift,
+This result follows immediately from Lemmas 4.1 & 4.2.
+                                                                    specialized to the case where all strings are of a fixed length
+This result says that the accuracy of fˆ decays exponen-
+                                                                    T.
+tially in the length of the inputs, and it decays linearly in
+, which quantifies the shift in the emission distributions of      Lemma 4.5. We have TV(Pt (s), Qt (s)) ≤ (t − 1), and
+P and Q. However, this bound may be overly conservative.            TV(Pt (s, σ), Qt (s, σ)) ≤ t.
+Given edge Markov chains P (x) and Q(x), we can estimate
+TV(P (x), Q(x)) using the following.                                We give a proof in Appendix A.4.
+Theorem 4.4. We have                                                Theorem 4.6. LQ (fˆ) ≤ L̃P (fˆ) + 2T 2 , where  =
+                                                                  maxs∈S TV(P (σ | s), Q(σ | s)) and
+                                               Q(x)
+         TV(P (x), Q(x)) = Ex∼P             1−             .
+                                               P (x)                                          T
+                                                                                              X
+                                                                                 L̃P (fˆ) =         LPt (ĝ) + LPT +1 (ĥ)
+We give a proof in Appendix A.3. Thus, given samples                                          t=1
+
+x1 , ..., xn ∼ P , we have
+                                   n
+                                                                    We give a proof in Appendix A.5. In this case, the accuracy
+                                    Q(xi )                          of fˆ scales quadratically in T , which is significantly better
+                                   X
+           TV(P (x), Q(x)) ≈     1−         .
+                             i=1
+                                    P (xi )                         than Theorem 4.3, and linearly , which is the same as The-
+                                                                    orem 4.3. As before, this bound can be overly conservative,
+Given x = σ1 ...σT , we can compute                                 so we estimate the error for given edge Markov chains P (x)
+                             T                                      and Q(x) based on the following.
+                             Y
+                   P (x) =         P (σt | st ),                    Theorem 4.7. We have
+                             t=1
+                                                                                                 T
+                                                                                                 X
+where s1 ...sT +1 is the state sequence induced by x, and                LQ (fˆ) ≤ L̃P (fˆ) +          TV(Pt (s, σ), Qt (s, σ))
+similarly for Q(x). Note that in this strategy, T is not fixed                                   t=1
+and can vary with x.                                                                                 + TV(PT +1 (s), QT +1 (s))
+
+4.3. Compositional Learning of DFAs
+                                                                    This result follows by the same argument as the proof of
+So far, we have considered a classifier trained directly to         Theorem 4.6. We can estimate Pt (s) by drawing samples
+predict labels from strings. Next, we consider a composi-           x1 , ..., xn ∼ P , and computing
+tional strategy that is given access to the hidden states of the
+                                                                                                      n
+DFA, learns to predict transitions and final states, and then                                    1X
+composes these predictions to form the overall prediction.                           P̂t (s) =         1(s = si,t ),
+                                                                                                 n i=1
+Consider a model ĝ : S × Σ → S trained to predict transi-
+tions (i.e., ĝ(s, σ) ≈ δ(s, σ)), along with a model ĥ : S →       where si,1 ...si,Ti +1 is the state sequence induced by xi , and
+{0, 1} trained to predict final states (i.e., ĥ(s) ≈ 1(s ∈ F )).   similarly for Q̂t (s). Then, we have
+Then, we have                                                                                             X
+                                                                             TV(Pt (s), Qt (s)) ≈               |P̂t (s) − Q̂t (s)|.
+                   fˆ(x) = 1(sT +1 ∈ F ),                                                                 s∈S
+                               Understanding Robust Generalization in Learning Regular Languages
+
+                                                                                            Task       E2E     SSAS      RI (%)
+                                                         𝑝!! 𝑝!" 𝑝!#
+                                                  𝐏=     𝑝"! 𝑝"" 𝑝"#
+                                                                                          Lmod−3      66.10     98.68      49.49
+
+                     (a)                    (b)      [
+                                                  𝐐= 𝑞𝑞!! 𝑞𝑞!" 𝑞𝑞!#
+                                                         "!   ""   "#   ]                 Lmod−4
+                                                                                          Lmod−5
+                                                                                                      64.61
+                                                                                                      65.15
+                                                                                                                97.58
+                                                                                                                93.00
+                                                                                                                           51.03
+                                                                                                                           42.75
+
+                                                                            Table 1. Accuracy (%) of the end-to-end (E2E) vs. SSAS training
+                                                                            on the o.o.d. test set, with the relative improvements (RI) of SSAS
+                                                         𝑝    𝑝    𝑝        over E2E for the modulo languages: Lmod−3 , Lmod−4 , Lmod−5 .
+                                                  𝐏n=eg 𝑝"!
+                                                         !! !" !#
+                                                            𝑝"" 𝑝"#
+                     (c)                     (d)
+
+                                                                            B. This language has Σ = {0, 1}, and consists of all strings
+                                                                            containing an odd number of zeros. Our DFA for Lpar has
+Figure 2. The eMCid and eMCood used to generate the train and               two states S = {s0 , s1 }, where s0 is the start state, and final
+o.o.d. test positive examples, and the eMCneg used to generate              states F = {s1 }. Fig. 2 shows the edge-Markov chains
+negative examples. Here, → denotes the start state; bold circles            eMCid , eMCood , and eMCneg we use. Note that by increasing
+denote end states; P , Q, and Pneg denote the transition matrices           the loop probabilities, we generate longer sequences; thus,
+for eMCid , eMCood , and eMCneg , respectively; and 0f, 1f denotes
+                                                                            the o.o.d. test distribution contains longer strings on average
+the end probability in states S0 and S1 , respectively, with p0f = 0
+                                                                            than the training distribution.
+in eMCid and p1f = 0 in eMCood .
+                                                                            We also consider a broader class of modulo languages: reg-
+                                                                            ular languages over Σ = {0, 1} of the form Lmod−k , where
+Finally, we have P̂t (s, σ) = P̂t (s)P (σ | s), and similarly
+                                                                            the number of zeros are a multiple of k, for k ∈ {3, 4, 5}.
+for Q̂t (s, σ), in which case
+                              X
+   TV(Pt (s, σ), Qt (s, σ)) ≈       |P̂t (s, σ) − Q̂t (s, σ)|.              Classifier. We train an RNN binary classifier on exam-
+                                  s∈S                                       ples generated by eMCid (positive) and eMCneg (negative).
+                                                                            We evaluate it on i.d. test examples generated by eMCid ,
+These estimates can be used in conjunction with Theo-
+                                                                            eMCneg , and on o.o.d. test examples from eMCood ,eMCneg .
+rem 4.7. In our experiments, we make a modification—to
+reduce variance, rather than compute estimates for each t                   To improve performance, we propose state sequence aux-
+separately, we aggregate states across all steps and use the                iliary supervision (SSAS), where we additionally train the
+average for all P̂t (s), and similarly for Q̂t (s). Finally, we             RNN on an auxiliary supervised learning task. In particular,
+heuristically take T to be the average length of x ∼ P .                    given an input example x ∼ P , where P is an edge Markov
+                                                                            chain, in addition to training the RNN to predict the ground
+                                                                            truth label f ∗ (x), we train its representation zt at each step
+5. Experiments
+                                                                            t to predict the state st visited by P at step t. This supervi-
+Next, we describe our experiments investigating whether                     sion task is a multi-class classification problem, so we use
+end-to-end models can learn regular languages in a way                      the cross-entropy loss. This auxiliary loss is jointly opti-
+that generalizes to distribution shifts, and whether different              mized with the binary classification loss for the main task
+types of auxiliary supervision can help do so, and therefore                (the losses are weighted equally). Importantly, the auxiliary
+enable robust generalization.                                               supervision signal is only provided during training; thus, at
+                                                                            test time, the RNN acts identically to an RNN trained only
+5.1. Experimental Setup                                                     on the main task (i.e., without SSAS).
+
+Classification problem. We consider the regular lan-                        We use an RNN with LSTM cells, with an embedding dimen-
+guage classification problem. We construct an edge Markov                   sion of 50 and a hidden layer with dimension 50, optimized
+chain eMCid to generate training examples and in-domain                     using stochastic gradient descent (SGD) with a learning rate
+                                                                                                  +                              −
+(i.d.) test examples for each language by assigning transition              of 0.01 1 . We use Ntrain   = 1600 positive and Ntrain     =
+                                                                                                              +       −
+probabilities to each edge of the DFA for that language. To                 1600 negative train examples, Ndev = Ndev = 200 dev ex-
+                                                                                                +                           −
+generate out-of-domain (o.o.d.) test examples, we perturb                   amples, and use Ntest   = 2000 positive and Ntest    = 2000
+some of the edge probabilities of eMCid to obtain eMCood .                  negative examples for each of the i.d. and o.o.d. test sets.
+To generate negative examples, we use the same strategy for
+the complement language LC = X \L to obtain eMCneg ; for                    Metrics. We perform several different experiments to
+simplicity, we do not shift the negative example distribution.              compare our theoretical bounds with the empirical accuracy,
+                                                                            studying the impact of the number of training examples,
+We focus on the parity language Lpar as a case-study, and
+                                                                               1
+include additional results for other languages in Appendix                         Hyper-parameters chosen based on accuracy on i.d. dev-set.
+                                Understanding Robust Generalization in Learning Regular Languages
+
+model cell variations (vanilla RNN, LSTM, or GRU), asym-                             100
+metry in length generalization, the use of “free” auxiliary
+tasks that do not require knowledge of the DFA, and the
+confidence calibration of the models.                                                 90
+
+
+
+                                                                      Accuracy (%)
+5.2. End-to-End vs. SSAS Training                                                     80
+
+First, we compare the o.o.d. accuracy of end-to-end and
+                                                                                      70
+SSAS training (in both cases, the i.d. test accuracy is 100%).
+Table 1 shows the o.o.d. test accuracy of each approach for
+the case TV(P, Q) = 1.3 for each of the modulo-languages                              60
+considered 2 . As can be seen, SSAS training significantly                                 0   0.2       0.4      0.6      0.8     1   1.2
+improves accuracy compared to end-to-end training. Strictly                                          L∞ distance between P and Q
+speaking, SSAS is not a compositional learning algorithm,
+but it guides the RNN to learn representations that correctly
+encode the compositional structure of the DFA. Thus, these            Figure 3. We plot the empirical o.o.d. test set accuracies for the
+results validate our theoretical finding that compositional           end-to-end model (red solid) and the SSAS model (black solid),
+training significantly improves generalization.                       and the theoretical estimate of the o.o.d. accuracies for the end-to-
+                                                                      end model (red dashed) and the SSAS model (black dashed).
+5.3. Theoretical vs. Empirical Generalization
+Focusing on the parity language, we compare the empiri-               Further, the reported empirical accuracies are the average
+cal accuracy on the o.o.d. test set to our estimates of the           over 10 random runs.
+accuracy based on Theorems 4.4 & 4.7 in Section 4. We
+consider eMCid with transitions                                       As can be seen, the theoretical estimates are tight for SASS,
+                                                                    indicating the SASS matches the expected generalization
+                       0.2 0.8 0                                      rate for compositional models. These results support our
+                 P =                     ,
+                       0.7 0.2 0.1                                    intuition that SASS enables the RNN to learn the compo-
+                                                                      sitional structure of the DFA. Interestingly, the end-to-end
+eMCood with transitions
+                                                                      model significantly outperforms the theoretical estimate.
+                   
+                        δ           1−δ       0
+                                                                     Since the estimate of the TV distance converges to its true
+             Q=                                    ,                  value, so the gap between the theoretical and empirical val-
+                    0.9 − δ          δ       0.1
+                                                                      ues must either be due to the inequality in Lemma 4.1 or
+where δ ∈ {0.2, 0.25, ..., 0.85}, and eMCneg with                     the fact that the RNN is learning some compositional struc-
+                                                                    ture. We expect that the latter must be happening to some
+                            0.7 0.2 1                                 degree to explain such a large gap—importantly, the gap is
+                Pneg =                    .
+                            0.8 0.2 0                                 substantially larger than the gap for SASS.
+In Fig. 3, we plot the following four quantities as a function
+                                                                      5.4. Free Auxiliary Signals
+of kP − Qk∞ (for our choices of P and Q, we have  =
+2kP − Qk∞ , where  is defined in Theorem 4.3):                       While SSAS improves generalization, a critical shortcom-
+                                                                      ing is that it requires knowledge of the underlying DFA;
+   • Empirical accuracy on the o.o.d. test set (solid lines),         in particular, it uses the DFA to construct ground truth
+     for end-to-end (red) and SSAS (black)                            state sequences used to train the RNN. In this section, we
+                                                                      study whether auxiliary tasks computed without such prior
+   • Theoretical estimates of the accuracy (dashed lines) for         knowledge can improve generalization. As an example, we
+     end-to-end (red) and SSAS (black)                                consider the count auxiliary task; intuitively, a model that
+                                                                      can count zeros is more likely to correctly learn the parity
+For the theoretical estimate of the accuracy: (i) for end-            concept. More precisely, we consider a 10-class classifica-
+to-end, we draw n = 10000 samples from eM Cid and                     tion task, where zero counts greater than 8 are represented
+compute the lower bound based on Theorem 4.4, and (ii)                by the 10th class. As with SSAS, we equally weigh the
+for SSAS, we use 10000 samples from each eM Cid and                   cross-entropy loss for this auxiliary task with the binary
+eM Cood , and estimate the lower bound based on Theo-                 cross-entropy loss for the main task.
+rem 4.7; for both, we average across 10 random repetitions.
+                                                                      We let P , Q, and Pneg be as in Section 5.3, with δ = 0.85.
+   2
+       Additional plots for the modulo languages are in Appendix B.   In Fig. 4, we plot the o.o.d. test accuracy (estimated on
+                                Understanding Robust Generalization in Learning Regular Languages
+
+             100
+                                                                                      100
+              90
+                                                                                       90
+              80
+
+
+                                                                       Accuracy (%)
+                                                                                       80
+
+  Accuracy
+              70                                                                       70
+              60                                                                       60
+
+              50                                                                       50
+
+              40                                                                       40
+                400   1200      2000        2800      3600                               400      1200      2000       2800            3600
+                        Number of Training Examples                                              Number of Training Examples
+
+
+
+Figure 4. For the setting described in Sec. 5.4, we plot the accu-   Figure 5. We plot the train (black), i.d. test (green), and o.o.d. test
+racies of the baseline (red), SSAS model (black), and the model      (red) accuracies as a function of the number of training examples
+with free auxiliary supervision (green), for varying number of       drawn from the eM Cid for the baseline (end-to-end) model.
+training examples. We see that auxiliary count supervision helps
+the baseline model consistently across varying amounts of training
+data.                                                                    100
+
+                                                                                90
+4000 examples) as a function of the number of training
+examples, ranging from 400 to 4000. As can be seen, the
+                                                                     Accuracy
+                                                                                80
+count auxiliary task improves performance by 5 − 8%. The
+improvement is less than in SSAS, which is to be expected                       70
+since the task in SSAS gives information directly relevant to
+the main task. These results demonstrate that even without                      60
+knowledge of the DFA, we can improve generalization via
+auxiliary supervision.                                                          50
+                                                                                       0       0.2    0.4     0.6      0.8         1          1.2
+                                                                                                     L∞ distance between P and Q
+5.5. Effect of Number of Training Examples
+Next, we show that simply increasing the number of training
+examples is insufficient for achieving robust generalization,
+                                                                     Figure 6. We plot the accuracy of models trained end-to-end (solid)
+demonstrating that novel techniques such as SSAS are re-
+                                                                     and using SSAS (dashed) as a function kP − Qk∞ , for models
+quired to generalize robustly.                                       with LSTM (black), GRU (red), and RNN (green) cells.
+We consider P , Q, and Pneg as in Section 5.3, with δ =
+0.85. In Fig. 5, we plot the empirical train, i.d. test, and
+o.o.d. test accuracies as a function of the the number of
+training examples varying from 400 to 4000; in all cases,            We set P , Q, and Pneg as in Section 5.3. In Fig. 6, we plot
+we estimate accuracy on 4000 test examples. As can be                the o.o.d. test accuracy (estimated using 4000 examples)
+seen, the i.d. test accuracy quickly reaches 100%, but the           as a function of kP − Qk∞ for each of the three choices.
+o.o.d. test accuracy remains significantly lower, stabilizing        As before, the train and i.d. test accuracy are 100% for
+around 66% at 2800 training examples (the train accuracy             all choices. For models trained end-to-end, LSTM and
+is 100% throughout). These results also justify our choice           GRU cells perform comparably in terms of o.o.d. accuracy
+of 3200 training examples in our other experiments.                  whereas RNN cells perform significantly worse. These
+                                                                     results are in line with the fact that RNNs are worse at
+                                                                     capturing long-range dependencies, which are necessary for
+5.6. Effect of the Model Cell
+                                                                     solving the parity task. For models trained using SSAS,
+Next, we study whether changes in the model cell archi-              LSTMs perform the best; interestingly, GRUs perform well
+tecture affect generalization. We consider long short term           at first but become worse than RNNs as kP −Qk∞ becomes
+memory (LSTM) units, recurrent neural network (RNN)                  large. The superior performance of LSTMs over other cell
+units, and gated recurrence units (GRU).                             choices, justifies our use of them in the other experiments.
+                             Understanding Robust Generalization in Learning Regular Languages
+
+          100                                                          Metric    Model       0.0      0.4       0.8      1.2
+                                                                        BS        E2E       5e-06    9e-04     0.073    0.262
+                90                                                               SSAS       3e-06    1e-04     0.008    0.051
+                80
+                                                                        ECE       E2E       4e-04    0.003     0.097    0.303
+     Accuracy
+                                                                                 SSAS       3e-04    0.002     0.035    0.125
+                70
+                                                                   Table 2. Brier Score (BS) and Expected Calibration Error (ECE)
+                60                                                 as a function of increasing kP − Qk∞ = {0, 0.4, 0.8, 1.2} for the
+                                                                   E2E and SSAS models. Note that lower values are better.
+                50
+                     P2          Q              P1
+                                                                   rule for measuring the accuracy of predicted probabilities.
+                                                                   It is defined as the mean squared error between the pre-
+Figure 7. As described in Section 5.7, we train models on 3200     dicted probabilities and the actual targets. If n denotes the
+examples generated from two different eMCs with transition ma-     total number of examples and Ψi denotes the prediction
+trices P1 (red) and P2 (black), and tested on 4000 test examples
+                                                                   probability that f (xi ) = 1, then the Brier Score is:
+separately generated from three different eMCs P1 , P2 , and Q.
+                                                                                                 n
+                                                                                             1X
+                                                                                     BS =          (Ψi − yi )2 .
+5.7. Asymmetric Length Generalization                                                        n i=1
+
+Next, we study how different training distributions affects        • Expected Calibration Error (ECE) (Guo et al., 2017) mea-
+generalization. In particular, in the context of the parity        sures the difference in expectation between confidence and
+language, we consider two training distributions given by          accuracy. Empirically this is approximated by dividing the
+edge Markov chains with transition probabilities P1 and P2         data into M confidence based bins, B1 , ..., BM , where Bm
+and a test distribution given by an edge Markov chain with         contains all datapoints xi for which Ψi lies in ( m−1  m
+                                                                                                                      M , M ]. If
+transition probabilities Q, where                                  acc(Bm ) and conf (Bm ) denotes the average accuracy and
+                                                                 prediction confidence for the points in Bm , then ECE is:
+                          0.2 0.8 0
+                   P1 =                                                              M
+                          0.7 0.2 0.1                                                X |Bm |
+                                                                          ECE =                 |acc(Bm ) − conf (Bm )|.
+                                                                                            n
+                                       
+                          0.8 0.2 0                                                 m=1
+                   P2 =
+                          0.1 0.8 0.1
+                                                                 In Table 2 we see that while calibration degrades with in-
+                          0.5 0.5 0                                creasing kP − Qk∞ for both models, SSAS is significantly
+                   Q=                     .
+                          0.4 0.5 0.1                              better calibrated than E2E under the distribution shift.
+The negative examples are generated from eMCneg described
+in Section 5.3. Importantly, we have kP1 − Qk∞ = kP2 −             6. Conclusion
+Qk∞ = 0.6. In Fig. 7, we show the results of evaluating
+models trained on examples from P1 (red) and P2 (black)            We have studied robust generalization of RNNs learning
+on test examples generated using P1 , P2 , and Q. As can be        regular languages, providing both theoretical and empiri-
+seen, the model trained on examples from P1 generalizes            cal evidence that compositional strategies generalize more
+well to test examples from Q and P2 , whereas the model            robustly to shifted distributions compared to end-to-end
+trained from P2 generalizes poorly to test examples from Q         strategies. In particular, leveraging an auxiliary task in the
+and P1 . In this case, P1 tends to generate longer sequences       form of state supervision (which we call SSAS) achieves
+than P2 (with Q being in between); thus, our results show          the theoretical rate anticipated by our compositional gener-
+that training on longer sequences can generalize to shorter        alization guarantee. We have also demonstrated that generic
+sequences, whereas training on shorter sequences cannot            auxiliary tasks such as counting zeros can also improve gen-
+generalize to training on longer sequences.                        eralization. Interestingly, we find that end-to-end learning
+                                                                   outperforms the theoretical rate for end-to-end learning, sug-
+                                                                   gesting that end-to-end approaches can still achieve some
+5.8. Confidence Calibration
+                                                                   degree of robust generalization.
+We study confidence calibration of the baseline (E2E)
+                                                                   A key direction for future work is to explore the effective-
+and SSAS models as a function of increasing separation,
+                                                                   ness of other techniques for enabling robust generalization.
+kP − Qk∞ . Calibration measures how well the posterior
+                                                                   It would also be interesting to explore how these results
+probabilities of a model are aligned with the empirical like-
+                                                                   generalize to other kinds of tasks beyond regular languages,
+lihoods (Guo et al., 2017). We use the following metrics:
+                                                                   as well as to study the performance of state-of-the-art archi-
+• Brier Score (BS) (Brier et al., 1950) is a proper scoring        tectures such as transformers in this setting.
+                           Understanding Robust Generalization in Learning Regular Languages
+
+References                                                      Guo, C., Pleiss, G., Sun, Y., and Weinberger, K. Q. On cali-
+                                                                  bration of modern neural networks. In International Con-
+Ben-David, E., Cohen, S. B., McDonald, R., Plank, B., Re-
+                                                                  ference on Machine Learning, pp. 1321–1330. PMLR,
+  ichart, R., Rotman, G., and Ziser, Y. Proceedings of the
+                                                                  2017.
+  second workshop on domain adaptation for nlp. In Pro-
+  ceedings of the Second Workshop on Domain Adaptation          Hupkes, D., Dankers, V., Mul, M., and Bruni, E. Compo-
+  for NLP, 2021.                                                  sitionality decomposed: how do neural networks gener-
+                                                                  alise? Journal of Artificial Intelligence Research, 67:
+Blitzer, J., Crammer, K., Kulesza, A., Pereira, F., and Wort-    757–795, 2020.
+  man, J. Learning bounds for domain adaptation. 2008.
+                                                                Jurafsky, D. and Martin, J. H. Speech and language pro-
+Brier, G. W. et al. Verification of forecasts expressed in        cessing: An introduction to natural language processing,
+  terms of probability. Monthly weather review, 78(1):1–3,        computational linguistics, and speech recognition.
+  1950.
+                                                                Kim, N. and Linzen, T. Cogs: A compositional generaliza-
+Chen, Y., Gilroy, S., Maletti, A., May, J., and Knight, K.        tion challenge based on semantic interpretation. In Pro-
+  Recurrent neural networks as weighted language recog-           ceedings of the 2020 Conference on Empirical Methods in
+  nizers. In NAACL-HLT, 2018.                                     Natural Language Processing (EMNLP), pp. 9087–9105,
+                                                                  2020.
+Dessı̀, R. and Baroni, M. Cnns found to jump around
+  more skillfully than rnns: Compositional generalization       Knight, K. and May, J. Applications of weighted automata
+  in seq2seq convolutional networks. In Proceedings of            in natural language processing. In Handbook of Weighted
+  the 57th Annual Meeting of the Association for Computa-        Automata, pp. 571–596. Springer, 2009.
+  tional Linguistics, pp. 3919–3923, 2019.
+                                                                Koh, P. W., Sagawa, S., Xie, S. M., Zhang, M., Balsubra-
+Firoiu, L., Oates, T., and Cohen, P. R. Learning a determin-      mani, A., Hu, W., Yasunaga, M., Phillips, R. L., Gao, I.,
+   istic finite automaton with a recurrent neural network. In     Lee, T., et al. Wilds: A benchmark of in-the-wild distri-
+  International Colloquium on Grammatical Inference, pp.          bution shifts. In International Conference on Machine
+   90–101. Springer, 1998.                                        Learning, pp. 5637–5664. PMLR, 2021.
+                                                                Lake, B. and Baroni, M. Generalization without systematic-
+Fodor, J. A. and Pylyshyn, Z. W. Connectionism and cogni-
+                                                                  ity: On the compositional skills of sequence-to-sequence
+  tive architecture: A critical analysis. Cognition, 28(1-2):
+                                                                  recurrent networks. In International Conference on Ma-
+  3–71, 1988.
+                                                                  chine Learning, pp. 2873–2882. PMLR, 2018.
+Furrer, D., van Zee, M., Scales, N., and Schärli, N.           Lake, B. M. Compositional generalization through meta
+  Compositional generalization in semantic parsing: Pre-          sequence-to-sequence learning. Advances in Neural In-
+  training vs. specialized architectures. arXiv preprint          formation Processing Systems, 32, 2019.
+  arXiv:2007.08970, 2020.
+                                                                Li, Q. Literature survey: domain adaptation algorithms for
+Gales, M. and Young, S. The application of hidden markov          natural language processing. Department of Computer
+  models in speech recognition. 2008.                             Science The Graduate Center, The City University of New
+                                                                  York, pp. 8–10, 2012.
+Gers, F. A. and Schmidhuber, E. Lstm recurrent networks
+  learn simple context-free and context-sensitive languages.    Loula, J., Baroni, M., and Lake, B. Rearranging the fa-
+  IEEE Transactions on Neural Networks, 12(6):1333–               miliar: Testing compositional generalization in recurrent
+ 1340, 2001.                                                      networks. In Proceedings of the 2018 EMNLP Work-
+                                                                  shop BlackboxNLP: Analyzing and Interpreting Neural
+Giles, C. L., Miller, C. B., Chen, D., Chen, H.-H., Sun,          Networks for NLP, pp. 108–114, 2018.
+  G.-Z., and Lee, Y.-C. Learning and extracting finite state
+  automata with second-order recurrent neural networks.         Markov, A. Essai d’une recherche statistique sur le texte du
+  Neural Computation, 4(3):393–405, 1992a.                       roman” eugene onegin” illustrant la liaison des epreuve
+                                                                 en chain (’example of a statistical investigation of the
+Giles, C. L., Miller, C. B., Chen, D., Sun, G.-Z., Chen, H.-     text of” eugene onegin” illustrating the dependence be-
+  H., and Lee, Y.-C. Extracting and learning an unknown          tween samples in chain’). izvistia imperatorskoi akademii
+  grammar with recurrent neural networks. In Advances            nauk (bulletin de l’académie impériale des sciences de
+  in neural information processing systems, pp. 317–324,         st.-pétersbourg), 7: 153–162, 1913. English Translation
+  1992b.                                                         by Morris Halle, 1956.
+                           Understanding Robust Generalization in Learning Regular Languages
+
+Michalenko, J. J. Representing formal languages: A com-
+ parison between finite automata and recurrent neural
+ networks. PhD thesis, Rice University, 2019.
+Omlin, C. W. and Giles, C. L. Extraction of rules from
+ discrete-time recurrent neural networks. Neural networks,
+ 9(1):41–52, 1996.
+Pagnoni, A., Gramatovici, S., and Liu, S. Pac learn-
+  ing guarantees under covariate shift. arXiv preprint
+  arXiv:1812.06393, 2018.
+Rabusseau, G., Li, T., and Precup, D. Connecting weighted
+  automata and recurrent neural networks through spectral
+  learning. In The 22nd International Conference on Artifi-
+  cial Intelligence and Statistics, pp. 1630–1639. PMLR,
+  2019.
+Redko, I., Morvant, E., Habrard, A., Sebban, M., and Ben-
+  nani, Y. A survey on domain adaptation theory: learn-
+  ing bounds and theoretical guarantees. arXiv preprint
+  arXiv:2004.11829, 2020.
+Ruis, L., Andreas, J., Baroni, M., Bouchacourt, D., and
+  Lake, B. M. A benchmark for systematic generalization
+  in grounded language understanding. Advances in Neural
+  Information Processing Systems, 33, 2020.
+Shannon, C. E. A mathematical theory of communication.
+  ACM SIGMOBILE mobile computing and communica-
+  tions review, 5(1):3–55, 2001.
+Sipser, M. Introduction to the theory of computation. ACM
+  Sigact News, 27(1):27–29, 1996.
+Suresh, A. T., Roark, B., Riley, M., and Schogol, V. Approx-
+  imating probabilistic models as weighted finite automata.
+  Computational Linguistics, 47(2):221–254, 2021.
+Tiňo, P., Horne, B. G., Giles, C. L., and Collingwood,
+   P. C. Finite state machines and recurrent neural net-
+  works—automata and dynamical systems approaches. In
+  Neural networks and pattern recognition, pp. 171–219.
+   Elsevier, 1998.
+Tsarkov, D., Tihon, T., Scales, N., Momchev, N., Sinopal-
+  nikov, D., and Schärli, N. *-cfq: Analyzing the scalabil-
+  ity of machine learning on a compositional task. arXiv
+  preprint arXiv:2012.08266, 2020.
+Weiss, G., Goldberg, Y., and Yahav, E. Extracting automata
+ from recurrent neural networks using queries and coun-
+ terexamples. In International Conference on Machine
+ Learning, pp. 5247–5256. PMLR, 2018.
+Zhang, Y., Liu, T., Long, M., and Jordan, M. Bridging
+  theory and algorithm for domain adaptation. In Interna-
+  tional Conference on Machine Learning, pp. 7404–7413.
+  PMLR, 2019.
+                              Understanding Robust Generalization in Learning Regular Languages
+
+A. Proofs
+A.1. Proof of Lemma 4.1
+We have
+
+                                     1(fˆ(x) 6= f ∗ (x))Q(x) =                    1(fˆ(x) 6= f ∗ (x))(P (x) + Q(x) − P (x))
+                              X                                             X
+                  LQ (fˆ) =
+                              x∈X                                           x∈X
+                                                                                         X
+                                                                      ≤ LP (fˆ) +             |Q(x) − P (x)|,
+                                                                                        x∈X
+
+as claimed.
+
+A.2. Proof of Lemma 4.2
+The given emission probabilities P (σ | s) induce transition probabilities over the DFA states—in particular, the probability
+of transitioning from s to s0 is
+
+                                                          P (σ | s) · 1(s0 = δ(s, σ)).
+                                                     X
+                                        P (s0 | s) =
+                                                              σ∈Σ
+                                                                                  QT                                      0
+Then, the probability of a sequence of states is P (s1 ...sT 0 ) =                    t=1 P (st+1 | st ), where T             = T + 1, and similarly for
+Q(s1 ...sT 0 ). Now, we prove the claim. First, note that
+
+                                  X                                X
+           |P (x) − Q(x)| =                P (x | z)P (z) −                 Q(x | z)Q(z)
+                                 z∈S T 0                          z∈S T 0
+
+                                  X                                                            X
+                            ≤              (P (x | z)P (z) − P (x | z)Q(z)) +                           (P (x | z)Q(z) − Q(x | z)Q(z))
+                                 z∈S T 0                                                      z∈S T 0
+                                 X                                                X
+                            ≤             P (x | z)|P (z) − Q(z)| +                     |P (x | z) − Q(x | z)|Q(z).
+                                z∈S T 0                                       z∈S T 0
+
+Thus, we have
+                                       X
+              TV(P (x), Q(x)) =              |P (x) − Q(x)|
+                                     x∈ΣT
+                                        X X                                                 X X
+                                 ≤                    P (x | z)|P (z) − Q(z)| +                             |P (x | z) − Q(x | z)|Q(z)
+                                     z∈S T 0 x∈ΣT                                          z∈S T 0 x∈ΣT
+                                 = TV(P (z), Q(z)) + Ez∼Q [TV(P (x | z), Q(x | z)].                                                                  (1)
+
+Consider the first term of (1). Letting z = s1 ...sT 0 , note that
+                                 T
+                                 Y                         T
+                                                           Y
+           |P (z) − Q(z)| =             P (st+1 | st ) −          Q(st+1 | st )
+                                 t=1                       t=1
+                                                                                                 −1
+                                 T τ                                T                           τY                       T
+                                                                                                                                               !
+                                 X Y                                Y                                                    Y
+                            =                    P (st+1 | st )             Q(st+1 | st ) −             P (st+1 | st )         Q(st+1 | st )
+                                 τ =1      t=1                    t=τ +1                        t=1                      t=τ
+                                 T
+                                   "τ −1                      #"       T
+                                                                                                #
+                                 X  Y                                  Y
+                            =                    P (st+1 | st )               Q(st+1 | st ) (P (sτ +1 | st ) − Q(sτ +1 | st ))
+                                 τ =1      t=1                       t=τ +1
+                                T
+                                X
+                            ≤          |P (sτ +1 | st ) − Q(sτ +1 | st ))|
+                                τ =1
+                            ≤ T max TV(P (s0 | s), Q(s0 | s)).
+                                    s∈S
+                               Understanding Robust Generalization in Learning Regular Languages
+
+Furthermore, note that for any s ∈ S, we have
+                                                              X
+                       TV(P (s0 | s), Q(s0 | s)) =                    |P (s0 | s) − Q(s0 | s)|
+                                                              s0 ∈S
+
+
+                                                                              (P (σ | s) − Q(σ | s)) · 1(s0 = δ(s, σ))
+                                                              X X
+                                                         =
+                                                              s0 ∈S    σ∈Σ
+
+                                                                                                                  1(s0 = δ(s, σ))
+                                                              X                                          X
+                                                         ≤            |P (σ | s) − Q(σ | s)|
+                                                              σ∈Σ                                       s0 ∈S
+                                                         = TV(P (σ | s), Q(σ | s)),                                                                  (2)
+As a consequence, we have
+                                   X                                             0
+                                            |P (z) − Q(z)| ≤ T |S|T max TV(P (s0 | s), Q(s0 | s))
+                                                                                      s∈S
+                                  z∈S T 0
+                                                                                 0
+                                                                 ≤ T |S|T max TV(P (σ | s), Q(σ | s)).
+                                                                                      s∈S
+
+Now, consider the second term of (1). Letting x = σ1 ...σT and z = s1 ...sT 0 , we have
+                                              T
+                                              Y                           T
+                                                                          Y
+             |P (x | z) − Q(x | z)| =                P (σt | st ) −             Q(σt | st )
+                                              t=1                         t=1
+                                              X τ
+                                              T Y                             T
+                                                                              Y                              −1
+                                                                                                            τY                   T
+                                                                                                                                 Y
+                                         =               P (σt | st )                  Q(σt | st ) −              P (σt | st )         Q(σt | st )
+                                              τ =1 t=1                     t=τ +1                           t=1                  t=τ
+                                              T
+                                                "τ −1                         #"       T
+                                                                                                             #
+                                              X  Y                                     Y
+                                         =                   P (σt | st )                     Q(σt | st ) (P (στ | sτ ) − Q(στ | sτ ))
+                                              τ =1     t=1                           t=τ +1
+                                             T
+                                               "τ −1                       #"         T
+                                                                                                            #
+                                             X  Y                                     Y
+                                         ≤                  P (σt | st )                      Q(σt | st ) |P (στ | sτ ) − Q(στ | sτ ))|.
+                                             τ =1     t=1                            t=τ +1
+
+As a consequence, we have
+                X
+                     |P (x | z) − Q(x | z)|
+                 x∈ΣT
+                                   T
+                                     "τ −1                     #"         T
+                                                                                                 #
+                         X         X  Y                                   Y
+                 ≤                                P (σt | st )                  Q(σt | st ) |P (στ | sτ ) − Q(στ | sτ ))|
+                     σ1 ...σT ∈ΣT τ =1      t=1                       t=τ +1
+                     T
+                            "τ −1                      #"     T
+                                                                                                #
+                     X       Y X                              Y        X                             X
+                 =                       P (σt | st )                           Q(σt | st )                 |P (στ | sτ ) − Q(στ | sτ ))|
+                     τ =1    t=1 σt ∈Σ                       t=τ +1 σt ∈Σ                           στ ∈Σ
+                     T
+                     X X
+                 =                |P (στ | sτ ) − Q(στ | sτ ))|
+                     τ =1 στ ∈Σ
+                     T
+                     X
+                 =          TV(P (σ | sτ ), Q(σ | sτ )).
+                     τ =1
+
+Therefore, we have
+                                                                              T
+                                                                              X
+                             Ez∼Q [TV(P (x | z), Q(x | z)] =                          Ez∼Q [TV(P (σ | sτ ), Q(σ | sτ ))]
+                                                                              τ =1
+                                                                          ≤ T max TV(P (σ | s), Q(σ | s)).
+                                                                                     s∈S
+
+                                         T +1                 T +1
+The claim follows since T  + T |S|              ≤ 2T |S|           .
+                                 Understanding Robust Generalization in Learning Regular Languages
+
+A.3. Proof of Theorem 4.4
+Note that
+
+                                                                                                                       
+                                           X                         X          Q(x)                            Q(x)
+                  TV(P (x), Q(x)) =              |P (x) − Q(x)| =            1−       P (x) = Ex∼P           1−             ,
+                                                                                P (x)                           P (x)
+                                           x∈X                       x∈X
+
+
+
+
+as claimed.
+
+A.4. Proof of Lemma 4.5
+We prove the first claim by induction on t. The base case t = 1 is trivial, since P1 (s) = Q1 (s) = 1(s = s0 ). For the
+inductive case, note that
+
+
+            TV(Pt (s0 ), Qt (s0 ))
+              X
+            =      |Pt (s0 ) − Qt (s0 )|
+                s0 ∈S
+                 XX
+            =               Pt−1 (s)P (s0 | s) − Qt−1 (s)Q(s0 | s)
+                s0 ∈S s∈S
+                 XX                                                            XX
+            ≤               Pt−1 (s)P (s0 | s) − Pt−1 (s)Q(s0 | s) +                     Pt−1 (s)Q(s0 | s) − Qt−1 (s)Q(s0 | s)
+                s0 ∈S s∈S                                                    s0 ∈S s∈S
+                XX                                                XX
+            ≤               Pt−1 (s)|P (s0 | s) − Q(s0 | s)| +               |Pt−1 (s) − Qt−1 (s)|Q(s0 | s)
+                s0 ∈S s∈S                                        s0 ∈S s∈S
+            ≤ max TV(P (s0 | s), Q(s0 | s)) + TV(Pt−1 (s), Qt−1 (s))
+                s∈S
+            ≤ max TV(P (σ | s), Q(σ | s)) + TV(Pt−1 (s), Qt−1 (s))
+                s∈S
+            ≤ (t − 1),
+
+
+where the second-to-last step follows from (2) in the proof of Theorem 4.3, so the first claim follows. For the second claim,
+note that
+
+                                           XX
+         TV(Pt (s, σ), Qt (s, σ)) =                  |Pt (s, σ) − Qt (s, σ)|
+                                           s∈S σ∈Σ
+                                           XX
+                                       =             |Pt (s)P (σ | s) − Qt (s)Q(σ | s)|
+                                           s∈S σ∈Σ
+                                           XX
+                                       ≤             |Pt (s)P (σ | s) − Pt (s)Q(σ | s)| + |Pt (s)Q(σ | s) − Qt (s)Q(σ | s)|
+                                           s∈S σ∈Σ
+                                           XX
+                                       =             Pt (s)|P (σ | s) − Q(σ | s)| + |Pt (s) − Qt (s)|Q(σ | s)
+                                           s∈S σ∈Σ
+                                       = max TV(P (σ | s), Q(σ | s)) + TV(Pt (s), Qt (s))
+                                           s∈S
+                                       ≤ t,
+
+
+so the second claim follows as well.
+                              Understanding Robust Generalization in Learning Regular Languages
+
+A.5. Proof of Theorem 4.6
+First, by a union bound, we have
+
+                 LQ (fˆ) = Px∼Q [fˆ(x) 6= f ∗ (x)]
+                                 "T                                                            #
+                                      ĝ(st , σt ) 6= δ(st , σt ) ∨ ĥ(sT +1 ) 6= 1(sT +1 ∈ F )
+                                   _
+                         = Px∼Q
+                                       t=1
+                             T
+                                   Px∼Q [ĝ(st , σt ) 6= δ(st , σt )] + Px∼Q [ĥ(sT +1 ) 6= 1(sT +1 ∈ F )]
+                             X
+                         ≤
+                             t=1
+                             T
+                                   P(st ,σt )∼Qt [ĝ(st , σt ) 6= δ(st , σt )] + PsT +1 ∼QT +1 [ĥ(sT +1 ) 6= 1(sT +1 ∈ F )]
+                             X
+                         =
+                             t=1
+                             T
+                             X
+                         =         LQt (ĝ) + LQT +1 (ĥ).
+                             t=1
+
+By Lemmas 4.1 & 4.5, the loss of ĝ on step t satisfies
+
+                                                        LQt (ĝ) ≤ LPt (ĝ) + T ,
+
+and similarly the loss of ĥ satisfies
+
+                                                     LQT +1 (ĥ) ≤ LPT +1 (ĥ) + T .
+
+Thus, we have
+                                                     " T                          #
+                                                      X
+                                         LQ (fˆ) ≤          LPt (ĝ) + LPT +1 (ĥ) + T (T + 1),
+                                                      t=1
+
+so the claim follows since T (T + 1) ≤ 2T 2  (since T ≥ 1).
+
+B. Additional Experiments
+
+
+
+
+Figure 8. The modulo-k task is to classify whether the number of zeros in x ∈ {0, 1}∗ is divisible by k (y = 1) or not (y = 0). We
+show the edge Markov Chains for generating examples for Lmod−3 , and is similar for Lmod−4 and Lmod−5 with additional states
+in between. The shifts are introduced similar to the parity language by perturbing the loop probabilities. We plot test accuracies for
+Lmod−3 , Lmod−4 , Lmod−5 (in order from L-R) as a function of kP − Qk∞ . For the baseline model (solid red line), the test accuracy
+drops significantly as kP − Qk∞ increases while our proposed SSAS approach (solid black line) ensures robustness to distribution shift.
+
