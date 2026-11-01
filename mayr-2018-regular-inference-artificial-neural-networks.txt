@@ -1,0 +1,1010 @@
+                Regular Inference on Artificial Neural Networks
+                                          Franz Mayr, Sergio Yovine
+
+
+
+      To cite this version:
+     Franz Mayr, Sergio Yovine. Regular Inference on Artificial Neural Networks. 2nd International Cross-Domain
+     Conference for Machine Learning and Knowledge Extraction (CD-MAKE), Aug 2018, Hamburg, Germany.
+     pp.350-369, ⟨10.1007/978-3-319-99740-7_25⟩. ⟨hal-02060043⟩
+
+
+
+
+                                        HAL Id: hal-02060043
+                          https://inria.hal.science/hal-02060043v1
+                                           Submitted on 7 Mar 2019
+
+
+
+
+    HAL is a multi-disciplinary open access archive             L’archive ouverte pluridisciplinaire HAL, est des-
+for the deposit and dissemination of scientific re-        tinée au dépôt et à la diffusion de documents scien-
+search documents, whether they are published or not.       tifiques de niveau recherche, publiés ou non, émanant
+The documents may come from teaching and research          des établissements d’enseignement et de recherche
+institutions in France or abroad, or from public or pri-   français ou étrangers, des laboratoires publics ou
+vate research centers.                                     privés.
+
+
+           Distributed under a Creative Commons CC BY 4.0 - Attribution - International License
+Regular Inference on Artificial Neural Networks
+
+                             Franz Mayr1 and Sergio Yovine2
+                     1
+                          Universidad ORT Uruguay, mayr@ort.edu.uy
+                 2
+                         Universidad ORT Uruguay, yovine@ort.edu.uy
+
+
+
+
+      Abstract. This paper explores the general problem of explaining the
+      behavior of artificial neural networks (ANN). The goal is to construct
+      a representation which enhances human understanding of an ANN as a
+      sequence classifier, with the purpose of providing insight on the ratio-
+      nale behind the classification of a sequence as positive or negative, but
+      also to enable performing further analyses, such as automata-theoretic
+      formal verification. In particular, a probabilistic algorithm for construct-
+      ing a deterministic finite automaton which is approximately correct with
+      respect to an artificial neural network is proposed.
+
+      Keywords: Artificial neural networks · Sequence classification · Deter-
+      ministic finite automata · Probably approximately correct learning
+
+
+
+1   Introduction
+
+The purpose of explainable artificial intelligence is to come up with artifacts
+capable of producing intelligent outcomes together with appropriate rational-
+izations of them. It means that besides delivering best possible model perfor-
+mance metrics (e.g., accuracy) and computational performance metrics (e.g.,
+algorithmic complexity), they must provide adequate and convincing reasons for
+effectively justifying the judgment in a human-understandable way.
+    Artificial neural networks (ANN) are the state-of-the-art method for many
+fields in the area of artificial intelligence [20]. However, ANN are considered to be
+a rather obscure model [21], meaning that understanding the specifics that were
+taken into consideration by the model to make a decision is not a trivial task.
+Human understanding of the model is crucial in fields such as medicine [18], risk
+assessment [4], or intrusion detection [33]. From the point of view of explaining
+the rationale of an outcome, an important issue is that ANN lack an explicit
+and constructive characterization of their embedded decision-making strategy.
+    This limitation of ANN explanatory capabilities motivated a large amount
+of research work aiming at improving ANN explainability. Several approaches
+to tackle this issue have been identified [10, 14]. In particular, [14] character-
+izes the black-box model explanation problem. It consists in providing a human-
+understandable model which is able to mimic the behavior of the ANN. In [10],
+the problem of processing explanation is defined. This approach seeks answering
+why a given input leads the ANN to produce a particular outcome. Another
+approach consists in allowing a human actor to interact with the learning pro-
+cess. This human-in-the-loop method of addressing explainability, called glass
+box interactive machine-learning approach, is presented in [19].
+    In this paper we follow a black-box model and processing explanation ap-
+proach for ANN. We are interested in studying explainability in the context of
+ANN trained to solve sequence classification problems [32, 34], which appear in
+many application domains. In the past few years several classes of ANN, such as
+Recurrent Neural Networks (RNN), e.g., Long-Short Term Memory (LSTM) [17],
+have been successfully applied for such matter [6, 8, 22, 27, 28, 30, 31, 35].
+    We restrict the study to binary classification. This problem is a case of lan-
+guage membership, where the language of the ANN is the set of sequences classi-
+fied as positive by the network. The trained ANN hides a model of such sequences
+which it uses to predict whether a given input sequence belongs to the language.
+If the language from which the training samples have been drawn is known, the
+question is how well the ANN learned it [8,9,26]. Another, may be more realistic
+situation occurs when the target language is unknown. In this case, the question
+to answer becomes what is the language learned by the ANN, or more precisely,
+whether it could be characterized operationally instead of denotationally.
+    Typically, these questions are addressed by looking at the accuracy of the net-
+work on a given test set. However, it has been observed that networks trained
+with millions of samples which exhibit 100% accuracy on very large development
+test sets could still incorrectly classify random sequences [12, 31]. Thus, exact
+convergence on a set of sequences, whatever its size, does not ensure the lan-
+guage of the network is the same as the target language. Hence, in both cases,
+the question remains whether the language recognized by the network could be
+explained, even approximately, in some other, comprehensible, way.
+    The goal of this paper is to provide means for extracting a constructive
+representation of the model hidden inside the ANN. To the best of our knowledge,
+all previous works devoted to model and processing explanation for ANN are
+either white-box, that is, they look into and/or make assumptions about the
+network’s structure and state, or they are focused on extracting decision trees
+or rules. The reader is referred to [3, 10, 14] for recent surveys on this topic.
+    Now, when it comes to operationally explain the dynamical system that pro-
+duces sequences of events, rules and trees are not expressive enough. In this case,
+a widely used formalism are automata [13]. This model provides a language-
+independent mathematical support for studying dynamical systems whose be-
+havior could be understood as sequences corresponding to words of a regular
+language. In the automata-theoretic approach, when the system under analysis
+is a black box, that is, its internal structure (composed of states and transitions)
+is unknown, the general problem of constructing an automaton that behaves as
+the black box is called identification or regular inference [16].
+    Many times it is not theoretically or practically feasible to solve this problem
+precisely, in which case, it needs to be solved approximately. That is, rather than
+exactly identifying the automaton inside the black box, we attempt to find an
+automaton which is a reasonable approximation with some confidence.
+    The Probably Approximately Correct (PAC) framework [29] is a general
+approach to solve problems like the one we are considering here. A learner, which
+attempts to identify the hidden machine inside the black box, can interact with
+a teacher, which has the ability to answer queries about the unknown machine
+to be learned. For this, the teacher uses an oracle which draws positive and
+negative samples with some probability distribution. There are several specific
+problem instances and algorithms to solve them, depending on the assumptions
+that are made regarding how the behavior of the black box is observed, what
+questions could be asked, how the answers to these questions could be used to
+build an automaton, etc. The reader is referred to [2, 16] for a thorough review.
+    In this context, two general settings can be distinguished, namely passive or
+active learning. The former consists in learning a language from a set of given
+(chosen by the teacher) positive and/or negative examples [25]. It has been shown
+in [11] that this problem is NP-complete. In the latter, the learner is given the
+ability to draw examples and to ask membership queries to the teacher. A well
+known algorithm in this category is Angluin’s L∗ [1]. L∗ is polynomial on the
+number of states of the minimal deterministic finite automaton (DFA) and the
+maximum length of any sequence exhibited by the teacher.
+    The relationship between automata and ANN has been thoroughly studied:
+[26] presents mechanisms for programming an ANN that can correctly classify
+strings of arbitrary length belonging to a given regular language; [9] discuss an
+algorithm for extracting the finite state automaton of second-order recurrent
+neural networks; [31] look at this problem in a white-box setting. Therefore,
+according to [14], a black-box model explanation approach, that is, using regular
+inference algorithms that do not rely on the ANN structure and weights is a
+problem that has not been addressed so far.
+    Of course, one may argue that an automaton could be directly learned from
+the dataset used to train the network. However, this approach has several draw-
+backs. First, passive learning is NP-complete [11]. Second, it has been shown
+that ANN such as LSTM, are much better learners, as they learn faster and
+generalize better. Besides, they are able to learn languages beyond regular ones.
+Third, the training dataset may not be available, in which case the only way to
+construct an explanation is to query the ANN.
+    The contribution of this work is an adaptation of Angluin’s L∗ algorithm
+that outputs a DFA which approximately behaves like an input ANN whose
+actual structure is completely unknown. This means that whenever a sequence
+is recognized by the DFA constructed by the algorithm, it will most likely be
+classified as positive by the ANN, and vice versa. We stress the fact that our
+algorithm is completely agnostic of the structure of the ANN.
+
+Outline In Sec. 2 we precisely present the problem we are going to address and
+the method used for solving it. In Sec. 3 we discuss the proposed algorithm and
+a variation of the general PAC framework to analyze its behavior. In Sec. 4 we
+present the experimental results carried out on several examples which validate
+the theoretical analyses. In Sec. 5 we compare and contrast our approach with
+related works. Finally we present the conclusions and future work.
+2     Preliminaries
+
+2.1   Problem statement
+
+Let of U ⊆ Σ ∗ be some unknown language over an alphabet Σ of symbols, and
+S ⊆ Σ ∗ be a sample set such that it contains positive and negative sequences of
+U. That is, there are sequences in S which belong to U and others that do not.
+    The language of an ANN N , denoted L(N ), is the set of sequences classified
+as positive by N . Suppose N is obtained by training it with a sample set S,
+and then used to predict whether a sequence u ∈ Σ ∗ does belong to U. In other
+words, the unknown language U is considered to be somehow approximated by
+L(N ), that is, with high probability x ∈ L(N ) ⇐⇒ x ∈ U.
+    But, what is the actual language L(N ) learned by N ? Is it a regular language?
+That is, could it be expressed by a deterministic finite automaton? Is it possible
+to approximate it somehow with a regular language? The interest of having
+an automaton-based, either precise or approximated, characterization of L(N ),
+allows to explain the answers of N , while providing insight on the unknown
+language U. This approach enhances human understanding because of the visual
+representation but also because it enables performing further analyses, such as
+automata-theoretic formal verification [5].
+
+
+2.2   Probably Approximately Correct (PAC) learning
+
+In order to study the questions above, we resort to Valiant’s PAC-learning frame-
+work [2, 29]. Since we are interested in learning languages, we restrict ourselves
+to briefly describing the PAC-learning setting for languages.
+    Let D be an unknown distribution over Σ ∗ and L1 , L2 ⊆ Σ ∗ . The symmetric
+difference between L1 and L2 , denoted L1 ⊕ L2 , is the set of sequences that
+belong to only one of the languages, that is, L1 ⊕ L2 = L1 \ L2 ∪ L2 \ L1 .
+    The prediction error of L1 with respect to L2 is the probability of a sequence
+to belong to their symmetric difference, denoted PD (L1 ⊕ L2 ). Given  ∈ (0, 1),
+we say that L1 is -approximately correct with respect to L2 if PD (L1 ⊕ L2 ) < .
+    The oracle EXD (L1 ) draws an example sequence x ∈ Σ ∗ following distribu-
+tion D, and tags it as positive or negative according to whether it belongs to L1
+or not. Calls to EX are independent of each other.
+    A PAC-learning algorithm takes as input an approximation parameter  ∈
+(0, 1), a confidence parameter δ ∈ (0, 1), target language Lt and oracle EXD (Lt ),
+and if it terminates, it outputs a language Lo such that Lo is -approximately
+correct with respect to Lt with probability at least 1 − δ.
+    A PAC-learning algorithm can also be equipped with an approximate equiv-
+alence test EQ which checks a candidate output Lo against the target language
+Lt using a sufficiently large sample of tagged sequences S generated by EX. If
+the sample is such that for every x ∈ S, x ∈ Lt ⇐⇒ x ∈ Lo , the algorithm suc-
+cessfully stops and outputs Lo . Otherwise, it picks any sequence in S ∩ (Lo ⊕ Lt )
+as counterexample and continues.
+    The algorithm may also be allowed to call directly a membership oracle MQ,
+such that MQ(x, Lt ) is true if and only if x ∈ Lt . Notice that the EX oracle
+may also call MQ to tag sequences.
+    A distribution-free algorithm is one that works for every D. Hereinafter, we
+will focus on distribution-free algorithms, so we will omit D.
+
+2.3       L∗
+L∗ [1] learns regular languages, or equivalently, deterministic finite automata
+(DFA). Given a DFA A, we use L(A) to denote its language, that is, the set of
+sequences accepted by A. We denote At and Ao the target and output automata,
+respectively. The symmetric difference between Ao and At , denoted Ao ⊕ At , is
+defined as Lo ⊕ Lt . We say that Ao -approximates At if Lo -approximates Lt .
+    L∗ uses EQ and MQ. Each time EQ is called, it must draw a sample of a
+size large enough to ensure a total confidence of the algorithm of at least 1 − δ.
+That is, whenever the statistical test is passed, it is possible to conclude that
+the candidate output is -approximately correct with confidence at least 1 − δ.
+    Say EQ is called at iteration i. In order to guarantee the aforementioned
+property, a sample Si of size ri is drawn, where:
+                                                      
+                                     1
+                             ri =      (i ln 2 − ln δ)                         (1)
+                                     
+
+This ensures that the probability of the output automaton Ao not being -
+approximately correct with respect to At when all sequences in a sample pass
+the EQ test, i.e., Si ∩ (Ao ⊕ At ) = ∅, is at most δ, that is:
+   X                                                X               X
+      P(Si ∩ (Ao ⊕ At ) = ∅ | P(Ao ⊕ At ) > ) <        (1 − )ri <   2−i δ < δ
+    i>0                                             i>0             i>0
+
+
+Remark It is worth noticing that from the point of view of statistical hypothesis
+testing, a sample Si that passes the test, gives a confidence of at least 1 − 2−i δ.
+
+
+3     PAC-learning for ANN
+We address the following problem: given a ANN N , is it possible to build a DFA
+A, such that L(A) is -approximately correct with respect to L(N )?
+
+3.1       Basic idea
+The basic idea to solve this problem is to use L∗ as follows. The MQ oracle
+consists in querying N itself. The EQ oracle consists in drawing a sample set Si
+with size ri as defined in equation (1) and checking whether N and the candidate
+automaton Ai completely agree in Si , that is, Si ∩ (Ai ⊕ N ) is empty.
+    The results reviewed in the previous section entail that if L∗ terminates, it
+will output a DFA A which is an -approximation of N with probability at least
+1 − δ. Moreover, L∗ is proven to terminate provided L(N ) is a regular language.
+However, since ANN are strictly more expressive than DFA [23], there is no
+guarantee that L∗ will eventually terminate; it may not exist a DFA A with the
+same language as N . In other words, there is no upper bound nN such that L∗
+will terminate in at most nN iterations for every target ANN N . Therefore, it
+may happen that for every i the call to EQ fails, that is, Si ∩ (Ai ⊕ N ) 6= ∅.
+
+3.2   Bounded-L∗
+To cope with this situation, we resort to imposing a bound to the number of iter-
+ations of L∗ . Obviously, a direct way of doing it would be to just fix an arbitrary
+upper bound to the number of iterations. Instead, we propose to constrain the
+maximum number of states of the automaton to be learned and to restrict the
+length of the sequences used to call MQ. The latter is usually called the query
+length. Typically, these two measures are used to determine the complexity of a
+PAC-learning algorithm [15].
+
+3.2.1 Algorithm Similarly to the description presented in [16] the algorithm
+Bounded-L∗ (Algorithm 1) can be described as follows:
+
+ Algorithm 1: Bounded-L∗
+   Input : MaxQueryLength, MaxStates, , δ
+   Output: DFA A
+ 1 Lstar-Initialise;
+ 2 repeat
+ 3    while OT is not closed or not consistent do
+ 4        if OT is not closed then
+ 5            OT, QueryLengthExceeded ← Lstar-Close(OT);
+ 6        end
+ 7        if OT is not consistent then
+ 8            OT, QueryLengthExceeded ← Lstar-Consistent(OT);
+ 9        end
+10    end
+11    if not QueryLengthExceeded then
+12        LastProposedAutomaton ← Lstar-BuildAutomaton(OT);
+13        Answer ← EQ(LastProposedAutomaton);
+14        MaxStatesExceeded ←
+            STATES(LastProposedAutomaton)>MaxStates;
+15        if Answer 6= Yes and not MaxStatesExceeded then
+16            OT ← Lstar-UseEQ(OT, Answer);
+17        end
+18    end
+19    BoundReached ← QueryLengthExceeded or MaxStatesExceeded;
+20 until Answer = Yes or BoundReached ;
+21 return LastProposedAutomaton;
+    The observation table OT is initialised by Lstar-Initialise in the same manner
+that it is for L∗ . This step consists in building the structure of the observation
+table OT as proposed by Angluin. Then the construction of hypotheses begins.
+    If OT is not closed an extra row is added by the Lstar-Close procedure. If
+OT is inconsistent, an extra column is added by the Lstar-Consistent proce-
+dure. Both procedures call MQ to fill the holes in the observation table. The
+length of these queries may exceed the maximum query length, in which case
+the QueryLengthExceeded flag is set to true.
+    When the table is closed and consistent, and in the case that the query
+length was not exceeded, an equivalence query EQ is made and the automaton
+number of states is compared to the maximum number of states bound. If EQ
+is unsuccessful and the maximum number of states was not reached, new rows
+are added by Lstar-UseEQ, using the counterexample contained in Answer.
+    Finally, if the hypothesis passes the test or one of the bounds was reached,
+the algorithm stops and returns the last proposed automaton.
+
+
+3.2.2 Analysis Bounded-L∗ will either terminate with a successful EQ or
+when a bound (either the maximum number of states or query length) is ex-
+ceeded. In the former case, the output automaton A is proven to be an -
+approximation of N with probability at least 1 − δ by Angluin’s results. In
+the latter case, the output A of the algorithm will be the last automaton pro-
+posed by the learner. A may not be an -approximation with confidence at least
+1 − δ, because A failed to pass the last statistical equivalence test EQ. However,
+the result of such test carries statistical value about the relationship between A
+and N . The question is, what could indeed be said about this automaton?
+    Assume at iteration i EQ fails and the number of states of Ai is greater than
+or equal to the maximum number of states, or at the next iteration i + 1, MQ
+fails because the maximum query length is exceeded. This means that Ai and
+N disagree in, say, k > 0, of the ri sequences of Si . In other words, there are k
+sequences in Si which indeed belong to the symmetric difference Ai ⊕ N .
+
+Confidence parameter. Let p ∈ (0, 1) be the actual probability of a sequence to
+be in Ai ⊕ N and Kri the random variable defined as the number of sequences
+in Ai ⊕ N in a sample of size ri . Then, the probability of Kri = k is:
+                                      
+                                      ri
+                        P(Kri = k) =     (1 − p)ri −k pk
+                                      k
+
+Let us first set as our hypothesis that Ai is an -approximation of N . Can we
+accept this hypothesis when Kri = k with confidence at least 1 − δ 0 , for some
+δ 0 ∈ (0, 1)? In other words, is there a δ 0 such that the probability of Kri = k is
+smaller than δ 0 when p > ? Suppose p > . Then, it follows that:
+                                                                  
+                           ri                      ri                 ri −(ri −k)
+   P(Kri = k | p > ) =        (1 − p)ri −k pk <      (1 − )ri −k <      e
+                           k                       k                  k
+        Fig. 1. Values of δi∗ in log scale as function of ri , k ∈ [1, 9], i ∈ [3, 70)
+
+
+Therefore, if the following condition holds
+                                
+                                 ri −(ri −k)
+                                     e        < δ0                                       (2)
+                                 k
+
+we have that P(Kri = k, p > ) < δ 0 . That is, the probability of incorrectly
+accepting the hypothesis with k discrepancies in sample Si of size ri is smaller
+than δ 0 . Then, we could accept the hypothesis with a confidence of at least 1−δ 0 .
+    The left-hand-side term in condition (2) gives us a lower bound δi∗ for the
+confidence parameter such that we could accept the hypothesis with probability
+at least 1 − δ 0 , for every δ 0 > δi∗ :
+                                          
+                                      ∗   ri −(ri −k)
+                                    δi =     e                                  (3)
+                                          k
+
+A major problem, however, is that δi∗ may be greater than 1, and so no δ 0 ∈ (0, 1)
+exists, or it may be just too large, compared to the desired δ, to provide an
+acceptable level of confidence for the test.
+     Fig. 1 shows δ ∗ , in log scale, for  = 0.05, k ∈ [1, 9] and ri computed using
+equation (1), and compares it with a desired δ = 0.05. We see that as k increases,
+larger values of ri , or equivalently, more iterations, are needed to get a value of
+δi∗ smaller than δ (horizontal line). Actually, for fixed k and  ∈ (0, 1), δi∗ tends
+to 0 as ri tends to ∞. In other words, there is a large enough sample size for
+which it is possible to make δi∗ smaller than any desired confidence parameter δ.
+
+Approximation parameter. An alternative would be to look at the approximation
+parameter , rather than the confidence parameter δ. In this case, we set as our
+hypothesis that Ai is an 0 -approximation of N , for some 0 ∈ (0, 1). Is the
+probability of accepting this hypothesis with the test tolerating k discrepancies,
+             Fig. 2. Values of ∗i as function of ri , k ∈ [1, 9], i ∈ [3, 70)
+
+
+
+when the hypothesis is actually false, smaller than δ? That is, we are asking
+whether the following condition holds for 0 :
+                                          
+                                    0       ri −0 (ri −k)
+                   P(Kri = k | p >  ) <       e           <δ
+                                            k
+
+Now, we could determine a lower bound ∗i , such that this condition holds for
+every 0 > ∗i , in which case we could conclude that Ai is an 0 -approximation of
+N , with confidence at least 1 − δ. Provided ri − k 6= 0, we have:
+                                                     
+                                     1       ri
+                            ∗i =         ln     − ln δ
+                                  ri − k      k
+
+Fig. 2 shows ∗i for δ = 0.05, k ∈ [1, 9] and ri computed using equation (1), and
+compares it with a desired  = 0.05. We see that as k increases, larger samples,
+i.e., more iterations, are needed to get a value smaller than  (horizontal line).
+Nevertheless, for fixed k and δ ∈ (0, 1), ∗i tends to 0 as ri tends to ∞. In other
+words, there is a large enough sample size for which it is possible to make ∗
+smaller than any desired approximation parameter .
+
+Number of discrepancies and sample size. Actually, we could also search for the
+largest number k ∗ of discrepancies which the EQ test could cope with for given
+, δ and whichever sample size r, or the smallest sample size r∗ for fixed , δ and
+number of discrepancies k, independently of the number i of iterations.
+    The values k ∗ and r∗ could be obtained by solving the following equation for
+k and r, respectively:
+                              
+                              r
+                          ln     −  ln(r − k) − ln δ = 0                        (4)
+                              k
+                     Fig. 3. Comparison between ri , r∗ and k
+
+
+Fig. 3 plots the relationship between k ∈ [1, 9], ri computed using equation (1),
+and r∗ (k), where r∗ (k) denotes the value of r∗ for the given k. Each point in the
+vertical dotted segments corresponds to a value of sample size ri . For a given
+value of k, we plot all values of ri up to the first one which becomes greater than
+r∗ (k). For each value of k, the value of r∗ (k) is shown in numbers.
+    Whenever ri is greater than r∗ (k), if EQ yields k discrepancies at iteration
+i then Ai could be accepted as being -approximately correct with respect to N
+with confidence at least 1 − δ. For values of ri smaller than r∗ (k), EQ must yield
+a number of discrepancies smaller than k for the automaton to be accepted as
+-approximately correct.
+    The diagonal line in Fig. 3 is a linear regression that shows the evolution of
+r∗ as a function of k. Notice that the value of r∗ seems to increase linearly with
+k. However, if we look at the increments, we observe that this is not the case.
+As Fig. 4 shows, they most likely exhibit a log-like growth.
+
+Sample size revisited. The previous observations suggest that it could be possible
+to cope with an a-priori given number k of acceptable discrepancies in the EQ
+test by taking larger samples. This could be done by revisiting the formula (1)
+to compute sample sizes by introducing k as parameter of the algorithm.
+    Following Angluin’s approach, let us take δi to be 2−i δ. We want to ensure:
+                                               
+                                               ri −(ri −k)
+             P(Kri = k | P(Ao ⊕ At ) > ) <        e          < 2−i δ
+                                                k
+Hence, the smallest such ri is:
+                                                              
+                                r
+             ri = arg min ln      − (r − k) + i ln 2 − ln δ < 0               (5)
+                      r∈N       k
+
+Notice that for k = 0, this gives the same sample size as in equation (1).
+                      Fig. 4. Increments of r∗ as function of k
+
+
+    Now, with sample size ri , we can ensure a total confidence of 1 − δ:
+               X                                     X
+                  P(Kri = k | P(Ao ⊕ At ) > ) <        2−i δ < δ
+                i>0                                    i>0
+
+Although computing the sample size at each iteration using equation (5) does
+allow to cope with up to a given number of discrepancies k in the EQ test, it
+does not ensure termination. Moreover, solving equation (5) is computationally
+expensive, and changing the EQ test so as to accepting at most k divergences
+in a set of ri samples guarantees the same confidence and approximation as
+passing the standard zero-divergence test proposed in PAC. Hence, in this work
+we compute ri as in equation (1). Then, we analyze the values of ∗i that result
+after stopping Bounded-L∗ when a complexity constraint has been reached, and
+compare them with  and measured errors on a test set.
+
+Remark One could argue that this analysis may be replaced by running the
+algorithm with less restrictive bounds. The main issue here is that the target
+concept (the language of the ANN) may not be in the hypothesis space (regular
+languages). Thus, there is no guarantee a hypothesis exists for which the PAC
+condition holds for whichever  and δ. So, even if the user fixed looser parameters,
+there is no guarantee the algorithm ends up producing a PAC-conforming DFA.
+
+
+4    Experimental results
+We implemented Bounded-L∗ and applied it to several examples. In the exper-
+iments we used LSTM networks. Two-phase early stopping was used to train
+the LSTM, with an 80-20% random split for train-test of a randomly generated
+dataset. For evaluating the percentage of sample sequences in the symmetric dif-
+ference we used 20 randomly generated datasets. The LSTM were trained with
+sample datasets from known automata as a way of validating the approach. How-
+ever it is important to remark that in real application scenarios such automata
+are unknown, or the dataset may not come from a regular language.
+Example 1. Let us consider the language (a + b)∗ a + λ, with Σ = {a, b} and λ
+being the empty sequence (Fig. 5a). We performed 100 runs of the algorithm with
+different values for the  and δ parameters. For each run Bounded-L∗ terminated
+normally and obtained a DFA that was an -approximation of the neural network
+with confidence at least 1 − δ. Actually, every learned automata was equivalent
+to the original automaton and had no differences in the evaluation of the test
+datasets with regards to the neural network.                                  
+
+
+
+
+        (a) Automaton of Exa. 1               (b) Automaton of Exa. 2
+
+                            Fig. 5. Automata examples
+
+
+    The previous experiment illustrates that when the neural network is well
+trained, meaning that it exhibits zero error with respect to all test datasets,
+the learner will, with high probability, learn the original automaton, which is
+unknown to both teacher and learner. This case would be the equivalent to
+using the automaton as the MQ oracle, falling in the setting of PAC based L∗ .
+This situation rarely happens in reality, as neural networks, or any model, are
+never trained to perfectly fit the data. Therefore we are interested in testing the
+approach with neural networks that do not perfectly characterize the data.
+Example 2. Consider the DFA shown in Fig. 5b, borrowed from [26]. The train-
+ing set contained 160K sequences of variable length up to a maximum length
+of 10. The error measured on another randomly generated sample test set of
+16K sequences between the trained LSTM and the DFA was 0.4296. That is, the
+LSTM does not perform very well: what language did it actually learn?
+    Bounded-L∗ was executed 20 times with  = δ = 0.05 and a bound of 10 on
+the number of states. All runs reached the bound and the automaton of the last
+iteration was the one with smallest error of all iterations.
+    Fig. 6 summarizes the results obtained. It can be observed that for each run
+of the experiment, not always the same automaton is reached due to the random
+nature of the EQ oracle sample picking. In the 20 runs, 6 different DFA were
+produced, identified with letters a to f , with a number of states between 11 and
+13 (indicated in parenthesis).
+                   0.25   epsilon
+                          measured error
+                          mean measured error
+
+
+
+
+                   0.20
+
+
+
+
+                   0.15
+
+
+
+    epsilon_star
+
+                   0.10
+
+
+
+
+                   0.05
+
+
+
+
+                   0.00
+
+
+                              a(11)             b(11)   c(11)            d(12)   e(12)   f(13)
+
+                                                           learned automata
+
+
+
+
+                                    Fig. 6. Measured error, , and ∗i for Example 2
+
+
+    For the each automaton, the measured error on the test set is obviously
+the same. However, ∗i and δi∗ may differ, because they depend on the number of
+iterations and on the number of discrepancies on the randomly generated sample
+sets used by oracle EQ in each case. This is depicted in the figure with a boxplot
+of the ∗i values for each automaton produced. It is important to notice that the
+percentage of sequences in the symmetric difference (measured error) between
+each learned automaton and the neural network, measured on a set of randomly
+generated sample test sets, is always below the calculated ∗i value. It means
+that the measured empirical errors are consistent with the theoretical values. It
+is interesting to observe that the measured error was smaller than .           
+
+Example 3. This example presents the results obtained with an LSTM trained
+with a different dataset with positive and negative sequences of the same au-
+tomaton as the previous example. In this case, the measured error was 0.3346.
+    We ran Bounded-L∗ 20 times with  = δ = 0.05, and a maximum query length
+of 12. All runs reached the bound. Fig. 8 summarizes the results obtained. The
+experiment produced 11 different DFA, named with letters from a to k, with
+sizes between 4 and 27 number of states (indicated in parenthesis). Fig. 7 shows
+the 12-state automaton with smallest error. All automata exhibited measured
+errors smaller or equal than ?i . In contrast, they were all above the proposed
+. For automata h (12 states) and j (24 states), measured errors are slightly
+smaller than the respective minimum ∗i values.
+                                                                                                                                                                    c
+                                                                                                                                                                    b
+                                                                                                                                                                    a
+                                                                                                                                                    b
+                                                                                                                                                            a
+                                                                                                                                                                    2
+                                                                                                                                                            b
+                                                                                                                   c
+                                           b                                                                       a                                            a
+                                           a                                                                                                        c
+                                                                      c                                                    b            a           b
+                                                                                                                                9            5             11
+                   b                       7           c                                    a                      10                               c
+                         a                                            6                                    c               b                 c
+                                                                  a          b     a                   a
+                   1
+                         c                 a           8          c   b      c              b
+                             4             c                                       3                   0
+                                                                  b
+
+
+
+
+                                           Fig. 7. 12-state automaton with smallest error
+
+
+   Notice that this experiment shows higher variance in the number of automata,
+number of automaton states, and ? values than the previous one.             
+
+
+
+
+                   0.5           epsilon
+
+                                 measured error
+
+                                 mean measured error
+
+
+                   0.4
+
+
+
+
+                   0.3
+
+
+
+    epsilon_star
+
+                   0.2
+
+
+
+
+                   0.1
+
+
+
+
+                   0.0
+
+
+                             a(4)              b(5)        c(5)       d(6)       e(8)           f(9)       g(10)        h(12)   i(12)       j(24)       k(27)
+
+                                                                                        learned automata
+
+
+
+
+                                           Fig. 8. Measured error, , and ∗i of Example 3
+
+
+
+Example 4. We study here the Alternating Bit Protocol (Fig. 9). The LSTM
+measured error was 0.2473. We ran Bounded-L∗ with  = δ = 0.05, and a
+maximum query length of 5.
+                                                               msg0                  ack0
+
+                                          ack1                                                     msg1
+                                                                         ack0
+                                                               s0r0                  s1r0   msg1
+                                                        msg0
+                                                                         ack1                      s1r1
+                                          s0r1
+
+
+
+
+                                     Fig. 9. Alternating bit protocol automaton
+
+
+
+    Two different automata were obtained, named a and b, with 2 and 4 states
+respectively (Fig. 11). All runs that produced a reached the bound. This is
+explained in Fig. 10 where the boxplot for a is above . On the other hand, almost
+all runs that produced b completed without reaching the bound. Nevertheless,
+in all cases where the bound was reached, the sample size was big enough to
+guarantee ? to be smaller than . Overall, the empirical error measures were
+consistent with the theoretical values.                                         
+
+
+
+
+                   0.5   epsilon
+
+                         measured error
+
+                         mean measured error
+
+
+                   0.4
+
+
+
+
+                   0.3
+
+
+
+    epsilon_star
+
+                   0.2
+
+
+
+
+                   0.1
+
+
+
+
+                   0.0
+
+
+                                                 a(2)                                       b(4)
+
+                                                                  learned automata
+
+
+
+
+                                    Fig. 10. Measured error, , and ∗i of Exa. 4
+                                                                                    msg1
+                                                                                    ack0
+                                                                                    ack1
+
+
+                                                                                     0
+                                                                            ack1            msg0
+
+
+             msg1                      msg1
+                                                                                    msg0             msg0
+             ack0                      ack0
+                                                                  msg1
+             msg0                      ack1                       ack0                                2
+                                                                                    ack0                      ack1
+                                                                                    msg1
+                                                                    1                                         msg0
+              1           ack1           0                                                  ack1
+                          msg0                                                              ack0
+                                                                                                                      3
+                                                                                            msg1
+
+
+
+
+      (a) 2-state automaton                                               (b) 4-state automaton
+
+                                  Fig. 11. Generated automata for ABP
+
+
+Example 5. We consider here an adaptation of the e-commerce website presented
+in [24] (Fig. 12). The labels are explained in the following table:
+
+  os: open session                    ds: destroy session
+  gAP: get available product          eSC: empty shopping cart
+  gSC: get shopping cart              aPSC: add product to shopping cart
+  bPSC: buy products in shopping cart
+
+
+
+
+                                                                               ds                               gAP, gSC, aPSC
+
+                            gAP
+                                                                        os, gSC, eSC, gAP          os, eSC, bPSC      5
+                                                  os
+                                                  ds                                                   aPSC
+                             4
+                                                                                3
+                                                                                                       bPSC
+                  gAP                            gAP
+                        os, eSC, gSC                                                                  os, ds, aPSC, bPSC, eSC, gSC, gAP
+                                                                  ds, eSC, gSC, aPSC, bPSC
+                  os                                                     aPSC, bPSC                                   1
+                             2
+         0
+                  ds
+                                       gSC, aPSC, ds, bPSC, eSC
+
+
+
+
+                    Fig. 12. Model of the e-commerce example adaptation
+
+
+    The training set contained 44K sequences up to a maximum length of 16.
+The test set contained 16K sequences. The measured error of the ANN on the
+test set was 0.0000625. We ran Bounded-L∗ with  = δ = 0.05, a maximum
+query length of 16 and a bound of 10 on the number of states. Fig. 13 shows the
+experimental results.
+                   0.10   epsilon
+
+                          measured error
+
+                          mean measured error
+
+
+
+                   0.08
+
+
+
+
+                   0.06
+
+
+
+    epsilon_star
+
+                   0.04
+
+
+
+
+                   0.02
+
+
+
+
+                   0.00
+
+
+                             a(3)               b(5)   c(5)              d(5)   e(6)   f(13)
+
+                                                          learned automata
+
+
+
+
+                                    Fig. 13. Measured error, , and ∗i of Example 5
+
+
+    Fig. 14 shows one of the learned automata. It helps interpreting the behavior
+of the network. For example, given oS, gAP, aP SC, aP SC, bP SC, the output of
+the network is 1, meaning that the sequence is a valid sequence given the concept
+the network was trained to learn. Besides, this sequence also accepted by the
+automaton, yielding a traceable way of interpreting the result of the network.
+Moreover, for the input sequence oS, gAP, aP SC, gSC, eSC, gAP, gAP, bP SC,
+we find that the network outputs 1. However, this sequence is not accepted by
+the automaton (like the majority of the learned models). This highlights that
+the network misses an important property of the e-commerce site workflow: it is
+not possible to buy products when the shopping cart is empty.                  
+
+Remark The variance on the outcomes produced by Bounded-L∗ for the same
+input ANN could be explained by representational, statistical and computational
+issues [7]. The first occurs because the language of the network may not be in
+the hypothesis space, due to the fact that ANN are strictly more expressive than
+DFA. The second and third are consequences of the sampling performed by EQ
+and the policy used to choose the counter-example.
+
+
+5      Related Work
+A thorough review of the state of the art in explainable AI is presented in [10,14].
+                                      ds, gSC, eSC, aPSC, bPSC
+                                                                                        os, ds, gAP, eSC, gSC, aPSC, bPSC
+
+                       os, gSC, eSC                                aPSC, bPSC                           1
+            gAP
+                                                                                         bPSC
+                  os        2                   gAP              os, gAP, eSC, gSC
+             0    ds                                                                             gAP, gSC, aPSC
+                            ds                                                           aPSC
+                                                                         3
+                                                 ds                                  os, eSC, bPSC      4
+
+
+
+
+     Fig. 14. One of the learned models of the e-commerce example adaptation
+
+
+    To the best of our knowledge, the closest related works to ours are the follow-
+ing. The approaches discussed in [3] are devoted to extracting decision trees and
+rules for specific classes of multi-layer feed-forward ANN. Besides, such mod-
+els are less expressive than DFA. Approaches that aim at extracting DFA are
+white box, that is, they rely on knowing the internal structure of the ANN.
+For instance, [9] deals with second-order RNN. The algorithm developed in [31]
+proposes an equivalence query based on the comparison of the proposed hy-
+potheses with an abstract representation of the RNN that is obtained through
+an exploration of its internal state.
+    Work on regular inference [15] focused on studying the learnability of different
+classes of automata but none was applied to extracting them from ANN.
+    None of these works provide means for black-box model explanation in the
+context of ANN. Moreover, our approach using PAC regular inference is com-
+pletely agnostic of the model.
+
+6   Conclusions
+We presented an active PAC-learning algorithm for learning automata that are
+approximately correct with respect to neural networks. Our algorithm is a variant
+of Angluin’s L∗ where a bound on the number of states or the query length is
+set to guarantee termination in application domains where the language to be
+learned may not be a regular one. We also studied the error and confidence of the
+hypotheses obtained when the algorithm stops by reaching a complexity bound.
+    The experimental evaluation of our implementation showed that the approach
+is able to infer automata that are reasonable approximations of the target mod-
+els with high confidence, even if the output model does not pass the usual 0-
+divergence EQ statistical test of the PAC framework. These evaluations also
+provided empirical evidence that the method exhibits high variability in the
+proposed output models. This is a key concern to be addressed in future work.
+
+Acknowledgments This work has been partially funded by an ICT4V - Informa-
+tion and Communication Technologies for Verticals master thesis grant under
+the code POS_ICT4V_2016_1_06.
+References
+
+ 1. Angluin, D.: Learning regular sets from queries and counterexamples. Inf. Comput.
+    75(2), 87–106 (Nov 1987)
+ 2. Angluin, D.: Computational learning theory: Survey and selected bibliography. In:
+    Proceedings of the Twenty-fourth Annual ACM Symposium on Theory of Com-
+    puting. pp. 351–369. STOC ’92, ACM, New York, NY, USA (1992)
+ 3. Bologna, G., Hayashi, Y.: Characterization of symbolic rules embedded in deep
+    dimlp networks: A challenge to transparency of deep learning. Journal of Artificial
+    Intelligence and Soft Computing Research 7(4), 265–286 (2017)
+ 4. Calderon, T.G., Cheh, J.J.: A roadmap for future neural networks research in audit-
+    ing and risk assessment. International Journal of Accounting Information Systems
+    3(4), 203 – 236 (2002), second International Research Symposium on Accounting
+    Information Systems
+ 5. Clarke, Jr., E.M., Grumberg, O., Peled, D.A.: Model Checking. MIT Press, Cam-
+    bridge, MA, USA (1999)
+ 6. Deng, L., Chen, J.: Sequence classification using the high-level features extracted
+    from deep neural networks. In: 2014 IEEE International Conference on Acoustics,
+    Speech and Signal Processing (ICASSP). pp. 6844–6848 (May 2014)
+ 7. Dietterich, T.G.: Ensemble methods in machine learning. In: Proceedings of the
+    First International Workshop on Multiple Classifier Systems. pp. 1–15. MCS ’00,
+    Springer-Verlag, London, UK, UK (2000)
+ 8. Gers, F.A., Schmidhuber, E.: Lstm recurrent networks learn simple context-free
+    and context-sensitive languages. IEEE Transactions on Neural Networks 12(6),
+    1333–1340 (Nov 2001)
+ 9. Giles, C.L., Miller, C.B., Chen, D., Chen, H.H., Sun, G.Z., Lee, Y.C.: Learning
+    and extracting finite state automata with second-order recurrent neural networks.
+    Neural Comput. 4(3), 393–405 (May 1992)
+10. Gilpin, L.H., Bau, D., Yuan, B.Z., Bajwa, A., Specter, M., Kagal, L.: Explain-
+    ing explanations: An approach to evaluating interpretability of machine learning.
+    CoRR abs/1806.00069 (2018)
+11. Gold, E.M.: Complexity of automaton identification from given data. Information
+    and Control 37(3), 302 – 320 (1978)
+12. Gorman, K., Sproat, R.: Minimally supervised number normalization. TACL 4,
+    507–519 (2016)
+13. Grzes, M., Taylor, M. (eds.): Proceedings of the Adaptive and Learning Agents
+    Workshop (2010)
+14. Guidotti, R., Monreale, A., Turini, F., Pedreschi, D., Giannotti, F.: A survey of
+    methods for explaining black box models. CoRR abs/1802.01933 (2018)
+15. Heinz, J., de la Higuera, C., van Zaanen, M.: Formal and empirical grammatical
+    inference. In: Proceedings of the 49th Annual Meeting of the Association for Com-
+    putational Linguistics: Tutorial Abstracts of ACL 2011. pp. 2:1–2:83. HLT ’11,
+    Association for Computational Linguistics, Stroudsburg, PA, USA (2011)
+16. de la Higuera, C.: Grammatical Inference: Learning Automata and Grammars.
+    Cambridge University Press (2010)
+17. Hochreiter, S., Schmidhuber, J.: Long short-term memory. Neural Comput. 9(8),
+    1735–1780 (Nov 1997)
+18. Holzinger, A., Biemann, C., Pattichis, C.S., Kell, D.B.: What do we need to build
+    explainable ai systems for the medical domain? arXiv:1712.09923 (2017)
+19. Holzinger, A., Plass, M., Holzinger, K., Crisan, G.C., Pintea, C.M., Palade, V.: A
+    glass-box interactive machine learning approach for solving np-hard problems with
+    the human-in-the-loop. arXiv:1708.01104 (2017)
+20. LeCun, Y., Bengio, Y., Hinton, G.: Deep learning. Nature 521, 436 – 444 (2015)
+21. Lei, T., Barzilay, R., Jaakkola, T.: Rationalizing neural predictions. In: Empirical
+    Methods in Natural Language Processing (EMNLP) (2016)
+22. Malhotra, P., Vig, L., Shroff, G., Agarwal, P.: Long short term memory networks
+    for anomaly detection in time series. In: Proceedings of 23rd European Symp.
+    on Artificial Neural Networks, Computational Intelligence and Machine Learning
+    (2015)
+23. McCulloch, W.S., Pitts, W.: A logical calculus of the ideas immanent in nervous
+    activity. The bulletin of mathematical biophysics 5(4), 115–133 (Dec 1943)
+24. Merten, M.: Active automata learning for real life applications (01 2013)
+25. Murphy, K.: Passively learning finite automata. Tech. Rep. 96-04-017, Santa Fe
+    Institute (1996)
+26. Omlin, C.W., Giles, C.L.: Constructing deterministic finite-state automata in re-
+    current neural networks. J. ACM 43(6), 937–972 (Nov 1996)
+27. Pascanu, R., Stokes, J.W., Sanossian, H., Marinescu, M., Thomas, A.: Malware
+    classification with recurrent networks. In: 2015 IEEE International Conference on
+    Acoustics, Speech and Signal Processing, ICASSP 2015, South Brisbane, Queens-
+    land, Australia, April 19-24, 2015. pp. 1916–1920 (2015)
+28. Sarikaya, R., Hinton, G.E., Deoras, A.: Application of deep belief networks for
+    natural language understanding. IEEE/ACM Transactions on Audio, Speech, and
+    Language Processing 22(4), 778–784 (April 2014)
+29. Valiant, L.G.: A theory of the learnable. Commun. ACM 27(11), 1134–1142 (Nov
+    1984)
+30. Wang, Y., Tian, F.: Recurrent residual learning for sequence classification. In: Proc.
+    2016 Conference on Empirical Methods in Natural Language Processing, EMNLP
+    2016, Austin, Texas, USA, November 1-4, 2016. pp. 938–943 (2016)
+31. Weiss, G., Goldberg, Y., Yahav, E.: Extracting automata from recurrent neural
+    networks using queries and counterexamples. In: Dy, J., Krause, A. (eds.) Pro-
+    ceedings of the 35th International Conference on Machine Learning. Proceedings
+    of Machine Learning Research, vol. 80. PMLR, Stockholmsmässan, Stockholm,
+    Sweden (10–15 Jul 2018)
+32. Xing, Z., Pei, J., Keogh, E.: A brief survey on sequence classification. SIGKDD
+    Explor. Newsl. 12(1), 40–48 (Nov 2010)
+33. Zhang, C., Jiang, J., Kamel, M.: Intrusion detection using hierarchical neural net-
+    works. Pattern Recognition Letters 26(6), 779 – 791 (2005)
+34. Zhou, C., Cule, B., Goethals, B.: Pattern based sequence classification. IEEE
+    Transactions on Knowledge and Data Engineering 28(5), 1285–1298 (May 2016)
+35. Zhou, C., Sun, C., Liu, Z., Lau, F.C.M.: A C-LSTM neural network for text clas-
+    sification. CoRR abs/1511.08630 (2015)
+
