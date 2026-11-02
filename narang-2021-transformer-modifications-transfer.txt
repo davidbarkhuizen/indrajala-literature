@@ -1,0 +1,970 @@
+Do Transformer Modifications Transfer Across Implementations
+                     and Applications?
+ Sharan Narang∗ Hyung Won Chung                                    Yi Tay                   William Fedus
+
+Thibault Fevry†              Michael Matena†               Karishma Malkan†                   Noah Fiedel
+
+ Noam Shazeer                 Zhenzhong Lan†                    Yanqi Zhou                        Wei Li
+
+    Nan Ding                    Jake Marcus                  Adam Roberts                     Colin Raffel†
+
+                    Abstract                               performance on any task where these models
+                                                           are applicable (image classification, semantic
+    The research community has proposed co-
+    pious modifications to the Transformer ar-
+                                                           segmentation, etc.). In practice, when propos-
+    chitecture since it was introduced over                ing a new improvement, it is impossible to test
+    three years ago, relatively few of which               it on every applicable downstream task, so re-
+    have seen widespread adoption. In this                 searchers must select a few representative tasks
+    paper, we comprehensively evaluate many                to evaluate it on. However, the proposals that
+    of these modifications in a shared exper-              are ultimately adopted by the research com-
+    imental setting that covers most of the                munity and practitioners tend to be those that
+    common uses of the Transformer in natu-
+                                                           reliably improve performance across a wide
+    ral language processing. Surprisingly, we
+    find that most modifications do not mean-              variety of tasks “in the wild”.
+    ingfully improve performance. Further-             The Transformer architecture (Vaswani
+    more, most of the Transformer variants we       et al., 2017) is an example of a seminal im-
+    found beneficial were either developed in
+                                                    provement in the field of deep learning. Cur-
+    the same codebase that we used or are rel-
+    atively minor changes. We conjecture that       rently, the Transformer is the de facto archi-
+    performance improvements may strongly           tecture of choice for processing sequential data
+    depend on implementation details and cor-       and is starting to be applied to vision appli-
+    respondingly make some recommendations          cations (e.g. Dosovitskiy et al. (2020)). Since
+    for improving the generality of experimen-      being introduced three years ago, many modi-
+    tal results.                                    fications to the Transformer architecture have
+1 Introduction                                      been proposed. However, the most widely-used
+                                                    applications of the Transformer architecture
+Much of the empirical success of deep learn- (e.g. Devlin et al. (2018); Yang et al. (2019);
+ing can be attributed to advances in meth- Radford et al. (2018); Raffel et al. (2019)) incor-
+ods for building and training neural net- porate few of these modifications. Instead, the
+works. These advances include improved op- standard practice is to use a slightly-modified
+timizers (Sutskever et al., 2013; Hinton et al., version of the originally-proposed Transformer.
+2012; Kingma and Ba, 2014; Shazeer and              One possible explanation for this is that the
+Stern, 2018a), regularization schemes (Srivas- originally-proposed Transformer architecture
+tava et al., 2014; Zhang et al., 2017; Neelakan- was near-perfect, and there wasn’t much that
+tan et al., 2015), and model architectures (He      could be done to improve it. This is in contrast
+et al., 2016; Hochreiter and Schmidhuber, 1997; to, for example, convolutional neural networks,
+Vaswani et al., 2017). An aspiration underly- which have continually evolved over the past
+ing much of this work is that an improvement        few decades (e.g. the replacement of pooling
+to a particular machine learning pipeline will      with striding (Springenberg et al., 2014), fully-
+yield equal-or-better performance on any task       connected layers with convolutional layers (Lin
+that the pipeline is applicable to. For example, et al., 2013), the addition of normalization
+residual connections in convolutional networks (Ioffe and Szegedy, 2015) and residual connec-
+(He et al., 2016) are designed to ideally improve   tions (He et al., 2016), etc.). Another possible
+    ∗
+      Correspondence to sharannarang@google.com     explanation is that the modifications proposed
+    †
+      Work completed while at Google                to the Transformer do not “generalize” across
+                                                 5758
+      Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing, pages 5758–5773
+                        November 7–11, 2021. c 2021 Association for Computational Linguistics
+applications, i.e. the modifications only help          activations (denoted as GeGLU) or to be a
+on the limited experimental setting considered          standard linear transformation (no activation,
+when the modification was proposed, and/or              denoted as LiGLU).
+rely on specific details that are not common
+across implementations of the Transformer.              2.2    Normalization
+   The main goal of this paper is to try to            We explored “RMS (root-mean-square) norm”
+determine why most modifications proposed              (Zhang and Sennrich, 2019) as an alternative
+to the Transformer have not seen widespread            to layer normalization as well as the Rezero
+adoption. To answer this question, we reimple-         (Bachlechner et al., 2020) initialization scheme,
+mented and evaluated a wide variety of Trans-          including combining Rezero with Layer Norm
+former variants on a suite of tasks that Trans-        and RMS Norm. We also explored the Fixup
+formers are commonly applied to. Our main              (Zhang et al., 2019) initialization scheme which
+finding is that many Transformer modifications         tries to solve the vanishing/exploding gradient
+do not result in improved performance in our           problem by rescaling the initializations.
+experimental setting. Moreover, those variants
+that did yield better performance tended to             2.3    Depth
+be those that were quite small changes and/or           We explored the trade-offs between the width of
+were developed in the codebase where we car-            the feedforward subblocks (dff ) and depth (L).
+ried out our evaluation. This suggests to us the        In order to ensure fair comparison, we scale dff
+possibility that Transformer modifications ex-          and the number of heads (H) in order to keep
+hibit a surprising lack of generalization across        the total number of parameters constant when
+different implementations and tasks.                    changing the depth.
+2    Modifications
+In this section, we enumerate all of the archi-         2.4    Embeddings
+tectural modifications we consider. For a de-        The Transformer model includes multiple
+scription of the Transformer architecture, refer     weight matrices of shape of dmodel × dvocab :
+to the appendix D.                                   one at the input of the encoder, one at the
+  Due to space constraints, we are seldom able       input of the decoder, and one at the output
+to thoroughly define each specific modification.     of the decoder. Chung et al. (2021) showed
+Moreover, we limit our study to the encoder-         the benefits of untying the embeddings for the
+decoder architecture. Please refer to the origi-     encoder-only models. We extend the analy-
+nal sources for each modification for additional     sis and explore various ways of sharing these
+details.                                             parameters: tying only encoder input and de-
+2.1 Activations                                      coder input embeddings, tying only decoder
+We consider various activation functions to re- input and output embeddings, and untying all
+place the ReLU in the feedforward network            the embeddings.
+block. The activation functions that we ex-             In addition, we explored factorizing the em-
+plored are: (1) GeLU (Hendrycks and Gimpel, bedding matrix into two smaller matrices (Lan
+2016), (2) Swish (Ramachandran et al., 2017), et al., 2019). In other words, the embed-
+(3) Exponential Linear Units (ELU) (Clevert          ding matrix of size [dmodel , dvocab ] is factored
+et al., 2015), (4) Scaled exponential linear units   into [dmodel , dinner ] and [dinner , dvocab ]. We tried
+(SeLU) (Klambauer et al., 2017), (5) Sigmoid         both untied and tied decoder embeddings while
+and (6) Softplus. We also explore “Gated Lin- encoder and decoder embeddings are shared.
+ear Unit” (GLU) variants (Dauphin et al., 2017;         The last technique we explored for the em-
+Shazeer, 2020) which compose two linear trans- beddings is the “Adaptive input embeddings”
+formations together in an element-wise fashion, by Baevski and Auli (2019). Vocabulary items
+i.e. F1 (x) σ(F2 (x)) where σ is an activation       are clustered based on their frequencies. A
+function and F1 and F2 are separate learned          cluster with more frequent ones has a larger
+affine transformations. We explore modifying         embedding dimension. The embedding vec-
+σ to be sigmoid activations (denoted as GLU), tors are projected to the same dimension and
+ReLU activations (denoted as ReGLU), GeLU            concatenated.
+                                                  5759
+2.5   Parameter sharing                                 Synthesizer variants We explore the fac-
+We also explored sharing the parameters of the       torized,  dense, and random Synthesizer vari-
+Transformer layers inspired by the “ALBERT” ants from Tay et al. (2020), where self-attention
+model of Lan et al. (2020). Each subblock            is replaced with “synthetic attention” patterns.
+(e.g., self-attention) has a unique set of weights   We denote “plus” when dot product attention
+shared across all l layers. Following Lan et al. is additively combined with the synthetic at-
+(2020), we factorized the embeddings (denoted        tention and plus alpha to denote when a scalar
+as “Factorized embeddings”) in addition to the       α is used to interpolate between synthetic and
+parameter sharing. Note that these models            dot product attention.
+have untied softmax and vocabulary embed-               Funnel Transformer             Funnel Trans-
+dings in the decoder; we also tried tying them       former    progressively  reduces   the sequence
+(denoted as “Shared embeddings”). Finally, length in order to efficiently encode the input
+we experimented with applying the parameter          sequence (Dai et al., 2020). We only applied
+sharing to the encoder and decoder separately. this reduction to the encoder.
+                                                        Lightweight and Dynamic convolu-
+2.6 Softmax                                          tions Lightweight convolution (Wu et al.,
+Our work considers variations to the softmax         2019) is a special case of a depth-wise convolu-
+computation that produces the final probabil- tion. It shares the weights of every subsequent
+ity distribution as computed by the last layer       number of m channels where m is a hyperpa-
+embedding. Adaptive softmax (Joulin et al., rameter and normalizes the weights across the
+2017) uses the natural imbalance in word dis- filter dimension. For a Transformer model, the
+tributions (Zipf, 1949) to form clusters in a        depth dimension corresponds to dmodel . Dy-
+hierarchical model, which minimizes compu- namic convolution (Wu et al., 2019) uses ker-
+tation time. In the original implementation, nels that are functions of the input at the cur-
+each cluster is permitted to have a different        rent time step. Following Wu et al. (2019), we
+capacity and the size of the representations         compute the kernels as a simple linear function
+for rare words is reduced via a projection ma- of the layer input.
+trix. We consider the original variant, as well         Sparse Expert Transformers Mixture
+as a version that ablates the projection opera- of Experts (MoE) Transformer (Shazeer et al.,
+tion. Mixture of Softmaxes (MoS) (Yang et al., 2018; Lepikhin et al., 2020) and Switch Trans-
+2017) improves the expressiveness of a single        former (Fedus et al., 2021) both replace the
+softmax operation by instead computing a lin- feedforward network with sparsely activated
+ear combination over softmaxes, each weighted        experts layers. The result is an example of
+by learned coefficients.                             adaptive computation where parameters (ex-
+                                                     pert FFNs) are selected for each specific token.
+2.7 Architectures                                    This provides a way of scaling up the parame-
+Transparent Attention One type of atten- ter count of a model independently from the
+tion variant we experiment with is Transparent       FLOPs required for a forward pass. Some vari-
+Attention (Bapna et al., 2018). Transparent          ants in Fedus et al. (2021) consider sparse self-
+attention (Bapna et al., 2018) creates weighted      attention layers as well, but we only consider
+residual connections along encoder depth to          the primary variant here.
+facilitate gradient flow. In appendix A, we             Product Key Memory Similar to the
+experiment with additional attention variants. expert model designs, product key memory net-
+   Evolved Transformer             The Evolved       works (Lample et al., 2019) process inputs adap-
+Transformer (So et al., 2019) was designed           tively, selecting sparse values. In contrast, the
+via evolution-based architecture search (Real        mechanism of sparse computation isn’t done
+et al., 2019) where the initial population was       via  learned routing, but instead by an efficient
+seeded with the original Transformer. The            k-nearest neighbor weighted sum.
+search space generalizes the one followed in            Universal Transformer Similar to block
+NASNet (Zoph et al., 2018), but extended to          sharing, the Universal Transformer (Dehghani
+be able to represent the Transformer.                et al., 2018) applies the same Transformer
+                                                  5760
+“block” over and over again to the input se-        2.3.1 of the C4 dataset available in TensorFlow
+quence. However, instead of applying it a fixed     Datasets1 . We pre-train each architecture vari-
+number of times, it recurrently refines the rep-    ant for 524, 288 steps with batches of 65, 536 to-
+resentation for each token until a halting mech-    kens. As in T5, we use Adafactor (Shazeer and
+anism (based on Adaptive Computation Time           Stern, 2018b) for optimization and an inverse
+(Graves, 2016)) is triggered.                       square root learning rate schedule during pre-
+                                                    training. We use a maximum sequence length
+3   Experiments                                     of 512 for both the inputs and targets during
+                                                    pre-training. To evaluate the performance of
+In order to study the impact of each of the         pre-trained models, we compute the perplexity
+modifications described in section 2, we con-       on a held-out portion of the C4 dataset for each
+duct a systematic study by comparing a base-        pre-trained model, with the expectation that
+line model to each modification while hold-         improvements in perplexity will correlate with
+ing the task, hyperparameters, optimizer, and       performance on fine-tuned tasks. To capture
+either the parameter count or FLOP budget           the inter-run variance on these models, we run
+(floating point operations per second) constant.    each model 5 times for 65, 536 steps ( 18 th of
+We use the original Transformer model as our        the total pre-training steps). We report the
+baseline model with two modifications: First,       mean and standard deviation of the loss (log
+we apply layer normalization before the self-       perplexity) on held-out data of these five ex-
+attention and feedforward blocks instead of         periments and also report the final loss at the
+after. This small change has been unanimously       end of pre-training (524, 288 steps). We do not
+adopted by all current Transformer implemen-        use any regularization during pre-training.
+tations because it leads to more effective train-
+                                                       In the transfer learning setting, after pre-
+ing (Baevski and Auli, 2019; Xiong et al., 2020).
+                                                    training we fine-tune each model on three dif-
+Secondly, we use relative attention with shared
+                                                    ferent tasks: the SuperGLUE (Wang et al.,
+biases (as used in Raffel et al. (2019)) instead of
+                                                    2019) natural language understanding meta-
+sinusoidal positional embeddings, which makes
+                                                    benchmark, the XSum (Narayan et al., 2018)
+it easier to train the model. Our baseline model
+                                                    abstractive summarization dataset, and the
+is a standard encoder-decoder with 12 layers in
+                                                    closed-book variant (Roberts et al., 2020) of the
+the encoder and decoder. The feedforward net-
+                                                    WebQuestions (Berant et al., 2013) question-
+work in each layer consists of a dense layer with
+                                                    answering task. With these tasks, we hope to
+dimension of dff = 3072. All attention mecha-
+                                                    capture a broad variety of NLP problems in-
+nisms have 12 heads and “key” and “value” ma-
+                                                    cluding language understanding and classifica-
+trices have a dimension of dkv = 64. All other
+                                                    tion, language generation, and knowledge inter-
+sublayers have a dimension of dmodel = 768 re-
+                                                    nalization. For SuperGLUE and XSum, each
+sulting in 223 million parameters in the model.
+                                                    model is fine-tuned for 262,144 steps. Since
+We refer to this model as the “Vanilla Trans-
+                                                    the WebQuestions dataset is much smaller, we
+former”.
+                                                    fine-tune the model for only 30,000 steps. We
+   We consider two experimental settings for        use a constant learning rate of 0.0005 with a
+evaluating the performance of each modifica-        linear warm-up of 20, 000 steps. Similar to
+tion: Transfer learning based on the T5 (Raffel     pre-training, each batch contains 65, 536 to-
+et al., 2019) and supervised machine translation    kens. We save a checkpoint every 2, 500 steps
+on the WMT’14 English-German translation.           (1, 000 steps for WebQuestions) and report re-
+   For transfer learning, we copy the methodol-     sults on the model checkpoint corresponding
+ogy used by the T5 model, proposed in Raffel        to the highest validation performance. We use
+et al. (2019). For full details of this experimen-  a dropout of 0.1 during fine-tuning for all the
+tal setup, please refer to Raffel et al. (2019).    tasks. All results are reported on the valida-
+We pre-train encoder-decoder models in a self-      tion split of each dataset. For SuperGLUE, we
+supervised manner using the “span corruption”       report the average score across all tasks in the
+masked language modeling objective (Taylor,
+1953; Fedus et al., 2018; Devlin et al., 2018) on        1
+                                                           https://www.tensorflow.org/datasets/
+the C4 dataset. We run experiments on version         catalog/c4
+                                                   5761
+benchmark. We report ROUGE-2 (Lin, 2004)            of 26.62 on WMT14 EnDe. This is comparable
+for XSum and accuracy for WebQuestions.             with the scores achieved by the equivalently-
+   For supervised training on the WMT’14 En-        sized T5-Base model Raffel et al. (2019) and
+glish to German translation task (Bojar et al.,     similarly-sized Transformer-Big from Vaswani
+2014), we use the same model and batch size as      et al. (2017), which confirms that our base-
+for the transfer learning setting. We train for     line is reasonable. As mentioned earlier, each
+a total of 150,000 steps. We use the same data      variant has approximately the same number of
+splits as were used in (Vaswani et al., 2017) and   parameters or total operations as the vanilla
+report the BLEU score of the highest-scoring        Transformer, with the following exceptions: For
+checkpoint on the validation set. We use a vo-      the Universal Transformer, the total number
+cabulary of 37,000 tokens learned by Byte Pair      of operations is approximately 4× the base-
+Encoding (Sennrich et al., 2016) for supervised     line model. Since the Universal Transformer
+training as opposed to 32,000 tokens (created       model is already significantly smaller than the
+using SentencePiece (Kudo and Richardson,           baseline model, it would not be fair to shrink
+2018)) for the transfer learning experiments.       the model even further to match the number
+   To compare the efficiency of the model, we       of operations with the baseline. Product key
+also report the total number of parameters,         memories (Lample et al., 2019) should only
+the total number of floating point operations,      slightly increase FLOPs over the vanilla Trans-
+and the measured steps per second in the pre-       former, but the total number of operations is
+training experiments. Reporting these param-        artificially extremely high due to an inefficient
+eters can help us understand the trade-off be-      implementation in Mesh Tensorflow.
+tween quality and efficiency. For each architec-       We find that several activation functions im-
+tural modification, we attempt to keep either       prove performance over the ReLU activation.
+the parameter count or total operations in the      Specifically, SwiGLU and GeGLU improve per-
+model approximately the same to perform a           formance on pre-training, fine-tuning, and su-
+fair comparison with the baseline model.            pervised training without sacrificing any ef-
+   All hyperparameters are held constant for        ficiency in terms of speed. Replacing layer
+each architectural variant across pre-training      normalization with RMS normalization yields
+and fine-tuning. However, we found that cer-        improvements while also improving training
+tain architectural (Rezero and Fixup) vari-         speed. Our experiments with varying the depth
+ants achieved significantly lower negative log      of the model indicate that deeper models tend
+perplexity than the baseline model with the         to outperform shallower ones with a fixed pa-
+Adafactor optimizer. Therefore, we use the          rameter count. However, these deeper mod-
+Adam optimizer (Kingma and Ba, 2014) for            els are also more compute-intensive and there-
+these variants. For pre-training, we use an in-     fore slower than their shallower counterparts.
+verse square root learning rate schedule with a     Sharing of parameters across layers tends to
+linear warm-up of 4, 000 steps. For fine-tuning,    hurt performance. Interestingly, untying the
+we use a constant learning rate of 5e − 5 with      encoder/decoder embeddings improve perfor-
+a linear warm-up of 20, 000 steps. We provide       mance with only a modest increase in param-
+details of certain modifications in appendix B.     eter count. Using mixture of softmaxes does
+   All experiments are run using the T5 library     improve performance but is almost 40% slower
+2 on “slices” of Cloud TPU Pods. All model
+                                                    than the vanilla Transformer.
+variants are implemented in the Mesh Tensor-
+Flow library (Shazeer et al., 2018).                 Among the different architectures, we find
+                                                  that two of the synthesizer variants are benefi-
+3.1 Results                                       cial. Switch Transformer, mixture of experts,
+                                                  and product key memories all improve perfor-
+The results for all model variants are shown in   mance with significantly more parameters than
+table 1. The vanilla Transformer achieves a Su- the baseline model. However, these implemen-
+perGLUE average of 70.97 and a BLEU score         tations only use a subset of the parameters
+   2
+     https://github.com/google-research/          during each step, so they are roughly equiva-
+text-to-text-transfer-transformer                 lent to the vanilla Transformer in total number
+                                               5762
+of operations. Surprisingly, all the other archi-   and the gating/transition functions in the UT.
+tecture variants generally performed poorly.        We also varied non-model-specific hyperparam-
+   Overall, we found that most of the beneficial    eters including the learning rate schedule and
+modifications conferred improvements across         dmodel . Over these 25 sweeps, only 2 managed
+pre-training, fine-tuning, and supervised train-    to outperform the initial results. The only set-
+ing, though a few variants (e.g. transparent        tings that worked were the result of reducing
+attention, Synthesizer-random, fixup) harmed        the number of recurrent steps (from 16 to 2)
+performance for transfer learning but not for       and slightly increasing the model size. In the
+WMT’14 EnDe. The modifications that led to          end, we managed to achieve an improvement of
+significant improvements tended to fall into one    2.40 → 2.265 (or 6% relative). While this is sig-
+of three buckets: relatively minor changes (i.e.,   nificant, many other hyperparameter settings
+activation functions, normalization and untying     failed to produce good results, and we were ulti-
+embedding matrices); those that increase pa-        mately unable to match the performance of the
+rameter count (i.e., Switch Transformer, prod-      vanilla Transformer. This exercise illustrates
+uct key memory) or are slower (i.e., mixture        the challenge of tuning these models.
+of softmaxes, deeper models); or those that         3.3   Correlation of perplexity and task
+were originally invented in the Mesh Tensor-              performance
+Flow codebase that we use for our experiments
+(i.e., mixture of experts, switch Transformer,      In order to understand the relationship between
+synthesizer). To further ensure the correct-        pre-training performance and fine-tuned task
+ness of the various architecture modifications,     quality, we investigate the correlation between
+we reached out to authors of 12 techniques to       perplexity and quality on each task. As shown
+review our implementation and provide their         in fig. 1, quality on all three tasks seem to be
+feedback and received responses from 6 of them.     correlated with pre-training perplexity, though
+All of the authors who responded confirmed          the correlation is surprisingly weak given past
+that our re-implementation was correct.             results suggesting a stronger relationship (Adi-
+                                                    wardana et al., 2020). Interestingly, the perfor-
+3.2   Impact of hyperparameter tuning               mance on SuperGLUE (Spearman’s ρ = 0.87)
+It is a well-established fact in deep learning      and XSum (Spearman’s ρ = 0.80) seems to be
+that hyperparameters (and even random seeds         highly correlated with the pre-training perplex-
+(Dodge et al., 2020)) may have a huge impact        ity, whereas the performance on WebQuestions
+on model quality. In our experiments, we in-        (Spearman’s ρ = 0.69) has a somewhat lower
+tentionally kept hyperparameter fixed in order      correlation. This may indicate that classifica-
+to measure whether a given modification im-         tion and generation tasks benefit more from
+proves performance regardless of hyperparame-       improvements in perplexity than knowledge-
+ter settings. Given that this may be an overly      intensive tasks like question answering.
+idealistic constraint, we present a case study
+of trying to improve one of the model variants     4 Conjectures and
+by tuning its hyperparameters. We selected             Recommendations
+Universal Transformers (UT) (Dehghani et al., As discussed above, we were surprised to find
+2018) because it was claimed to achieve bet- that so few of the architectural modifications
+ter results than the vanilla Transformer, and      produced improvements in the settings we con-
+the UT has a relatively large number of hy- sidered. This largely contrasts the experiments
+perparameters that we can adjust. Using our        included in the original papers that proposed
+standard hyperparameters, we obtain a loss of      each modification. We broadly grouped the
+2.40 after training for 65,536 steps. Bearing in   modifications that actually did improve per-
+mind that our vanilla Transformer obtains a        formance as either 1) being relatively simple
+loss of 2.182 after the same amount of training, (e.g. a change in activation function), 2) being
+our goal was to at least achieve comparable        developed in the same codebase where we ran
+performance using the UT.                          experiments (e.g. the Synthesizer variants (Tay
+   To this end, we swept over 25 model configu- et al., 2020)), or 3) incurring an increase in
+rations, varying the number of recurrent steps     parameter count or FLOPs (e.g. the Switch
+                                                5763
+ Model                          Params    Ops     Step/s   Early loss      Final loss   SGLUE    XSum    WebQ    WMT EnDe
+ Vanilla Transformer            223M     11.1T     3.50    2.182 ± 0.005     1.838       71.66   17.78   23.02     26.62
+ GeLU                           223M     11.1T     3.58    2.179 ± 0.003     1.838      75.79    17.86   25.13     26.47
+ Swish                          223M     11.1T     3.62    2.186 ± 0.003     1.847      73.77    17.74   24.34     26.75
+ ELU                            223M     11.1T     3.56    2.270 ± 0.007     1.932      67.83    16.73   23.02     26.08
+ GLU                            223M     11.1T     3.59    2.174 ± 0.003     1.814      74.20    17.42   24.34     27.12
+ GeGLU                          223M     11.1T     3.55    2.130 ± 0.006     1.792      75.96    18.27   24.87     26.87
+ ReGLU                          223M     11.1T     3.57    2.145 ± 0.004     1.803      76.17    18.36   24.87     27.02
+ SeLU                           223M     11.1T     3.55    2.315 ± 0.004     1.948      68.76    16.76   22.75     25.99
+ SwiGLU                         223M     11.1T     3.53    2.127 ± 0.003     1.789      76.00    18.20   24.34     27.02
+ LiGLU                          223M     11.1T     3.59    2.149 ± 0.005     1.798      75.34    17.97   24.34     26.53
+ Sigmoid                        223M     11.1T     3.63    2.291 ± 0.019     1.867      74.31    17.51   23.02     26.30
+ Softplus                       223M     11.1T     3.47    2.207 ± 0.011     1.850      72.45    17.65   24.34     26.89
+ RMS Norm                       223M     11.1T     3.68    2.167 ± 0.008     1.821      75.45    17.94   24.07     27.14
+ Rezero                         223M     11.1T     3.51    2.262 ± 0.003     1.939      61.69    15.64   20.90     26.37
+ Rezero + LayerNorm             223M     11.1T     3.26    2.223 ± 0.006     1.858      70.42    17.58   23.02     26.29
+ Rezero + RMS Norm              223M     11.1T     3.34    2.221 ± 0.009     1.875      70.33    17.32   23.02     26.19
+ Fixup                          223M     11.1T     2.95    2.382 ± 0.012     2.067      58.56    14.42   23.02     26.31
+ 24 layers, dff = 1536, H = 6   224M     11.1T     3.33    2.200 ± 0.007     1.843      74.89    17.75   25.13     26.89
+ 18 layers, dff = 2048, H = 8   223M     11.1T     3.38    2.185 ± 0.005     1.831      76.45    16.83   24.34     27.10
+ 8 layers, dff = 4608, H = 18   223M     11.1T     3.69    2.190 ± 0.005     1.847      74.58    17.69   23.28     26.85
+ 6 layers, dff = 6144, H = 24   223M     11.1T     3.70    2.201 ± 0.010     1.857      73.55    17.59   24.60     26.66
+ Block sharing                   65M     11.1T     3.91    2.497 ± 0.037     2.164       64.50   14.53   21.96     25.48
+  + Factorized embeddings        45M     9.4T      4.21    2.631 ± 0.305     2.183       60.84   14.00   19.84     25.27
+  + Factorized & shared em-      20M     9.1T      4.37    2.907 ± 0.313     2.385       53.95   11.37   19.84     25.19
+ beddings
+ Encoder only block sharing     170M     11.1T     3.68    2.298 ± 0.023     1.929       69.60   16.23   23.02     26.23
+ Decoder only block sharing     144M     11.1T     3.70    2.352 ± 0.029     2.082       67.93   16.13   23.81     26.08
+ Factorized Embedding           227M      9.4T     3.80    2.208 ± 0.006     1.855       70.41   15.92   22.75     26.50
+ Factorized & shared embed-     202M      9.1T     3.92    2.320 ± 0.010     1.952       68.69   16.33   22.22     26.44
+ dings
+ Tied encoder/decoder in-       248M     11.1T     3.55    2.192 ± 0.002     1.840      71.70    17.72   24.34     26.49
+ put embeddings
+ Tied decoder input and out-    248M     11.1T     3.57    2.187 ± 0.007     1.827      74.86    17.74   24.87     26.67
+ put embeddings
+ Untied embeddings              273M     11.1T     3.53    2.195 ± 0.005     1.834      72.99    17.58   23.28     26.48
+ Adaptive input embeddings      204M     9.2T      3.55    2.250 ± 0.002     1.899      66.57    16.21   24.07     26.66
+ Adaptive softmax               204M     9.2T      3.60    2.364 ± 0.005     1.982      72.91    16.67   21.16     25.56
+ Adaptive softmax without       223M     10.8T     3.43    2.229 ± 0.009     1.914      71.82    17.10   23.02     25.72
+ projection
+ Mixture of softmaxes           232M     16.3T     2.24    2.227 ± 0.017     1.821      76.77    17.62   22.75     26.82
+ Transparent attention          223M     11.1T     3.33    2.181 ± 0.014     1.874      54.31    10.40   21.16     26.80
+ Dynamic convolution            257M     11.8T     2.65    2.403 ± 0.009     2.047      58.30    12.67   21.16     17.03
+ Lightweight convolution        224M     10.4T     4.07    2.370 ± 0.010     1.989      63.07    14.86   23.02     24.73
+ Evolved Transformer            217M     9.9T      3.09    2.220 ± 0.003     1.863      73.67    10.76   24.07     26.58
+ Synthesizer (dense)            224M     11.4T     3.47    2.334 ± 0.021     1.962      61.03    14.27   16.14     26.63
+ Synthesizer (dense plus)       243M     12.6T     3.22    2.191 ± 0.010     1.840      73.98    16.96   23.81     26.71
+ Synthesizer (dense plus al-    243M     12.6T     3.01    2.180 ± 0.007     1.828      74.25    17.02   23.28     26.61
+ pha)
+ Synthesizer (factorized)       207M     10.1T     3.94    2.341 ± 0.017     1.968      62.78    15.39   23.55     26.42
+ Synthesizer (random)           254M     10.1T     4.08    2.326 ± 0.012     2.009      54.27    10.35   19.56     26.44
+ Synthesizer (random plus)      292M     12.0T     3.63    2.189 ± 0.004     1.842      73.32    17.04   24.87     26.43
+ Synthesizer (random plus       292M     12.0T     3.42    2.186 ± 0.007     1.828      75.24    17.08   24.08     26.39
+ alpha)
+ Universal Transformer           84M     40.0T     0.88    2.406 ± 0.036     2.053      70.13    14.09   19.05     23.91
+ Mixture of experts             648M     11.7T     3.20    2.148 ± 0.006     1.785      74.55    18.13   24.08     26.94
+ Switch Transformer             1100M    11.7T     3.18    2.135 ± 0.007     1.758      75.38    18.02   26.19     26.81
+ Funnel Transformer              223M     1.9T     4.30    2.288 ± 0.008     1.918      67.34    16.26   22.75     23.20
+ Weighted Transformer           280M     71.0T     0.59    2.378 ± 0.021     1.989      69.04    16.98   23.02     26.30
+ Product key memory              421M    386.6T    0.25    2.155 ± 0.003     1.798      75.16    17.04   23.55     26.73
+
+
+Table 1: Results for all architecture variants. The baseline model is the vanilla Transformer with relative
+attention. The early loss represents the mean and standard deviation of perplexity at 65, 536 steps. The
+final perplexity is reported at the end of pre-training (524, 288 steps). SGLUE refers to SuperGLUE and
+WebQ refers to WebQuestions dataset. We report average, ROUGE-2, accuracy, and BLEU score for
+SuperGLUE, XSum, WebQuestions, and WMT EnDe, respectively, on the validation sets. Note: Results
+on WMT English to German are reported without any pre-training. The scores which outperform
+the vanilla Transformer are highlighted in boldface.
+
+                                                               5764
+                 80                                                         20                                                          27
+                 75                                                         18                                                          24
+
+
+ Average score
+                 70
+
+                                                                  ROUGE-2                                                    Accuracy
+                                                                            16
+                 65                                                                                                                     21
+                                                                            14
+                 60
+                                                                            12                                                          18
+                 55
+                 50                                                         10                                                          15
+                      2.2    2.1     2.0     1.9     1.8    1.7                  2.2    2.1     2.0     1.9     1.8    1.7                   2.2    2.1     2.0     1.9     1.8    1.7
+                       Pre-training loss (neg log perplexity)                     Pre-training loss (neg log perplexity)                      Pre-training loss (neg log perplexity)
+                            (a) SuperGLUE                                                     (b) XSum                                             (c) WebQuestions
+
+Figure 1: Relationship between perplexity and fine-tuned task quality. The x-axis measures the pre-
+training perplexity and the y-axis measures the score for each task, with each point representing an
+architecture variant. The dashed line shows baseline performance and the gray line is the line of best fit.
+
+Transformer (Fedus et al., 2021) or Universal                                                         incorrectly. To rule out this possibility, we
+Transformer (Dehghani et al., 2018)). Other                                                           corresponded with many of the creators of the
+modifications that don’t fit into one of these cat-                                                   modifications we considered, who confirmed
+egories generally didn’t improve performance.                                                         the correctness in all cases.
+There are various possible explanations as to                                                         5. Modifications to the Transfomer architecture
+why our results bore out the way they did:                                                            often do not transfer across implementations
+1. The Mesh TensorFlow codebase and imple-                                                            and applications.
+mentation are just so different than standard
+practice that most architectural modifications                                                           Following the above rationale, we believe the
+do not work. We believe this is unlikely due to                                                       final option is a plausible explanation for our
+the fact that the Mesh TensorFlow Transformer                                                         results. This possibility is supported by the
+implementation was created by one of the co-                                                          fact that few of the modifications we consider in
+authors of the original Transformer paper and                                                         this paper have seen widespread adoption – if
+has been used to attain state-of-the-art results                                                      they transferred easily across implementations
+(e.g. Raffel et al. (2019); Roberts et al. (2020);                                                    and applications, they would likely have been
+Khashabi et al. (2020); Kale (2020); Nogueira                                                         more widely adopted.
+et al. (2020); Narang et al. (2020); Xue et al.     Given this sober take, we conclude our pa-
+(2020); Fedus et al. (2021), etc.).              per with some suggestions as to how to ensure
+2. The tasks we consider are non-standard or     the robustness of improvements for future ar-
+do not match the set of tasks used to vet the    chitectural modifications. First, when propos-
+modifications in the first place. The Trans- ing a new modification, try it out in multi-
+former model is used for a variety of NLP prob- ple completely disparate codebases. Given the
+lems including classification and generation     proliferation of Transformer implementations
+tasks. We included transfer learning experi-     (e.g. Wolf et al. (2019); Shazeer et al. (2018);
+ments on SuperGLUE, XSum, and WebQues- Vaswani et al. (2018), etc.), this should be
+tions and supervised training on WMT’14          straightforward. Second, apply it to a wide
+EnDe, which covers the majority of use-cases.    variety of downstream applications, including
+                                                 transfer learning, supervised learning, and lan-
+3. Not tuning hyperparameters handicapped        guage modeling – and, possibly, include do-
+other methods. While per-modification tun- mains beyond NLP too (e.g., computer vision
+ing might improve results (as verified in sec- (Dosovitskiy et al., 2020)). Third, when eval-
+tion 3.2), we argue that truly useful improve- uating performance in different implementa-
+ments to the Transformer should be reasonably    tions and on different tasks, keep hyperparam-
+hyperparameter-agnostic. Further, if hyperpa- eters fixed as much as possible, or at least
+rameter sensitivity was the issue, it would be   attempt to measure the robustness of the mod-
+likely that a least a few of the compared meth- ifications to changes in hyperparameters. Fi-
+ods “got lucky” with the hyperparameters, but    nally, best-practice reporting of results should
+very few modifications produced a boost.         include mean and standard deviation across
+4. We implemented many of the modifications      multiple trials, or at least avoid cherry-picking
+                                              5765
+the best run (Dodge et al., 2020; Henderson             guage models. In International Conference on
+et al., 2018). With these guidelines in mind,           Learning Representations.
+we hope future work on architectural modifi-
+                                                     Djork-Arné Clevert, Thomas Unterthiner, and
+cations to the Transformer will be more likely         Sepp Hochreiter. 2015. Fast and accurate deep
+to see widespread adoption and improve the             network learning by exponential linear units
+performance of this powerful architecture.             (elus). arXiv preprint arXiv:1511.07289.
+
+                                                     Zihang Dai, Guokun Lai, Yiming Yang, and
+References                                             Quoc V. Le. 2020. Funnel-Transformer: Fil-
+                                                       tering out Sequential Redundancy for Efficient
+Daniel Adiwardana, Minh-Thang Luong, David R           Language Processing.     arXiv e-prints, page
+  So, Jamie Hall, Noah Fiedel, Romal Thop-             arXiv:2006.03236.
+  pilan, Zi Yang, Apoorv Kulshreshtha, Gau-
+  rav Nemade, Yifeng Lu, et al. 2020.       To-      Yann N Dauphin, Angela Fan, Michael Auli, and
+  wards a human-like open-domain chatbot. arXiv        David Grangier. 2017. Language modeling with
+  preprint arXiv:2001.09977.                           gated convolutional networks. In International
+                                                       conference on machine learning, pages 933–941.
+Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E.        PMLR.
+  Hinton. 2016. Layer normalization. arXiv
+  preprint arXiv:1607.06450.                         Mostafa Dehghani, Stephan Gouws, Oriol
+                                                      Vinyals, Jakob Uszkoreit, and Lukasz Kaiser.
+Thomas Bachlechner, Bodhisattwa Prasad Ma-
+                                                      2018. Universal transformers. arXiv preprint
+  jumder, Huanru Henry Mao, Garrison W Cot-
+                                                      arXiv:1807.03819.
+  trell, and Julian McAuley. 2020. Rezero is
+  all you need: Fast convergence at large depth.
+  arXiv preprint arXiv:2003.04887.                   Jacob Devlin, Ming-Wei Chang, Kenton Lee,
+                                                       and Kristina Toutanova. 2018. BERT: Pre-
+Alexei Baevski and Michael Auli. 2019. Adaptive        training of deep bidirectional transformers
+  input representations for neural language mod-       for language understanding. arXiv preprint
+  eling. In International Conference on Learning       arXiv:1810.04805.
+  Representations.
+                                                     Jesse Dodge, Gabriel Ilharco, Roy Schwartz, Ali
+Ankur Bapna, Mia Xu Chen, Orhan Firat,                 Farhadi, Hannaneh Hajishirzi, and Noah Smith.
+  Yuan Cao, and Yonghui Wu. 2018. Train-               2020. Fine-tuning pretrained language models:
+  ing deeper neural machine translation mod-           Weight initializations, data orders, and early
+  els with transparent attention. arXiv preprint       stopping.
+ arXiv:1808.07561.
+                                                     Alexey Dosovitskiy, Lucas Beyer, Alexander
+Jonathan Berant, Andrew Chou, Roy Frostig, and         Kolesnikov, Dirk Weissenborn, Xiaohua Zhai,
+  Percy Liang. 2013. Semantic parsing on Free-         Thomas Unterthiner,        Mostafa Dehghani,
+  base from question-answer pairs. In Proceedings      Matthias Minderer, Georg Heigold, Sylvain
+  of the 2013 Conference on Empirical Methods in       Gelly, et al. 2020. An image is worth 16x16
+  Natural Language Processing, pages 1533–1544,        words: Transformers for image recognition at
+  Seattle, Washington, USA. Association for Com-       scale. arXiv preprint arXiv:2010.11929.
+  putational Linguistics.
+                                                     William Fedus, Ian Goodfellow, and Andrew M
+Ondrej Bojar, Christian Buck, Christian Feder-        Dai. 2018. Maskgan: better text generation via
+  mann, Barry Haddow, Philipp Koehn, Johannes         filling in the . arXiv preprint arXiv:1801.07736.
+  Leveling, Christof Monz, Pavel Pecina, Matt
+  Post, Herve Saint-Amand, Radu Soricut, Lucia
+                                                     William Fedus, Barret Zoph, and Noam Shazeer.
+  Specia, and Ale s Tamchyna. 2014. Findings of
+                                                      2021. Switch transformers: Scaling to trillion
+  the 2014 workshop on statistical machine trans-
+                                                      parameter models with simple and efficient spar-
+  lation. In Proceedings of the Ninth Workshop
+                                                      sity. arXiv preprint arXiv:2101.03961.
+ on Statistical Machine Translation, pages 12–
+  58, Baltimore, Maryland, USA. Association for
+  Computational Linguistics.                         Alex Graves. 2016. Adaptive computation time
+                                                       for recurrent neural networks. arXiv preprint
+Jianpeng Cheng, Li Dong, and Mirella Lapata.           arXiv:1603.08983.
+   2016. Long short-term memory-networks for ma-
+   chine reading. arXiv preprint arXiv:1601.06733.   Kaiming He, Xiangyu Zhang, Shaoqing Ren, and
+                                                       Jian Sun. 2016. Deep residual learning for image
+Hyung Won Chung, Thibault Fevry, Henry Tsai,           recognition. In Proceedings of the IEEE confer-
+  Melvin Johnson, and Sebastian Ruder. 2021. Re-      ence on computer vision and pattern recognition,
+  thinking embedding coupling in pre-trained lan-      pages 770–778.
+                                                 5766
+Peter Henderson, Riashat Islam, Philip Bachman,         Zhenzhong Lan, Mingda Chen, Sebastian Good-
+  Joelle Pineau, Doina Precup, and David Meger.           man, Kevin Gimpel, Piyush Sharma, and Radu
+  2018. Deep reinforcement learning that matters.         Soricut. 2020. ALBERT: A Lite BERT for self-
+  In Proceedings of the AAAI Conference on Arti-          supervised learning of language representations.
+  ficial Intelligence, volume 32.                         In International Conference on Learning Repre-
+                                                          sentations.
+Dan Hendrycks and Kevin Gimpel. 2016. Gaus-
+  sian error linear units (gelus). arXiv preprint       Dmitry Lepikhin, HyoukJoong Lee, Yuanzhong
+  arXiv:1606.08415.                                      Xu, Dehao Chen, Orhan Firat, Yanping Huang,
+                                                         Maxim Krikun, Noam Shazeer, and Zhifeng
+Geoffrey Hinton, Nitish Srivastava, and Kevin            Chen. 2020. Gshard: Scaling giant models with
+  Swersky. 2012. Lecture 6a: Overview of mini-           conditional computation and automatic shard-
+  batch gradient descent.                                ing. arXiv preprint arXiv:2006.16668.
+Sepp Hochreiter and Jürgen Schmidhuber. 1997.          Chin-Yew Lin. 2004. ROUGE: A package for auto-
+  Long short-term memory. Neural computation,             matic evaluation of summaries. In Text Summa-
+  9(8):1735–1780.                                         rization Branches Out, pages 74–81, Barcelona,
+Sergey Ioffe and Christian Szegedy. 2015. Batch           Spain. Association for Computational Linguis-
+  normalization: Accelerating deep network train-         tics.
+  ing by reducing internal covariate shift. In Inter-   Min Lin, Qiang Chen, and Shuicheng Yan.
+  national conference on machine learning, pages          2013. Network in network. arXiv preprint
+  448–456. PMLR.                                         arXiv:1312.4400.
+Armand Joulin, Moustapha Cissé, David Grang-           Sharan Narang, Colin Raffel, Katherine Lee, Adam
+  ier, Hervé Jégou, et al. 2017. Efficient softmax      Roberts, Noah Fiedel, and Karishma Malkan.
+  approximation for gpus. In International Con-           2020. WT5?! Training text-to-text models
+  ference on Machine Learning, pages 1302–1310.           to explain their predictions. arXiv preprint
+  PMLR.                                                   arXiv:2004.14546.
+Mihir Kale. 2020.    Text-to-text pre-training
+                                                        Shashi Narayan, Shay B. Cohen, and Mirella La-
+  for data-to-text tasks.      arXiv preprint
+                                                          pata. 2018. Don’t give me the details, just the
+ arXiv:2005.10433.
+                                                          summary! topic-aware convolutional neural net-
+Daniel Khashabi, Sewon Min, Tushar Khot, Ashish           works for extreme summarization. In Proceed-
+  Sabharwal, Oyvind Tafjord, Peter Clark, and             ings of the 2018 Conference on Empirical Meth-
+  Hannaneh Hajishirzi. 2020. UnifiedQA: Cross-            ods in Natural Language Processing, pages 1797–
+  ing format boundaries with a single QA sys-             1807, Brussels, Belgium. Association for Compu-
+  tem. In Findings of the Association for Compu-          tational Linguistics.
+  tational Linguistics: EMNLP 2020, pages 1896–
+  1907, Online. Association for Computational           Arvind Neelakantan, Luke Vilnis, Quoc V Le, Ilya
+  Linguistics.                                            Sutskever, Lukasz Kaiser, Karol Kurach, and
+                                                          James Martens. 2015. Adding gradient noise im-
+Diederik P Kingma and Jimmy Ba. 2014. Adam:               proves learning for very deep networks. arXiv
+  A method for stochastic optimization. arXiv             preprint arXiv:1511.06807.
+  preprint arXiv:1412.6980.
+                                                        Rodrigo Nogueira, Zhiying Jiang, Ronak Pradeep,
+Günter Klambauer, Thomas Unterthiner, An-                and Jimmy Lin. 2020. Document ranking with
+  dreas Mayr, and Sepp Hochreiter. 2017. Self-            a pretrained sequence-to-sequence model. In
+  normalizing neural networks. arXiv preprint             Findings of the Association for Computational
+  arXiv:1706.02515.                                       Linguistics: EMNLP 2020, pages 708–718, On-
+                                                          line. Association for Computational Linguistics.
+Taku Kudo and John Richardson. 2018. Sentence-
+  Piece: A simple and language independent sub-         Alec Radford, Karthik Narasimhan, Tim Salimans,
+  word tokenizer and detokenizer for neural text          and Ilya Sutskever. 2018. Improving language
+  processing. arXiv preprint arXiv:1808.06226.            understanding by generative pre-training.
+
+Guillaume Lample,       Alexandre Sablayrolles,         Colin Raffel, Noam Shazeer, Adam Roberts,
+  Marc’Aurelio Ranzato, Ludovic Denoyer, and              Katherine Lee, Sharan Narang, Michael Matena,
+  Hervé Jégou. 2019. Large memory layers with           Yanqi Zhou, Wei Li, and Peter J Liu. 2019. Ex-
+  product keys. arXiv preprint arXiv:1907.05242.          ploring the limits of transfer learning with a
+                                                          unified text-to-text transformer. arXiv preprint
+Zhenzhong Lan, Mingda Chen, Sebastian Good-               arXiv:1910.10683.
+  man, Kevin Gimpel, Piyush Sharma, and Radu
+  Soricut. 2019. Albert: A lite bert for self-          Prajit Ramachandran, Barret Zoph, and Quoc V
+  supervised learning of language representations.        Le. 2017. Searching for activation functions.
+  arXiv preprint arXiv:1909.11942.                        arXiv preprint arXiv:1710.05941.
+                                                    5767
+Esteban Real, Alok Aggarwal, Yanping Huang,             Yi Tay, Dara Bahri, Donald Metzler, Da-Cheng
+  and Quoc V Le. 2019. Regularized evolution              Juan, Zhe Zhao, and Che Zheng. 2020. Synthe-
+  for image classifier architecture search. In Pro-       sizer: Rethinking self-attention in transformer
+  ceedings of the aaai conference on artificial in-       models. arXiv preprint arXiv:2005.00743.
+  telligence, volume 33, pages 4780–4789.
+                                                        Wilson L Taylor. 1953. “cloze procedure”: A new
+Adam Roberts, Colin Raffel, and Noam Shazeer.            tool for measuring readability. Journalism quar-
+  2020. How much knowledge can you pack into             terly, 30(4):415–433.
+  the parameters of a language model? arXiv
+                                                        Ashish Vaswani, Samy Bengio, Eugene Brevdo,
+  preprint arXiv:2002.08910.
+                                                          Francois Chollet, Aidan N Gomez, Stephan
+                                                          Gouws, Llion Jones, Lukasz Kaiser, Nal Kalch-
+Rico Sennrich, Barry Haddow, and Alexandra                brenner, Niki Parmar, et al. 2018. Tensor2tensor
+  Birch. 2016. Neural machine translation of rare         for neural machine translation. arXiv preprint
+  words with subword units. In Proceedings of the         arXiv:1803.07416.
+  54th Annual Meeting of the Association for Com-
+  putational Linguistics (Volume 1: Long Papers),       Ashish Vaswani, Noam Shazeer, Niki Parmar,
+  pages 1715–1725, Berlin, Germany.                       Jakob Uszkoreit, Llion Jones, Aidan N. Gomez,
+                                                          Lukasz Kaiser, and Illia Polosukhin. 2017. At-
+Peter Shaw, Jakob Uszkoreit, and Ashish Vaswani.          tention is all you need. In Advances in neural in-
+  2018. Self-attention with relative position repre-      formation processing systems, pages 5998–6008.
+  sentations. arXiv preprint arXiv:1803.02155.
+                                                        Alex Wang, Yada Pruksachatkun, Nikita Nangia,
+Noam Shazeer. 2020. Glu variants improve trans-           Amanpreet Singh, Julian Michael, Felix Hill,
+  former. arXiv preprint arXiv:2002.05202.                Omer Levy, and Samuel Bowman. 2019. Su-
+                                                          perGLUE: A stickier benchmark for general-
+Noam Shazeer, Youlong Cheng, Niki Parmar,                 purpose language understanding systems. In
+  Dustin Tran, Ashish Vaswani, Penporn Koanan-            Advances in Neural Information Processing Sys-
+  takool, Peter Hawkins, HyoukJoong Lee, Ming-            tems, volume 32, pages 3266–3280. Curran Asso-
+  sheng Hong, Cliff Young, et al. 2018. Mesh-             ciates, Inc.
+  tensorflow: Deep learning for supercomputers.
+                                                        Thomas Wolf, Lysandre Debut, Victor Sanh,
+  arXiv preprint arXiv:1811.02084.
+                                                          Julien Chaumond, Clement Delangue, Anthony
+                                                          Moi, Pierric Cistac, Tim Rault, Rémi Louf, Mor-
+Noam Shazeer and Mitchell Stern. 2018a. Adafac-
+                                                          gan Funtowicz, et al. 2019. Huggingface’s trans-
+  tor: Adaptive learning rates with sublinear
+                                                          formers: State-of-the-art natural language pro-
+  memory cost. In International Conference on
+                                                          cessing. arXiv preprint arXiv:1910.03771.
+  Machine Learning, pages 4596–4604. PMLR.
+                                                        Felix Wu, Angela Fan, Alexei Baevski, Yann
+Noam Shazeer and Mitchell Stern. 2018b. Adafac-           Dauphin, and Michael Auli. 2019. Pay less at-
+  tor: Adaptive learning rates with sublinear             tention with lightweight and dynamic convolu-
+  memory cost. CoRR, abs/1804.04235.                      tions. In International Conference on Learning
+                                                          Representations.
+David So, Quoc Le, and Chen Liang. 2019. The
+  evolved transformer. In International Confer-         Ruibin Xiong, Yunchang Yang, Di He, Kai Zheng,
+  ence on Machine Learning, pages 5877–5886.              Shuxin Zheng, Chen Xing, Huishuai Zhang,
+  PMLR.                                                   Yanyan Lan, Liwei Wang, and Tie-Yan Liu. 2020.
+                                                          On layer normalization in the transformer archi-
+Jost Tobias Springenberg, Alexey Dosovitskiy,             tecture.
+  Thomas Brox, and Martin Riedmiller. 2014.
+  Striving for simplicity: The all convolutional net.   Linting Xue, Noah Constant, Adam Roberts,
+  arXiv preprint arXiv:1412.6806.                         Mihir Kale, Rami Al-Rfou, Aditya Siddhant,
+                                                          Aditya Barua, and Colin Raffel. 2020. mt5: A
+                                                          massively multilingual pre-trained text-to-text
+Nitish Srivastava,   Geoffrey Hinton,    Alex
+                                                          transformer. arXiv preprint arXiv:2010.11934.
+  Krizhevsky, Ilya Sutskever, and Ruslan
+  Salakhutdinov. 2014. Dropout: a simple way            Zhilin Yang, Zihang Dai, Ruslan Salakhutdinov,
+  to prevent neural networks from overfitting.            and William W Cohen. 2017. Breaking the
+  The journal of machine learning research,               softmax bottleneck: A high-rank rnn language
+  15(1):1929–1958.                                        model. arXiv preprint arXiv:1711.03953.
+Ilya Sutskever, James Martens, George Dahl, and         Zhilin Yang, Zihang Dai, Yiming Yang, Jaime
+   Geoffrey Hinton. 2013. On the importance of            Carbonell, Ruslan Salakhutdinov, and Quoc V.
+   initialization and momentum in deep learning.          Le. 2019. XLNet: Generalized autoregressive
+   In International conference on machine learning,       pretraining for language understanding. arXiv
+   pages 1139–1147. PMLR.                                 preprint arXiv:1906.08237.
+                                                    5768
+Biao Zhang and Rico Sennrich. 2019. Root mean
+  square layer normalization.   arXiv preprint
+  arXiv:1910.07467.
+Hongyi Zhang, Moustapha Cisse, Yann N Dauphin,
+  and David Lopez-Paz. 2017. mixup: Beyond
+  empirical risk minimization. arXiv preprint
+  arXiv:1710.09412.
+Hongyi Zhang, Yann N Dauphin, and Tengyu
+  Ma. 2019. Fixup initialization: Residual learn-
+  ing without normalization.      arXiv preprint
+  arXiv:1901.09321.
+George Kingsley Zipf. 1949. Human behavior and
+  the principle of least effort.
+Barret Zoph, Vijay Vasudevan, Jonathon Shlens,
+  and Quoc V Le. 2018. Learning transferable ar-
+  chitectures for scalable image recognition. In
+  Proceedings of the IEEE conference on computer
+  vision and pattern recognition, pages 8697–8710.
+
+
+
+
+                                                 5769
+A    Experiments with positional                    B    Implementation details for
+     embeddings                                          modifications
+                                                    For factorized embedding, we use an inner di-
+                                                    mension of 128 for models with and without
+We also conducted a study of architectural          block sharing of parameters.
+variants using learned positional embeddings           In adaptive input embedding experiments,
+(Vaswani et al., 2017) in the baseline model in-    we use three clusters of size 2500, 6000, and
+stead of relative attention. Besides this change,   23, 628. For experiments with adaptive soft-
+the experimental setup remains the same (as         max, we split the third cluster into two clus-
+described in section 3). The weighted Trans-        ters of 23, 500 and 128. Since we used a larger
+former architecture doesn’t reliably converge       vocabulary (see section 3) for the supervised
+using positional embeddings, so we do not re-       training on the WMT’14, we use the same num-
+port results using this architecture.               ber of clusters with the same relative cluster
+                                                    sizes.
+   In addition to the modifications described          We experimented with 10 and 15 softmaxes
+in section 2, we also experiment with varia-        for the mixture of softmax models. In the
+tions in attention. Sinusoidal positional em-       paper, we only report results for the model
+beddings (Vaswani et al., 2017) were proposed       with 15 softmaxes since it performs better.
+in the original Transformer to inject informa-         For Lightweight and Dynamic convolutions,
+tion of the order of the sequence into what was     we use one-dimensional kernel with width 9.
+otherwise a set-operation transformation. Rel-      The depth of the kernel is determined depend-
+ative attention (Shaw et al., 2018) replaced the    ing on whether it is depthwise-convolution or
+absolute position embeddings by those based         vanilla convolution in which case its depth is
+on relative distance between tokens (clipped to     dmodel . For Universal Transformer, we use num-
+a maximum distance hyperparameter k). The           ber of recurrent steps of 24 and halting thresh-
+MeshTensorflow code base (Shazeer et al., 2018)     old of 0.5. We use 32 experts in the Mixture
+introduces two changes to relative attention.       of Experts experiments.
+In these changes, a bias is added to the self-         In PKM experiments, we use knn = 32, 128
+attention logits (eq. 8) before multiplication      keys and 512 memory slots. In our experiments,
+with values, where the bias may be optionally       we introduce a product key memory network
+shared across self-attention layers.                before the last layer in the decoder.
+                                                       In the Funnel Transformer experiments, we
+   The results from this study are shown in         use mean pooling with 3 blocks in the en-
+table 2. Similar to relative attention, the         coder. The input sequence is pooled after ev-
+only modifications that result in improvements      ery 4 layers in the funnel Transformer. In the
+are relatively minor modifications (e.g. activa-    weighted Transformer, we freeze the weights
+tion function andnormalization), inefficient in     of the branched attention module for the last
+terms of parameter count or FLOPs (e.g. the         20, 000 steps of pre-training.
+Switch Transformer) or were invented in the
+                                                   C Reproducing the original
+same codebase that we used (e.g. Synthesizer).
+                                                        Transformer experiments
+Architectures with relative attention outper-
+form those with positional embedding by a          Vaswani et al. (2017) reported the BLEU score
+significant margin. Interestingly, certain archi- of 25.8 (Table 3 of their paper) when evalu-
+tectures (Mixture of Softmaxes, tied decoder       ated on the dev set without checkpoint aver-
+input and output embeddings) outperformed          aging. We ran a replication experiment with
+the vanilla Transformer with relative attention    the same Transformer-Base architecture and
+perform worse than the vanilla Transformer         achieved 25.52. With this, we believe that
+in this setup. Also, the absolute fine-tuned       our Transformer codebase closely replicates the
+performance is worse for almost all the models     original one. Additionally, the baseline trans-
+compared with their relative attention counter- former model in our paper is comparable to
+parts.                                             the Transformer-Big model from Vaswani et al.
+                                                5770
+(2017). The Transformer-Big model achieves a           connection (He et al., 2016) and layer normal-
+BLEU score of 26.4 (Table 3 of their paper) on         ization (Ba et al., 2016). Layer normaliza-
+the validation set of the WMT EnDe transla-            tion is defined as an operation over a sequence
+tion task. Our baseline model achieves a BLEU          h[1], . . . , h[T ] as
+score of 26.62 on the same validation set which
+                                                                                          dX
+                                                                                           model
+is marginally better than the results reported                                       1
+                                                                        µ[t] =            h[t, i]        (2)
+in the original paper.                                                         dmodel
+                                                                                      i=1
+                                                                               v
+D     Transformer Background                                                   u 1 dX
+                                                                               u        model
+
+                                                                        σ[t] = t              (h[t, i] − µ[t])2
+In this section, we give a brief description of the                              dmodel
+                                                                                               i=1
+original Transformer architecture. We primar-                                                                    (3)
+ily include this description so that we can refer                         γ
+back to specific components as we introduce            LayerNorm(h)[t] =                  (h[t, i] − µ[t]) + β
+                                                                         σ[t]
+different modifications. For a more in-depth                                                                     (4)
+description of the Transformer architecture, re-
+fer to the original paper (Vaswani et al., 2017)       where indicates elementwise multiplication
+or follow-up tutorials3,4 .                            and γ, β ∈ Rdmodel are learned parameters that
+   In this work, we solely experiment with             are unique to each instance of layer normaliza-
+“encoder-decoder” Transformers, which ingest           tion.
+an input sequence of tokens and produce an                Head h in the multi-headed self-attention of
+output sequence conditioned on the input. We           layer l produces, at timestep t,
+denote the tokens of the input sequence as               qe,l,h [t] = he,l−1 [t]Qe,l,h                           (5)
+x[1], x[2], . . . , x[T ] and the target sequence as
+y[1], y[2], . . . , y[U ]. The encoder first embeds      ke,l,h [t] = he,l−1 [t]Ke,l,h                           (6)
+each entry in the input sequence using the em-           ve,l,h [t] = he,l−1 [t]Ve,l,h                            (7)
+bedding matrix E ∈ Rdvocab ×dmodel and adds a                                                          >
+                                                                                                        
+                                                                                  qe,l,h [t]ke,l,h [t]
+position encoding p as follows:                            ae,l,h = softmax               √                ve,l,h [t]
+                                                                                             dk
+                                                                                                                  (8)
+              he,0 [t] = E[x[t]] + p[t]
+                                                       where Qe,l,h ∈ Rdmodel ×dk , Ke,l,h ∈ Rdmodel ×dk ,
+where p[t] ∈ Rdmodel is a “position embedding”.        and Ve,l,h ∈ Rdmodel ×dv are the “query”, “key”,
+In the original Transformer, this position em-         and “value” projection matrices, respectively.
+bedding is computed as                                 The self-attention outputs ae,l,h for all H heads
+                                                    are then concatenated and projected against
+                          t
+             sin 100002i/d
+             
+                             model
+                                     i even            the matrix Oe,l ∈ RHdv ×dmodel along with a
+   p[t, i] =                              (1)        residual connection and layer normalization as
+             cos          t
+                                     i odd
+             
+                    100002i/dmodel                     follows:
+                                                                                                        
+                                                                                ae,l,1 [t]
+In general, we will use he,l and hd,l to denote
+                                                       se,l [t] = LayerNorm ...  Oe,l + he,l−1 [t]
+                                                                                                        
+the output of the lth layer block of the encoder
+and decoder, respectively. For simplicity, we re-                                     ae,l,H [t]
+fer to the embeddings as if they are the output                                                    (9)
+of a “zeroth” layer block.                                The output of the multi-headed self-
+   Each layer block in the encoder comprises a         attention mechanism is then passed through a
+multi-headed self-attention mechanism (Cheng           feedforward network that operates on each se-
+et al., 2016) followed by a position-wise              quence element independently. Specifically, the
+dense/nonlinearity/dense feedforward network.          feedforward network consists of a projection, a
+Both of these “subblocks” include a residual           ReLU nonlinearity, and another projection as
+   3                                                   follows:
+     http://nlp.seas.harvard.edu/2018/04/03/
+attention.html
+   4
+     http://jalammar.github.io/                       fe,l [t] = max(0, se,l [t]We,l,1 + be,l,1 )We,l,2 + be,l,2
+illustrated-transformer/                                                                                  (10)
+                                                   5771
+where We,l,1 ∈ Rdmodel ×dff , be,l,1 ∈ Rdff , We,l,1 ∈
+Rdff ×dmodel and be,l,1 ∈ Rdmodel . The output of
+the feedforward network is then combined with
+the subblock’s input via a residual connection
+and layer normalization:
+
+           he,l = LayerNorm(se,l + fe,l )              (11)
+
+   Overall, the decoder is structured sim-
+ilarly to the encoder, with the following
+changes: First, the self-attention mechanisms
+are “causal” which prevents the decoder from
+looking at future items from the target se-
+quence when it is fed in during training. This
+is achieved by constructing an “attention mask”
+M ∈ RU ×U that zeros out attention entries
+that are nonpermissable; specifically replacing
+the operation in eq. (8) with
+            (
+              0,    i≤j
+M [i, j] =                                     (12)
+              −∞, i > j
+                     qd,l,h [t]kd,l,h [t]>
+                                             
+   ad,l,h = softmax          √             + M vd,l,h [t]
+                                dk
+                                               (13)
+
+where the d subscript denotes activations and
+parameters for the decoder. Second, the layer
+blocks in the decoder contain an encoder-
+decoder attention mechanism after the self-
+attention mechanism and before the feedfor-
+ward network. Specifically, encoder-decoder
+attention computes
+  0
+ qd,l,h [t] = sd,l [t]Q0d,l,h                          (14)
+  0                      0
+ kd,l,h [t] = he,L [t]Kd,l,h                            (15)
+  0                     0
+ vd,l,h [t] = he,L [t]Vd,l,h                            (16)
+                                                 !
+                             0         0
+                           qd,l,h [t]kd,l,h [t]>
+                                                    0
+    a0d,l,h = softmax              √               vd,l,h [t]
+                                      dk
+                                                       (17)
+
+The activations from each head a0d,l,h are then
+fed into the residual/layer norm block (eq. (9))
+and the feedforward network (eq. (10)) as usual.
+   At the output of the final layer of the decoder,
+each entry in the sequence of activations hd,L
+is projected via an output logit matrix G ∈
+Rdmodel ×dvocab .
+
+
+
+
+                                                            5772
+ Model                                 Params    Ops     Step/s   Early loss      Final loss   SGLUE    XSum    WebQ
+ Vanilla Transformer                   223M     11.1T     3.90    2.245 ± 0.005     1.865       69.72   16.94   24.60
+ GeLU                                  223M     11.1T     3.88    2.220 ± 0.005     1.863      70.36    17.10   23.28
+ Swish                                 223M     11.1T     3.93    2.234 ± 0.005     1.865      69.60    17.07   24.34
+ ELU                                   223M     11.1T     3.86    2.333 ± 0.013     1.942      64.30    16.21   24.07
+ GLU                                   223M     11.1T     3.88    2.212 ± 0.005     1.834      70.43    17.42   24.34
+ GeGLU                                 223M     11.1T     3.85    2.172 ± 0.010     1.807      72.36    17.69   24.87
+ ReGLU                                 223M     11.1T     3.87    2.190 ± 0.008     1.832      70.63    17.38   21.96
+ SeLU                                  223M     11.1T     3.84    2.372 ± 0.016     1.967      64.68    16.00   23.28
+ SwiGLU                                223M     11.1T     3.82    2.168 ± 0.006     1.806      70.90    17.51   25.13
+ LiGLU                                 223M     11.1T     3.88    2.180 ± 0.002     1.816      71.23    17.55   24.60
+ Sigmoid                               223M     11.1T     3.94    2.947 ± 1.152     1.908      69.36    16.64   23.02
+ Softplus                              223M     11.1T     3.77    2.324 ± 0.032     1.885      68.99    16.92   21.96
+ RMS Norm                              223M     11.1T     3.99    2.209 ± 0.008     1.856       69.11   16.90   23.55
+ Rezero                                223M     11.1T     4.14    3.180 ± 0.719     2.506       54.01    6.44   20.90
+ Rezero + LayerNorm                    223M     11.1T     3.78    2.229 ± 0.006     1.902       64.75   16.40   23.02
+ Rezero + RMS Norm                     223M     11.1T     3.90    2.306 ± 0.016     1.948       59.86   15.66   23.02
+ Fixup                                 223M     11.1T     3.32    2.473 ± 0.014     2.236       57.98   12.51   23.28
+ 24 layers, dff = 1536, H = 6          224M     11.1T     3.12    2.260 ± 0.014     1.874      70.59    17.11   23.02
+ 18 layers, dff = 2048, H = 8          223M     11.1T     3.27    2.268 ± 0.037     1.878      70.40    16.87   23.02
+ 8 layers, dff = 4608, H = 18          223M     11.1T     3.61    2.243 ± 0.003     1.871      68.67    17.03   23.55
+ 6 layers, dff = 6144, H = 24          223M     11.1T     3.59    2.250 ± 0.004     1.882      68.08    16.93   23.81
+ Block sharing                          65M     11.1T     4.03    2.777 ± 0.019     2.237      63.06    13.89   21.96
+  + Factorized embeddings               45M     9.4T      4.35    2.670 ± 0.178     2.205      57.17    12.13   20.11
+  + Factorized & Shared embeddings      20M     9.1T      4.49    2.874 ± 0.059     2.362      57.46    11.78   19.58
+ Encoder only block sharing            170M     11.1T     3.80    2.399 ± 0.008     2.016      64.08    14.74   21.69
+ Decoder only block sharing            144M     11.1T     3.92    2.542 ± 0.067     2.048      69.95    16.01   21.96
+ Factorized Embedding                  227M     9.4T      3.97    2.273 ± 0.019     1.886      68.91    16.41   21.43
+ Factorized & shared embeddings        202M     9.1T      4.08    2.387 ± 0.006     2.018      69.93    16.07   21.96
+ Tied encoder/decoder input embed-     248M     11.1T     3.86    2.254 ± 0.008     1.872      68.34    16.60   22.75
+ dings
+ Tied decoder input and output em-     248M     11.1T     3.86    2.262 ± 0.006     1.871       69.48   16.85   23.28
+ beddings
+ Untied embeddings                     273M     11.1T     3.83    2.265 ± 0.013     1.872       67.99   16.66   23.02
+ Adaptive input embeddings             204M     9.2T      4.15    2.321 ± 0.006     1.934       69.20   16.69   21.96
+ Adaptive softmax                      204M     9.2T      4.21    2.425 ± 0.005     2.009      67.71    15.74   20.11
+ Adaptive softmax without projection   223M     10.8T     3.97    2.357 ± 0.009     1.937      68.68    16.45   22.75
+ Mixture of softmaxes                  232M     16.3T     2.50    3.112 ± 1.169     1.843      70.70    16.78   22.75
+ Relative attention with bias          223M     11.3T     3.49    2.197 ± 0.005     1.832      74.06    17.63   24.87
+ Relative attention with shared bias   223M     11.3T     3.57    2.194 ± 0.006     1.840      74.14    17.62   24.34
+ Relative position representation      223M     11.1T     3.10    2.189 ± 0.008     1.838      74.26    17.67   24.07
+ Sinusoidal positional encoding        223M     11.1T     3.91    2.278 ± 0.032     1.906      69.76    16.25   22.75
+ Transparent attention                  223M    11.1T     3.61    2.244 ± 0.013     1.949      53.77     6.39   15.08
+ Dynamic convolution                   257M     11.8T     2.65    2.405 ± 0.007     2.038      55.16    10.25    4.50
+ Lightweight convolution               224M     10.4T     4.05    2.356 ± 0.006     1.990      61.32    14.08   24.08
+ Evolved Transformer                   217M      9.7T     3.11    2.233 ± 0.004     1.890      67.88    16.40   24.08
+ Synthesizer (dense)                   224M     11.4T     3.61    2.339 ± 0.019     1.965      61.02    14.48   18.25
+ Synthesizer (dense plus)               243M    12.6T     3.34    2.200 ± 0.008     1.832      74.16    16.96   24.87
+ Synthesizer (dense plus alpha)         243M    12.6T     3.11    2.204 ± 0.005     1.846      75.18    16.94   24.60
+ Synthesizer (factorized)               207M    10.1T     4.10    2.629 ± 0.573     1.964      61.76    15.44   22.49
+ Synthesizer (random)                  254M     10.1T     4.26    2.458 ± 0.167     1.972      64.61    15.39   23.02
+ Synthesizer (random plus)             292M     12.0T     3.79    2.202 ± 0.010     1.849      76.84    17.04   23.02
+ Synthesizer (random plus alpha)       292M     12.0T     3.55    2.212 ± 0.013     1.856      75.02    17.08   24.87
+ Universal Transformer                  84M     40.0T     0.88    2.443 ± 0.022     2.111      60.54    12.02   17.73
+ Mixture of experts                    648M     11.7T     3.20    2.194 ± 0.008     1.846      68.82    17.12   24.87
+ Switch Transformer                    1100M    11.8T     3.41    2.175 ± 0.005     1.775      72.21    17.78   24.87
+ Funnel Transformer                    223M      1.9T     4.83    2.291 ± 0.008     1.925      67.11    16.33   21.64
+ Product key memory                    421M     386.6T    0.25    2.212 ± 0.007     1.821      69.62    16.58   24.08
+
+Table 2: Pre-training and fine-tuning results for all architecture variants with learned positional embed-
+dings. The early loss represents the mean and standard deviation of perplexity at 65, 536 steps. The
+final perplexity is reported at the end of pre-training (524, 288 steps). SGLUE refers to SuperGLUE and
+WebQ refers to WebQuestions dataset. We report average, ROUGE-2, and accuracy for SuperGLUE,
+XSum, and WebQuestions, respectively, on the validation sets. The scores which outperform the vanilla
+Transformer are highlighted in boldface.
+                                                          5773
+
