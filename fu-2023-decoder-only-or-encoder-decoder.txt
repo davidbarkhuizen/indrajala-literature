@@ -1,0 +1,1292 @@
+                                            Decoder-Only or Encoder-Decoder? Interpreting Language
+                                                    Model as a Regularized Encoder-Decoder
+
+                                                                Zihao Fu1 , Wai Lam2 , Qian Yu3 , Anthony Man-Cho So2
+                                                                     Shengding Hu4 , Zhiyuan Liu4 , Nigel Collier1
+
+                                                                    1
+
+
+
+
+arXiv:2304.04052v1 [cs.CL] 8 Apr 2023
+                                                                 Language Technology Lab, University of Cambridge,
+                                                                   2
+                                                                     The Chinese University of Hong Kong, 3 JD.com
+                                                        4
+                                                          Department of Computer Science and Technology, Tsinghua University
+                                                            {zf268,nhc30}@cam.ac.uk, {wlam,manchoso}@se.cuhk.edu.hk
+                                                               {hsd20, liuzy}@mails.tsinghua.edu.cn, yuqian81@jd.com
+
+                                                                                                    Abstract
+                                                  The sequence-to-sequence (seq2seq) task aims at generating the target sequence based on the given input source
+                                              sequence. Traditionally, most of the seq2seq task is resolved by the Encoder-Decoder framework which requires
+                                              an encoder to encode the source sequence and a decoder to generate the target text. Recently, a bunch of new ap-
+                                              proaches has emerged that apply decoder-only language models directly to the seq2seq task. Despite the significant
+                                              advancements in applying language models to the seq2seq task, there is still a lack of thorough analysis on the ef-
+                                              fectiveness of the decoder-only language model architecture. This paper aims to address this gap by conducting
+                                              a detailed comparison between the encoder-decoder architecture and the decoder-only language model framework
+                                              through the analysis of a regularized encoder-decoder structure. This structure is designed to replicate all behaviors
+                                              in the classical decoder-only language model but has an encoder and a decoder making it easier to be compared
+                                              with the classical encoder-decoder structure. Based on the analysis, we unveil the attention degeneration problem in
+                                              the language model, namely, as the generation step number grows, less and less attention is focused on the source
+                                              sequence. To give a quantitative understanding of this problem, we conduct a theoretical sensitivity analysis of the
+                                              attention output with respect to the source input. Grounded on our analysis, we propose a novel partial attention
+                                              language model to solve the attention degeneration problem. Experimental results on machine translation, summa-
+                                              rization, and data-to-text generation tasks support our analysis and demonstrate the effectiveness of our proposed
+                                              model.
+
+
+                                        1    Introduction
+                                        The sequence-to-sequence (seq2seq) task (Sutskever et al., 2011, 2014; Cho et al., 2014; Klein et al., 2017; Ott et al.,
+                                        2019) sees rapid growth during the past few years. It takes a source sequence as input and generates a corresponding
+                                        target sequence. Several natural language generation tasks, such as translation, summarization, data-to-text genera-
+                                        tion, and story generation, naturally fall under the category of seq2seq tasks. Moreover, recently, several other non-
+                                        generation tasks, including question answering, classification, and etc. (Raffel et al., 2020), have also been unified
+                                        under the seq2seq paradigm. Traditionally, most of the existing seq2seq frameworks have employed the Encoder-
+                                        Decoder (ED) architecture (Cho et al., 2014; Sutskever et al., 2014), where an encoder is responsible for encoding the
+                                        input data into a hidden space, while a decoder is used to generate the target output text.
+                                        Recently, many promising large language models (GPT (Radford et al., 2018), GPT2 (Radford et al., 2019), GPT3
+                                        (Brown et al., 2020), InstructGPT/ChatGPT (Ouyang et al., 2022), Palm (Chowdhery et al., 2022), OPT (Zhang et al.,
+                                        2022), Bloom (Scao et al., 2022), Galactica (Taylor et al., 2022), Llama (Touvron et al., 2023)) have emerged that
+                                        directly employ a decoder-only Language Model (LM) (Bengio et al., 2000; Mikolov et al., 2010, 2011; Mikolov and
+                                        Zweig, 2012; Vig and Belinkov, 2019) to solve the seq2seq tasks (Figure 1). It concatenates each source sequence
+
+
+                                                                                                        1
+                                                                     ՜   ࣁ    ‫ ݰ‬᝘      ຎ </s>
+
+                                             Encoder                         Decoder
+
+                                       He   is eating an apple       <s> ՜    ࣁ   ‫ ݰ‬᝘ ຎ
+
+
+                                      He    is eating an apple ꔄ ՜   ࣁ   ‫ ݰ‬᝘      ຎ </s>
+
+                                                        Language Model
+
+                                      <s> He    is eating an apple ꔄ ՜   ࣁ     ‫ ݰ‬᝘     ຎ
+
+               Figure 1: Encoder-Decoder (ED) framework and decoder-only Language Model (LM).
+
+
+with the corresponding target sequence as a single one and trains the LM on this new collection of sequences. The
+decoder-only structure (Liu et al., 2018; Radford et al., 2019; Dong et al., 2019; Brown et al., 2020; Ghosh et al., 2017)
+has many obvious advantages over the commonly used ED framework. First, it only has a decoder and thus reduces
+the model size significantly. Second, LM can be pre-trained on unlabeled text data which is much easier to obtain.
+Moreover, LM has many good properties including parameter sharing, layer-wise coordination, etc.
+Despite the remarkable achievements of recent large language models, it is still unclear whether applying the LM in
+the seq2seq task is a promising choice regarding the performance of this task. Liu et al. (2018) show that the LM gets
+some gains over the ED structure in the summarization task while Radford et al. (2019); Brown et al. (2020) show that
+the pre-trained LMs can be applied in the unsupervised translation task. On the other hand, Raffel et al. (2020) indicate
+that the LMs, when directly applied in the machine translation tasks, perform worse than the classical ED structure.
+Deng et al. (2023) show that ED structure still performs better than decoder-only LM structure. Zhu et al. (2020)
+indicate that when applying the pre-trained LM to a language domain beyond the corpus for training, no significant
+improvement is observed. Fu et al. (2021) show that LM suffers from the repetition generation problem. Therefore, it
+motivates us to investigate the deployment and the performance of LMs in seq2seq tasks.
+We propose to study the characteristics of LM when applied in the seq2seq task by conducting a detailed contrastive
+study between the LM and the ED structure. Grounded with our analysis, we unveil the attention degeneration problem
+and propose a novel partial attention language model to solve it. Specifically, we first propose to analyze a variant of
+the traditional ED structure named as Regularized Encoder-Decoder (RED) framework. It is designed to replicate
+all behaviors in classical LM while structured with an encoder and a decoder. This structure facilitates the comparison
+with the ED structure. By comparing with the RED framework and the ED framework, we find that some parts of the
+RED structure benefit the seq2seq task while some parts do not. Moreover, we find the defects of the LM applied in
+a seq2seq task are partially caused by the Attention Degeneration Problem (ADP) in its attention component. We
+conduct a theoretical analysis of this problem by deriving an upper bound of the attention sensitivity and we find that
+the sensitivity decreases as the length of the generated sequence grows in the LM. Based on this analysis, we propose
+a novel Partial Attention Language Model (PALM) which takes advantage of some LM components while avoiding
+other unfavorable ones. Our experimental results on machine translation, summarization, and data-to-text generation
+datasets support the correctness of our analysis and demonstrate the effectiveness of our proposed PALM structure.
+Our contributions can be summarized as follows: (1) We conduct a detailed analysis of applying the LM in the seq2seq
+task. (2) We conduct a theoretical analysis of the attention degeneration problem and carry out extensive experiments
+to support it. (3) Based on our analysis, we propose PALM to alleviate the weakness of LM, from which the recent
+LM-based methods in seq2seq tasks can benefit.
+
+
+2    Related Works
+Numerous works have recently proposed using LM in the seq2seq task. Liu et al. (2018) suggest using decoder-
+only LM to generate summaries of Wikipedia articles, whereas Raffel et al. (2020) demonstrate through extensive
+experiments that LMs perform worse than ED frameworks in machine translation tasks. On the other hand, several
+
+
+                                                                 2
+works propose using pre-training to enhance performance. For instance, Radford et al. (2019); Brown et al. (2020)
+propose pre-training the GPT LM and fine-tuning it on an unsupervised seq2seq task. UniLM (Dong et al., 2019)
+adopts the prefix LM (Raffel et al., 2020), which uses a fully visible mask of the source sequence instead of the
+traditional causal mask. Additionally, Conneau and Lample (2019); Conneau et al. (2020) propose the XLM model
+pre-trained on a monolingual dataset. However, Zhu et al. (2020) show that when applying pre-trained LMs to a
+language domain beyond the training corpus, there is no significant improvement. Nevertheless, these results heavily
+rely on the pre-training process, and it remains unclear whether the LM structure itself is suitable for handling the
+seq2seq task.
+Compared to the ED structure, the LM has numerous advantageous features that have been proven to enhance its
+performance. First, it utilizes the parameter sharing technique (Dehghani et al., 2019; Xia et al., 2019; Lan et al.,
+2020; Conneau and Lample, 2019) to share parameters for networks that handle both the source and target sequences.
+This reduces the model size and improves performance through parameter sharing. Additionally, the LM incorporates a
+layer-wise coordination mechanism (Belinkov et al., 2017; He et al., 2018; Peters et al., 2018) that enables the decoder
+to attend to each corresponding encoder layer’s output, allowing it to access various levels of source information.
+Finally, Dong et al. (2021) demonstrate that the attention matrix for the decoder-only is a full rank matrix since it is a
+triangular matrix. This is superior to the encoder-decoder attention matrix, which may not be full rank.
+
+
+3     Contrastive Study of Language Model
+In this section, we conduct a contrastive study of the Language Model (LM) and the traditional Encoder-Decoder (ED)
+structure. We propose to analyze a Regularized Encoder-Decoder (RED) framework which is designed to replicate
+all behaviors in the classical LM but with a structure of an encoder and a decoder. We give a detailed explanation
+of how each component in the RED framework imitates the behaviors in the LM and how it is different from the ED
+framework. We also illustrate how these components benefit or harm the overall performance. Afterwards, we analyze
+the attention degeneration problem and propose a theoretical analysis to unveil the cause.
+
+3.1    Preliminary
+Our analysis is based on the prevalent Transformer architecture (Vaswani et al., 2017; Ott et al., 2019). As illustrated
+in Figure 2, we show the main components of the models and the detailed model structure can be found in Ott et al.
+(2019). In a seq2seq task, we denote the input source sequence as s = [s1 , s2 , · · · , s|s| ] and the target sequence as
+t = [t1 , t2 , · · · , t|t| ], where | · | is the length of the sequence and si is the ith source word. The positional token for
+s and t is denoted as ps = [1, 2, · · · , |s|] and pt = [1,       √ 2, · · · , |t|]. The attention layer is√denoted as ATT(Q, K, V ),
+and Z = ATT(Q, K, V ) = Softmax(QWQ WK                    > >
+                                                             K / d)V WV = Softmax(QA> K > / d)V WV , in which A> =
+       >
+WQ WK      and WQ , WK , WV ∈ Rd×d are trainable parameters that transform input matrices into another space. Q ∈
+  dQ ×d
+R       , K ∈ RdK ×d , V ∈ RdV ×d stand for the query, key and value matrices, dQ , dK , and dV are the corresponding
+dimensions of the matrices while Z ∈ RdQ ×d is the output of the attention layer. Here, the Softmax operation is
+applied to each row of the matrix concerned.
+As shown on the left of Figure 2, ED’s encoder contains multiple Transformer encoder blocks denoted with the shaded
+                     |s|×d                                                                             |s|×d
+rectangle. GE l ∈ R        is the input feature matrix for the self attention layer ATTE        E
+                                                                                       l while Hl ∈ R         is the output
+                                      E
+matrix of the lth encoder block. Gl equals to the sum of the word embedding and the positional embedding for the
+                                                                                                   |t|×d
+first block (l = 1) and GE                  E
+                            l equals to Hl−1 when l > 1. In ED’s decoder, we denote Gl ∈ R
+                                                                                             D
+                                                                                                          as the output of
+                              D                                                  J                                    |t|×d
+the self attention layer ATTl . We feed Gl into the encoder attention ATTl and denote the output as QD
+                                              D
+                                                                                                              l ∈ R         .
+   D      |t|×d                                                                D
+Hl ∈ R          is the output matrix of the lth decoder block. We denote L as the negative log likelihood loss for the
+target sequence. Similarly, as shown on the right of Figure 2, the RED structure has the same definition of the matrices
+as that in ED. Moreover, We denote LE as the negative log likelihood loss for the source sequence and we denote
+the unidirectional cross attention as ATTl . For more structural details we refer the readers to Appendix A.3 and the
+original papers (Vaswani et al., 2017; Ott et al., 2019).
+
+
+
+
+                                                                 3
+                                                  ՜   ࣁ       ‫ݰ‬      ᝘      ຎ   </s>                He   is     eating an apple        ꔄ              ՜     ࣁ       ‫ݰ‬      ᝘      ຎ    </s>
+                                                                  LD                                                 LE                                                 LD
+                                                           Linear & Softmax                                   Linear & Softmax                                   Linear & Softmax
+
+                     H E1                                         HlD                                               HlE                                                 HlD
+                                                           Feed Forward                                       Feed Forward                                        Feed Forward
+                    HlE                                           QlD                                                                                                   QD l
+              Feed Forward                                     ATTJl                                                  ATTl                                            ATTl
+                                                                  GlD
+                     ATTE
+                        l                                      ATTD
+                                                                  l
+ Nx                                                                                  Nx        Nx                                                                                        Nx
+                     GE
+                      l
+                                                                                                                      GE
+                                                                                                                       l                                                GD
+                                                                                                                                                                         l
+
+
+
+
+s </s>   He     is     eating   an   apple   t    ꔄ   ՜       ࣁ     ‫ݰ‬      ᝘     ຎ            s </s>     He      is     eating   an   apple       t   ꔄ     ՜       ࣁ        ‫ݰ‬    ᝘     ຎ
+ps 1     2      3           4   5      6     pt   1    2      3      4     5     6            ps 1       2       3           4   5      6        pt   7      8      9        10   11   12
+
+                Unidirectional Cross Attention    Source Auto-Encoder       Parameter Sharing            Layer-Wise Coordination            Consecutive Positional Encoding
+
+
+              Figure 2: Encoder-Decoder framework (left) and Regularized Encoder-Decoder framework (right).
+
+
+3.2      Regularized Encoder-Decoder
+Though the decoder-only Language Model (LM) is simply a decoder, it is still difficult to be compared with an
+Encoder-Decoder (ED) structure because this decoder handles both the source sequence and the target sequence to-
+gether. To facilitate the comparison between the ED and LM structure, we propose to analyze a Regularized Encoder-
+Decoder (RED) framework as illustrated in Figure 2. It is a variant of the traditional ED framework while replicating
+the behaviors of an LM. Compared with the traditional ED structure, the RED framework mainly has the following
+different components: An unidirectional cross attention attends to both the source matrix and the target matrix si-
+multaneously; a source auto-encoder recovers the input source; a parameter sharing mechanism shares the parameters
+between the encoder and the decoder; a layer-wise coordination component makes each decoder layer attending to the
+corresponding encoder layer output; a consecutive positional encoding utilizes a positional encoding starting from the
+length of the source tokens in the decoder.
+Unidirectional Cross Attention. The main difference between the ED framework and the LM is how the input
+source information is merged into the decoder. As illustrated in Figure 2, the ED framework first uses multiple
+Transformer blocks to extract features H−1 E
+                                               from the source sequence s. Afterwards, it utilizes a self attention ATTD  l
+to get the feature matrix Gl . It then uses an encoder attention ATTJl to take GD
+                             D
+                                                                                          l as query and uses the encoder’s
+               E
+final output H−1   as the key and value to calculate QD    l . On the other hand, an LM uses an unidirectional attention
+to handle the concatenated features. To simulate this mechanism in the LM, as illustrated in Figure 2, the RED
+framework uses unidirectional cross attention ATTl which attends to both the source matrix GE        l and the target matrix
+GDl  simultaneously.   Since it attends to all features   with one  attention,  the output  matrix QD
+                                                                                                    l of the attention layer
+becomes less sensitive to the input source matrix GE    l   especially when  it  has already generated many words and GD  l
+becomes relatively long. We call this the attention degeneration problem and we will analyze it in detail in Section
+3.3.
+Source Auto-Encoder. The traditional ED structure only predicts the probability for the target sequence and just takes
+the source sequence as features. On the contrary, an LM predicts the probability for the whole concatenated sequence
+including the source sequence. Therefore, in the RED framework, we adopt a Source Auto-Encoder (SAE) component
+to realize this mechanism. As shown in Figure 2, the overall loss is composed of the decoder loss LD and the SAE loss
+LE . LD is the same as that in the ED framework while LE is actually a regularizer that recovers the source sequence
+s to itself. Therefore, it can alleviate the overfitting problem in training and thus improve the performance.
+Parameter Sharing. In the traditional ED framework, the encoder and the decoder have their own parameters. On the
+contrary, in an LM, the source and target sequences are concatenated and passed through the same network with the
+same parameters. To simulate this property, the RED framework shares the parameters between the encoder and the
+decoder. Parameter sharing techniques (Dehghani et al., 2019; Xia et al., 2019; Lan et al., 2020; Conneau and Lample,
+2019) can be recognized as another regularizer that prevents the model from having too many parameters and thus
+alleviates the overfitting problem.
+
+
+
+                                                                                          4
+Layer-Wise Coordination. The traditional ED structure feeds the source sequence into the encoder and get the final
+                                           E                                     E
+source hidden representation matrix H−1        . Then, each decoder layer takes H−1 as the input matrix for the encoder
+                     J
+attention layer ATTl . On the contrary, if the source and target sequence are concatenated and feed into the LM,
+the attention component in each layer will take the current layer’s hidden representation instead of using the same
+representation matrix. To imitate this feature, the RED framework adapts the layer-wise coordination component
+which uses attention ATTl in the decoder to attend to each corresponding encoder layer feature GE      l . This method
+enables the decoder to access multiple levels of source information and thus improves the performance (Belinkov
+et al., 2017; He et al., 2018; Peters et al., 2018).
+Consecutive Positional Encoding. In the traditional ED structure, the source sequence s and the target sequence t
+have their own positional encoding ps and pt starting both from 1 to the length of the source and target sequences.
+However, if the source and target sequences are concatenated and sent into the LM, the positional encoding for the
+target sequence will not start from 1. To realize this mechanism, the RED framework uses a Consecutive Positional
+Encoding (CPE) which encodes the position pt for the target sequence t starting from |s| + 1 instead of restarting from
+1. It should be noted that this mechanism has been proved in many research works (He et al., 2018; Conneau and
+Lample, 2019) to be less effective compared with its counterpart called Separate Positional Encoding (SPE) which
+restarts the positional embedding for the target sentence. This is because restarting the positional embedding makes
+the model more aware of different languages. Moreover, we observe that the LM always has strong attention on the
+first element of the target sequence. This token may also be used by the model to differentiate the input source and
+output target. Using a fixed starting position for the target sequence makes it easier for the model to find it.
+
+3.3    Attention Degeneration Problem
+Since the unidirectional cross attention imposes attention on both the source sequence and the target sequence simul-
+taneously, less and less attention will be focused on the source sequence as the target sequence length grows. This is
+the attention degeneration problem. To quantitatively understand why the ED structure does not have this problem and
+how the influence of the source sequence decreases in LM, we propose a theoretical analysis on the sensitivity of ATTl
+and ATTJl in the RED framework and the ED framework where the source information is merged into the decoder.
+The sensitivity measures the influence of the source vectors to the attention layer’s output vectors. To simplify the
+analysis, we only analyze one head of the attention. Since we focus on analyzing the effect of concatenating the target
+sequence, we assume ATTl and ATTJl both use the unidirectional encoding and have the same parameters to make them
+easier to be compared with each other.
+We denote the input source matrix for the attention layer as X = [x1 , x2 , · · · , xN ]> ∈ RN ×d , where xi ∈ Rd and d is
+the vector dimension, N is the length of the source sequence. We denote the target matrix as Y = [y1 , y2 , · · · , yi ]> ∈
+Ri×d , where i is the current step. We denote the encoder attention as Z E = ATT(Y, X, X) where X, Y , Z E , and
+                       E                      J
+ATT correspond to H−1     , GD     D
+                              l , Ql , and ATTl in the ED structure respectively (Figure 2). On the other hand, the
+unidirectional cross attention can be denoted as Z C = ATT(Y, [X > , Y > ]> , [X > , Y > ]> ), where X, Y , Z, and ATT
+correspond to GE      D     D
+                 l , Gl , Ql and ATTl in the RED structure respectively (Figure 2).
+
+We begin our analysis by defining a notion of sensitivity. Intuitively, given a function y = f (x), the sensitivity of x
+on y can be described as how the output vector y changes (∆y) when imposing a pertubation ∆x on the input vector
+x. However, imposing different ∆x leads to different ∆y, we propose to study the upper bound on the ratio between
+the magnitude of x and y based on the following proposition:
+Proposition 3.1. Given a function y = f (x) with a Jacobian matrix Jf , if we have a pertubation vector ∆x and y + ∆y =
+f (x + ∆x), then                                  k∆yk
+                                                       ≤ kJf k + o(1).                                                  (1)
+                                                  k∆xk
+
+The proof is provided in Appendix A.1. We can observe that the ratio is upper bounded with the norm of the Jacobian
+matrix Jf plus o(1). Then, we focus on Jf and define the sensitivity of the attention component as the norm of the
+Jacobian matrix of the ith row vector zi of the attention output Z with respect to the jth row vector xj in X.
+Definition 3.2 (Sensitivity). Let the vectors xj and zi be defined above. The sensitivity of zi with respect to xj is
+
+
+
+                                                            5
+                                     He   is       eating     an     apple      ꔄ          ՜     ࣁ       ‫ݰ‬    ᝘    ຎ    </s>
+
+                                                                             Linear & Softmax
+                                                                                  Hl
+                                                                              Feed Forward
+                                                                                  Rl
+                                                                                 ATTPl
+
+                                                             Pl
+                                                            FP,l
+                                Nx             Ql[1:|s|]                                   Ql
+                                                                                    ATTl
+
+                                                                                     Gl
+
+
+                                 </s>     He          is    eating    an      apple        ꔄ     ՜       ࣁ    ‫ݰ‬    ᝘     ຎ
+                                  1       2           3       4        5        6          1     2       3    4    5     6
+                                  en      en         en       en      en       en          zh    zh      zh   zh   zh   zh
+
+                                             Partial Attention    Bidirectional Attention
+                                       Separate Positional Encoding      Language Embedding
+
+                                                            Figure 3: PALM framework.
+
+defined as the norm of the Jacobian matrix:
+                                                                                                ∂zi
+                                                                   Sij = kJij k = k                 k.                         (2)
+                                                                                                ∂xj
+
+Intuitively, if the sensitivity is high, the output vector is closely related to the input source vector. Otherwise, the output
+vector may not contain enough information about the input source vector and the output       √     is likely to be generated by
+a simple LM. From the Section 3.1, Z = ATT(Y, X, X) = Softmax(Y A> X > / d)XWV = P XWV , in which
+P ∈ RdY ×dX and dX , dY are the first dimensions of X and Y respectively. Following Kim et al. (2020), the Softmax
+matrix P is a stochastic matrix, namely, its entries are non-negative and its rows sum to 1. For each element pij in P ,
+pij ∈ [0, 1] and they have an equal chance of receiving attention. Therefore, we have E(pij ) = d1X . To compare the
+sensitivity between the two kinds of attention, with the above assumption, we have the following theorem:
+Theorem 3.3. For Z E = ATT(Y, X, X), where kXk, kY k, kAk, kWV k are bounded, ∃ C3 ≥ 0, δ ∈ (0, 1), with
+probability at least 1 − δ 2 ,                         r
+                                                                E                     1             1
+                                                              kJij k ≤ C3 (             +         ln ).                        (3)
+                                                                                      N             δ
+For Z C = ATT(Y, [X > , Y > ], [X > , Y > ]), with probability at least 1 − δ 2 ,
+                                                                                                 r
+                                                              C                    1                    1
+                                                            kJij k ≤ C3 (             +               ln ).                    (4)
+                                                                                 N +i                   δ
+
+The proof is provided in Appendix A.2. It can be directly observed that the upper bound of the Jacobian matrix
+                                                                             C                                      E
+norm is negatively correlated with the value sequence length. Therefore, kJij  k has a smaller upper bound than kJij  k,
+                                               J
+which implies that the encoder attention (ATTl ) output is more likely to be sensitive to the input source vectors. As
+a result, if the input vector changes, the output of the encoder attention changes more significantly than that of the
+cross unidirectional attention. Moreover, the difference between the two upper bounds becomes even larger as the
+generating step number i grows. It shows that the sensitivity to the source input decreases in the unidirectional cross
+attention as the step number i grows. We will conduct extensive experiments to verify these observations.
+
+
+4    Partial Attention Language Model
+To overcome the defects in the LM discussed above, we propose a Partial Attention Language Model (PALM) which
+is shown in Figure 3. We keep the effective components and remove the unfavorable components as analyzed in
+the RED framework. First, we propose a novel partial attention component to alleviate the attention degeneration
+
+
+                                                                                      6
+problem. Besides, we designate a few adjustments according to the aforementioned analysis of defects in the LM.
+Specifically, we propose to use a separate positional embedding to replace the consecutive positional embedding and
+use bidirectional attention for the source sequence. Moreover, we add a language encoding layer and keep other
+components unchanged.
+Partial Attention Component. To alleviate the attention degeneration problem, we propose the Partial Attention (PA)
+component. Similar to the ED framework, it adds a new attention layer ATTP          l that only focuses on the source part of
+the feature matrix Ql which is denoted as Ql[1:|s|] ∈ R|s|×d and [1 : |s|] stands for taking the first to the |s|th row
+vectors of Ql . Since Ql[1:|s|] is not affected as the target sequence grows, the attention degeneration problem can thus
+be alleviated. As shown in Figure 3, Ql[1:|s|] is passed through a consecutive feedforward layer which is denoted as
+Pl = FP,l (Ql[1:|s|] ). Afterwards, we use another attention layer ATTP      l to attend to each vector of Pl by each vector
+in Gl as Rl = ATTP    l (Ql , Pl , Pl ). Then, R l is passed   through a feedforward   layer to get the hidden representation
+matrix Hl for the next layer. Since ATTP    l  takes  P l as the key and value matrix  which has a fixed length and does not
+contain any target part, it can be concluded from Theorem 3.3 that the sensitivity upper bound will not change as the
+generation step grows. Therefore, it can alleviate the attention degeneration problem.
+Bidirectional Attention. In ATTl , we propose to set a bidirectional attention mask (Dong et al., 2019; Raffel et al.,
+2020) for Gl [1 : |s|] making each position in the source sequence aware of the whole source sequence.
+Separate Positional Encoding. As discussed in Section 3.2, we adopt the separate positional encoding in PALM to
+help the model differentiate between the source and target parts.
+Language Embedding. We further adopt the language embedding (Conneau and Lample, 2019; Conneau et al., 2020)
+to help the model differentiate between the source and target sequences.
+
+
+5     Experiments
+5.1    Experimental Settings
+We conduct experiments on several tasks to show the effectiveness of our proposed method. All the experiments are
+conducted with a single NVIDIA(R) TITAN RTX graphics card with Intel(R) Xeon(R) Silver 4210 CPU @ 2.20GHz
+CPU. All the datasets used in this paper are very commonly used in corresponding tasks. The detailed license and
+how the datasets are made can be found in the corresponding instructions. To the best of our knowledge, no personally
+identifiable information or offensive content have been reported in these datasets.
+Machine Translation task (Cho et al., 2014; Bahdanau et al., 2015; Luong et al., 2015; Wu et al., 2016; Gehring
+et al., 2017; Johnson et al., 2017; Koehn and Knowles, 2017; Vaswani et al., 2018) is the most popular NLP task and
+we adopt several language pairs in the commonly used IWSLT’14 dataset (Cettolo et al., 2014) (Creative Commons
+License) including De-En, En-De, It-En, En-It, En-Fr, Es-En, En-Es, Ru-En, En-Ru, He-En, En-He, Ro-En, En-Ro.
+Both the source and target sentences are encoded by the byte-pair encoding (Sennrich et al., 2016) method with 10,000
+subword units in a shared dictionary. In the ED model, we adopt the traditional Transformer model (Vaswani et al.,
+2017; Ott et al., 2019) and keep all hyperparameters setting the same as the “transformer iwslt de en” architecture
+in fairseq (Ott et al., 2019). To make a fair comparison between the models, we also keep all the transformer layer
+number to be 6 in all models. We use the BLEU score (Papineni et al., 2002) as the evaluation metric.
+Data-to-Text task can also be accomplished with Transformer. We investigate the performance on three datasets,
+namely the WebNLG (Perez-Beltrachini et al., 2016; Gardent et al., 2017a,b; Castro Ferreira et al., 2018; Shimorina
+et al., 2019) dataset (CC BY-NC-SA 4.0 License), E2E (Novikova et al., 2017; Dušek et al., 2019) dataset, and the
+WITA (Fu et al., 2020) dataset. The WebNLG is a human-annotated dataset aiming at generating text describing
+given knowledge base triples. The E2E is made with the Crowd Flower platform to generate restaurant comments
+based on their properties. The WITA dataset is an automatically generated dataset that generates Wikipedia article
+sentences based on input knowledge triples. We use the unannotated target sentences as the reference. We keep all the
+model hyperparameters the same as that in the machine translation task and evaluate the overall metrics with several
+
+
+
+                                                             7
+                  De-En En-De It-En En-It En-Fr Es-En En-Es Ru-En En-Ru He-En En-He Ro-En En-Ro          Avg. #Paras
+ ED               34.18 28.00 31.96 29.42 40.86 40.99 37.53 23.09 18.20 38.09 25.41 38.14 28.30          31.86 47.1M
+ LM               33.19 26.43 30.92 28.64 39.16 39.33 36.67 22.25 17.53 34.81 24.35 35.51 27.02          30.45 29.3M
+ LM-SPE           33.35 27.35 31.36 28.87 39.93 39.69 36.99 21.89 17.98 34.89 24.80 35.19 27.72          30.77 29.3M
+ LM-LE            33.58 27.46 31.38 29.03 40.14 39.87 37.05 22.24 18.08 34.80 24.31 35.76 27.96          30.90 29.3M
+ LM-PA            34.54 28.35 32.01 29.70 40.15 40.58 37.24 22.98 18.45 35.64 25.37 37.35 28.02          31.57 35.6M
+ PreLM            33.90 27.88 31.77 29.35 40.53 40.41 37.46 22.80 18.11 35.96 24.78 37.55 28.11          31.43 29.3M
+ PALM             34.73 28.59 32.22 29.83 40.31 40.91 37.61 23.27 18.74 37.00 25.29 37.59 28.75          31.91 35.6M
+ PALM w/o SAE     34.03 28.30 31.83 29.42 39.87 40.65 37.25 22.21 17.92 37.06 24.89 37.09 28.40          31.46 35.6M
+
+Table 1: BLEU scores for models on IWSLT’14 dataset. Avg. is the average BLEU score for all language pairs while
+#Paras is the count of model parameters.
+                                                   Cs-En En-Cs Ro-En En-Ro Avg.
+                                   ED               21.9 15.7 29.3 20.4 21.8
+                                   LM               16.2 11.0 25.1 15.9 17.1
+                                   PALM             21.1 15.1 28.3 19.3 21.0
+                                   PALM w/o SAE     18.6 12.9 26.5 18.0 19.0
+
+                                     Table 2: BLEU score for WMT’16 dataset.
+
+
+evaluation metrics including BLEU (Papineni et al., 2002), ROUGEL (Lin, 2004), METEOR (Banerjee and Lavie,
+2005), NIST (Doddington, 2002), and CIDEr (Vedantam et al., 2015).
+Summarization task (Rush et al., 2015; Chopra et al., 2016; Nallapati et al., 2016; Cheng and Lapata, 2016; See et al.,
+2017; Paulus et al., 2018; Pilault et al., 2020) can also be implemented with a Transformer architecture. We conduct
+the experiments on XSUM (Narayan et al., 2018) dataset (MIT License). We take the articles as the source sequence
+while using the summarization as the target sequence. We keep all the model hyperparameters the same as that in the
+machine translation task and report the ROUGE1 , ROUGE2 , ROUGEL metrics.
+
+5.2   Comparison Models
+We compare the PALM structure against the following models.
+ED is the traditional Encoder-Decoder framework built on Transformer (Vaswani et al., 2017) implemented with
+fairseq (Ott et al., 2019).
+LM is the traditional Language Model built with a Transformer decoder. It concatenates the source sequence and the
+target sequence to train an LM. When testing, it predicts the target sequence after inputting the source sequence into
+the LM.
+LM-SPE adopts the Separate Positional Encoding (Conneau and Lample, 2019; He et al., 2018) in an LM as the
+positional encoding. The first position for the target sequence is always set to 1.
+LM-LE uses a Language Embedding (Conneau and Lample, 2019; Conneau et al., 2020) to help LM differentiate
+source and target sequence.
+LM-PA adopts our proposed Partial Attention component in an LM. Different from PALM, it uses unidirectional
+attention and does not use the LE and SPE components.
+PreLM uses a Prefix Language Model (Liu et al., 2018; Dong et al., 2019; Raffel et al., 2020) to generate target
+sequences. Different from LM, it uses a fully-visible masking of the input source instead of using a unidirectional
+causal mask. The mask enables each source word depending on the whole input sequence instead of the previous one.
+
+
+
+
+                                                          8
+                                                                                              8.0%
+                                                                                                         ED          LM-PA
+
+
+
+
+                                                                        Hallucination Ratio
+                  0.020
+
+          k∆zik/k∆xj k
+                                                                                                         LM          PALM
+                                                                                              7.0%
+
+                  0.015       LM
+                              PALM                                                            6.0%
+                              ED
+                  0.010                                                                       5.0%
+                          0        10            20                                                  0   20      40       60
+                               Step Number i                                                              Step Number i
+
+          Figure 4: Numerical sensitivity analysis.                     Figure 5: Stepwise hallucination analy-
+                                                                        sis. Lower is better.
+
+                                                LM LM-PA PALM ED Gold ∆L
+                                         De-En 21.00 21.37 21.30 21.08 22.25 0.30
+                                         En-De 22.02 22.24 22.11 22.30 22.98 0.08
+                                         It-En 22.35 22.40 22.37 22.84 23.88 0.02
+                                         En-It 22.82 22.90 22.91 22.65 23.26 0.09
+                                         En-Fr 23.70 24.29 24.23 24.00 24.01 0.53
+                                         Es-En 21.16 21.46 21.35 21.88 22.48 0.19
+                                         En-Es 21.66 21.97 21.96 22.06 22.03 0.30
+                                         Ru-En 20.69 20.99 20.88 20.88 23.17 0.19
+                                         En-Ru 22.21 22.71 22.72 22.87 22.96 0.50
+                                         He-En 19.71 20.08 20.13 20.33 21.30 0.41
+                                         En-He 19.61 20.16 20.03 20.31 20.66 0.42
+                                         Ro-En 19.54 20.13 19.88 20.01 21.34 0.33
+                                         En-Ro 22.38 22.72 22.61 22.82 23.03 0.24
+                                         Avg. 21.45 21.80 21.73 21.85 22.57 0.28
+
+                                     Table 3: Early stop effect. ∆L is calculated by length
+                                     of PALM minus length of LM.
+
+
+5.3   Experimental Results
+Main Results. The experimental results for IWSLT’14 are shown in Table 1. We can draw the following conclusions.
+(1) Compared with the ED framework, the LM has worse performance due to the defects we discussed in Section
+3.3. (2) Compared with the LM model, our proposed PALM structure achieved better performance which indicates
+that the attention degeneration is alleviated. (3) The PreLM improves the performance since the source text hidden
+representation depends on the whole source sequence instead of the previous context. (4) The LE component helps
+improve the performance as it provides extra language information for the model. (5) the LM-SPE model performs
+better than the traditional LM model using CPE. This observation verifies our analysis in Section 3.2. (6) From the
+ablation study, the performance decreases without the SAE component. It shows that the SAE component can alleviate
+the overfitting problem and thus improves the performance. (7) Compared with the ED model, LM, and our proposed
+PALM reduce the parameter number significantly.
+Numerical Sensitivity Analysis. In Theorem 3.3, we prove that the upper bound of the sensitivity in the unidirectional
+cross attention decreases as the current step number increases. To experimentally show that the output vector becomes
+less and less sensitive to the source sequence as the step number grows, we conduct a numerical analysis by directly
+imposing a random small perturbation vector ∆xj on the source vector xj of the attention layer. We take the norm
+of the output vector deviation k∆zi k at the ith step divided by the input vector change norm k∆xj k. This quantity is
+upper bounded by the sensitivity as shown in Proposition 3.1. The results are shown in Figure 4. It can be concluded
+from the results that the sensitivity of the LM decreases as the step increases which leads to the model ignoring the
+
+
+                                                               9
+                                               METEOR        ROUGEL       CIDEr     NIST     BLEU
+                              ED                0.441         0.725        4.08     11.0     0.616
+                              LM                0.452         0.732        4.24     11.2     0.629
+                              LM w/o SAE        0.438         0.716        4.10     10.9     0.607
+                              PALM              0.457         0.736        4.27     11.3     0.632
+
+                                            Table 4: Results on WebNLG dataset.
+
+                                               METEOR        ROUGEL       CIDEr     NIST     BLEU
+                              ED                0.396         0.630        1.62     8.07     0.597
+                              LM                0.423         0.661        2.00     7.93     0.604
+                              LM w/o SAE        0.405         0.646        1.92     7.93     0.602
+                              PALM              0.449         0.688        2.25     8.46     0.657
+
+                                               Table 5: Results on E2E dataset.
+
+
+input sequence gradually. It can also justify the conclusion drawn from Theorem 3.3 that the ED model does not have
+this problem while our proposed PALM can also alleviate this problem.
+Stepwise Hallucination Analysis. As implied by Theorem 3.3 and the above experiments, the sensitivity decreases
+as the step number increases in LM. But how does the sensitivity affect the generating performance? We conduct the
+stepwise hallucination analysis to answer this question. Generation models prone to generate unrelated content beyond
+the input data and this phenomenon has been recognized as the hallucination problem (Tian et al., 2019; Nie et al.,
+2019; Liu et al., 2021; Rebuffel et al., 2021) in many recent research works. Intuitively, the attention degeneration
+problem is likely to exacerbate the hallucination problem when the generation step grows. This is because less and
+less attention is focused on the input data and the models are more likely to generate text groundlessly. As shown
+in Figure 5, we conduct an experiment to analyze the hallucination problem at different generation steps. Similar
+to (Rebuffel et al., 2021), we use the Hallucination Ratio (HR) to measure the hallucination problem.           PT HR measures
+the proportion of the hallucination content. The HR for the ith position is defined as Hi = 1 − j max(1(tji ∈
+rj ), C[sj1 , tji ], · · · , C[sj|sj | , tji ])/ j 1(|tj | ≥ i), where T is the target sentence count. sji and tji are the ith word
+                                                PT
+in the jth source and generated sentence respectively. |tj | is the length of the jth generated sentence. rj is the jth gold
+standard sentence. C[p, q] = Sigmoid(( j 1(p ∈ sj ) · 1(q ∈ tj ) − α)/β) is the normalized alignment score of the
+                                                   PT
+pth and qth words in the dictionary, where α and β are sigmoid shape parameters. High HR indicates the hallucination
+problem is prone to occur. It can be observed that (1) HR changes moderately between 5% and 7% as i grows in all
+models. (2) LM has the highest (worst) HR score especially when i grows larger. When i > 50, LM has a significant
+high HR score than other models which implies that the hallucination problem gets worse. (3) Simply adding the
+PA component on LM can alleviate the hallucination problem and lower the HR score. It indicates that the attention
+degeneration problem exacerbates the hallucination problem and it can be alleviated with our proposed PA component.
+(4) Our proposed PALM achieves a low HR score close to the ED model. It performs well even i is large.
+Early Stop Effect. To further study how the attention degeneration problem affects the performance, we conduct
+a statistical analysis on the output length of the generated sequence. The results are shown in Table 3. It can be
+concluded from the results that (1) The LM usually generates shorter sentences compared with the ED model and
+PALM structure while simply adding the PA component in LM alleviates the early stop phenomenon. It shows that
+the attention degeneration problem causes the early stop phenomenon and it can be alleviated by our proposed PA
+component. Due to the attention degeneration problem, the sensitivity on the input source vectors decreases as the
+step number grows. The model becomes less and less sensitive to the source sequence and it tends to stop generating
+because it gets less and less information about what to say. (2) On the other hand, our proposed PALM structure
+alleviates this problem. The average length of the PALM structure output is longer than the LM model and close to
+the ED model showing that it alleviates the attention degeneration problem and thus overcomes the early stop effect.
+Data-to-Text Generation. To show that our analysis and the proposed method are also applicable in other seq2seq
+
+
+                                                                10
+                  METEOR      ROUGEL       CIDEr     NIST    BLEU              ROUGE1 ROUGE2 ROUGEL
+         ED        0.347       0.636        3.64     9.08    0.427      ED      0.284  0.0877 0.245
+         LM        0.352       0.648        3.77     7.83    0.382      LM      0.279  0.0711 0.251
+         PALM      0.364       0.662        4.03      8.9    0.437      PALM    0.317  0.0953 0.282
+
+                 Table 6: Results on WITA dataset.                      Table 7: Results on XSUM dataset.
+
+
+tasks, we conduct experiments on the data-to-text generation tasks. The results on WebNLG, E2E, and WITA datasets
+are shown in Table 4, 5, and 6 respectively. It can be observed that (1) our proposed PALM outperforms the LM model
+which shows the effectiveness of the partial attention component. (2) The LM model outperforms the ED model
+with the help of SAE component. Different from the translation task, the input sequence of this task shares the same
+language as the target sequence. Therefore, LM’s SAE component trains the model to recover source sequences and
+can thus alleviate the overfitting problem. This can be directly verfied with the results of the LM w/o SAE model.
+When the SAE component is removed, the performance is worse than the LM model in all three datasets.
+WMT’16 Results. We conduct our experiments on WMT’16 (Bojar et al., 2016) dataset which is larger than
+IWSLT’14. The performance is shown in Table 2. It can be concluded from the results that (1) our proposed PALM
+also outperforms LM’s results and is close the ED’s performance which shows PALM’s effectiveness in alleviating the
+attention degeneration problem; (2) interestingly, removing the SAE component improves the performance and closes
+the gap to the performance of ED. This may be because the dataset is larger and the overfitting problem is not serious.
+Summarization. We conduct experiments on the summarization dataset XSUM to further verify our analysis and the
+results are shown in Table 7. It can be concluded from the results that (1) the ED model outperforms the LM model
+in ROUGE1 and ROUGE2 . This is because the input sequence is much longer than the target sequence, the attention
+degeneration problem becomes the dominant problem. This result is consistent with the analysis we discussed in
+Section 3.3; (2) our PALM structure still outperforms the LM model which is also consistent with the previous analysis;
+Stepwise Precision Analysis. As implied by Theorem 3.3 and the above experiments, the sensitivity decreases as the
+step number increases in LM. We further conduct the stepwise precision analysis to show that the sensitivity
+                                                                                                         PS directly
+affect the generating performance. We calculate the average word precision for the ith position as Ai = j 1(sji ∈
+rj )/ j 1(|sj | ≥ i), where sj in the jth generated sentence and sji is the ith word in sentence sj . rj is the jth
+     PS
+reference sentence and there are S sentences in total. The results are shown in Figure 6. We have three observations.
+(1) Ai changes moderately between 0.64 and 0.67 as i grows which is determined by the word distribution. (2) Ai
+for the LM model is slightly better than the ED framework when the step number is small. This is because when the
+step number is small, the attention degeneration problem is not the dominant factor for the performance and the LE,
+SAE, and other components play as the key role to make the performance better. (3) Contrastingly, Ai for the LM
+model becomes worse as the step size gets larger when compared with the ED model. This observation shows that as
+the step number increases, the sensitivity decreases, and thus the model is likely to generate wrong words. (4) Our
+proposed PALM structure alleviates the attention degeneration problem and the precision distribution is similar to the
+ED model.
+
+
+6    Conclusions
+We propose a detailed comparison between the Encoder-Decoder (ED) framework and the Language Model (LM) in
+the sequence-to-sequence (seq2seq) generation task. We propose to analyze a Regularized Encoder-Decoder (RED)
+framework that is equivalent to an LM but has an encoder and a decoder. We analyze the attention degeneration
+problem and conduct a theoretical analysis. Based on the analysis, we propose a novel partial attention language
+model. The experimental results validate our analysis and demonstrate the effectiveness of our proposed model.
+
+
+
+
+                                                            11
+                                   Average Word Precision
+                                                            0.66
+
+
+                                                            0.64                        LM
+                                                                                        PALM
+                                                                                        ED
+                                                            0.62
+                                                                   0   20      40       60
+                                                                        Step Number i
+
+Figure 6: Stepwise precision analysis. x-axis is the generation step number and y-axis is the average word precision.
+
+
+7    Limitations
+It should be noted that in Theorem 3.3, we utilize the PAC theory framework which holds with high probability.
+Unfortunately, it cannot guarantee all the cases satisfy the bound which means in some extreme cases, the bound
+will not be valid. This is a common short back for the PAC analysis and we use extensive experimental results to
+empirically show the effectiveness of the analysis.
+
+
+8    Broader Impact Statement
+This paper focuses on comparing different architectures of the existing language model which does not explicitly
+involve any enthetic concerns. We do not make any new dataset and all used datasets are properly cited. This work
+does not cause any kind of safety or security concerns while it also does not raise any human rights concerns or
+environmental concerns. Therefore, there will be no negative societal impact on our work.
+
+
+References
+Dzmitry Bahdanau, Kyunghyun Cho, and Yoshua Bengio. 2015. Neural machine translation by jointly learning to
+  align and translate. In 3rd International Conference on Learning Representations, ICLR 2015, San Diego, CA,
+  USA, May 7-9, 2015, Conference Track Proceedings. 7
+Satanjeev Banerjee and Alon Lavie. 2005. METEOR: An automatic metric for MT evaluation with improved correla-
+  tion with human judgments. In Proceedings of the ACL Workshop on Intrinsic and Extrinsic Evaluation Measures
+  for Machine Translation and/or Summarization, pages 65–72, Ann Arbor, Michigan. Association for Computational
+  Linguistics. 8
+Yonatan Belinkov, Nadir Durrani, Fahim Dalvi, Hassan Sajjad, and James Glass. 2017. What do neural machine
+  translation models learn about morphology? In Proceedings of the 55th Annual Meeting of the Association for
+  Computational Linguistics (Volume 1: Long Papers), pages 861–872, Vancouver, Canada. Association for Compu-
+  tational Linguistics. 3, 5
+Yoshua Bengio, Réjean Ducharme, and Pascal Vincent. 2000. A neural probabilistic language model. In Advances
+  in Neural Information Processing Systems 13, Papers from Neural Information Processing Systems (NIPS) 2000,
+  Denver, CO, USA, pages 932–938. MIT Press. 1
+Ondřej Bojar, Rajen Chatterjee, Christian Federmann, Yvette Graham, Barry Haddow, Matthias Huck, Antonio Ji-
+  meno Yepes, Philipp Koehn, Varvara Logacheva, Christof Monz, Matteo Negri, Aurélie Névéol, Mariana Neves,
+  Martin Popel, Matt Post, Raphael Rubino, Carolina Scarton, Lucia Specia, Marco Turchi, Karin Verspoor, and
+
+
+
+                                                                          12
+  Marcos Zampieri. 2016. Findings of the 2016 conference on machine translation. In Proceedings of the First Con-
+  ference on Machine Translation: Volume 2, Shared Task Papers, pages 131–198, Berlin, Germany. Association for
+  Computational Linguistics. 11
+Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind Neelakantan,
+  Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom
+  Henighan, Rewon Child, Aditya Ramesh, Daniel M. Ziegler, Jeffrey Wu, Clemens Winter, Christopher Hesse, Mark
+  Chen, Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess, Jack Clark, Christopher Berner, Sam McCandlish,
+  Alec Radford, Ilya Sutskever, and Dario Amodei. 2020. Language models are few-shot learners. In Advances in
+  Neural Information Processing Systems 33: Annual Conference on Neural Information Processing Systems 2020,
+  NeurIPS 2020, December 6-12, 2020, virtual. 1, 2, 3
+Thiago Castro Ferreira, Diego Moussallem, Emiel Krahmer, and Sander Wubben. 2018. Enriching the WebNLG
+  corpus. In Proceedings of the 11th International Conference on Natural Language Generation, pages 171–176,
+  Tilburg University, The Netherlands. Association for Computational Linguistics. 7
+Mauro Cettolo, J Niehues, S Stüker, Luisa Bentivogli, and Marcello Federico. 2014. Report on the 11th iwslt evaluation
+ campaign, iwslt 2014. In IWSLT-International Workshop on Spoken Language Processing, pages 2–17. Marcello
+ Federico, Sebastian Stüker, François Yvon. 7
+Jianpeng Cheng and Mirella Lapata. 2016. Neural summarization by extracting sentences and words. In Proceedings
+   of the 54th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages
+   484–494, Berlin, Germany. Association for Computational Linguistics. 8
+Kyunghyun Cho, Bart van Merriënboer, Caglar Gulcehre, Dzmitry Bahdanau, Fethi Bougares, Holger Schwenk, and
+  Yoshua Bengio. 2014. Learning phrase representations using RNN encoder–decoder for statistical machine trans-
+  lation. In Proceedings of the 2014 Conference on Empirical Methods in Natural Language Processing (EMNLP),
+  pages 1724–1734, Doha, Qatar. Association for Computational Linguistics. 1, 7
+Sumit Chopra, Michael Auli, and Alexander M. Rush. 2016. Abstractive sentence summarization with attentive
+  recurrent neural networks. In Proceedings of the 2016 Conference of the North American Chapter of the Association
+  for Computational Linguistics: Human Language Technologies, pages 93–98, San Diego, California. Association
+  for Computational Linguistics. 8
+Aakanksha Chowdhery, Sharan Narang, Jacob Devlin, Maarten Bosma, Gaurav Mishra, Adam Roberts, Paul Barham,
+  Hyung Won Chung, Charles Sutton, Sebastian Gehrmann, et al. 2022. Palm: Scaling language modeling with
+  pathways. arXiv preprint arXiv:2204.02311. 1
+Alexis Conneau, Kartikay Khandelwal, Naman Goyal, Vishrav Chaudhary, Guillaume Wenzek, Francisco Guzmán,
+  Edouard Grave, Myle Ott, Luke Zettlemoyer, and Veselin Stoyanov. 2020. Unsupervised cross-lingual representa-
+  tion learning at scale. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics,
+  pages 8440–8451, Online. Association for Computational Linguistics. 3, 7, 8
+Alexis Conneau and Guillaume Lample. 2019. Cross-lingual language model pretraining. In Advances in Neural
+  Information Processing Systems 32: Annual Conference on Neural Information Processing Systems 2019, NeurIPS
+  2019, December 8-14, 2019, Vancouver, BC, Canada, pages 7057–7067. 3, 4, 5, 7, 8
+Mostafa Dehghani, Stephan Gouws, Oriol Vinyals, Jakob Uszkoreit, and Lukasz Kaiser. 2019. Universal transformers.
+ In 7th International Conference on Learning Representations, ICLR 2019, New Orleans, LA, USA, May 6-9, 2019.
+ OpenReview.net. 3, 4
+Jiawen Deng, Hao Sun, Zhexin Zhang, Jiale Cheng, and Minlie Huang. 2023. Recent advances towards safe, respon-
+   sible, and moral dialogue systems: A survey. arXiv preprint arXiv:2302.09270. 2
+George Doddington. 2002. Automatic evaluation of machine translation quality using n-gram co-occurrence statistics.
+  In Proceedings of the Second International Conference on Human Language Technology Research, pages 138–145.
+  8
+
+
+
+                                                          13
+Li Dong, Nan Yang, Wenhui Wang, Furu Wei, Xiaodong Liu, Yu Wang, Jianfeng Gao, Ming Zhou, and Hsiao-Wuen
+  Hon. 2019. Unified language model pre-training for natural language understanding and generation. In Advances in
+  Neural Information Processing Systems 32: Annual Conference on Neural Information Processing Systems 2019,
+  December 8-14, 2019, Vancouver, BC, Canada, pages 13042–13054. 2, 3, 7, 8
+Yihe Dong, Jean-Baptiste Cordonnier, and Andreas Loukas. 2021. Attention is not all you need: Pure attention loses
+  rank doubly exponentially with depth. In International Conference on Machine Learning, pages 2793–2803. PMLR.
+  3
+Ondřej Dušek, David M. Howcroft, and Verena Rieser. 2019. Semantic noise matters for neural natural language
+  generation. In Proceedings of the 12th International Conference on Natural Language Generation, pages 421–426,
+  Tokyo, Japan. Association for Computational Linguistics. 7
+Zihao Fu, Wai Lam, Anthony Man-Cho So, and Bei Shi. 2021. A theoretical analysis of the repetition problem in text
+  generation. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 35, pages 12848–12856. 2
+Zihao Fu, Bei Shi, Wai Lam, Lidong Bing, and Zhiyuan Liu. 2020. Partially-aligned data-to-text generation with
+  distant supervision. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing
+  (EMNLP), pages 9183–9193, Online. Association for Computational Linguistics. 7
+Claire Gardent, Anastasia Shimorina, Shashi Narayan, and Laura Perez-Beltrachini. 2017a. Creating training corpora
+  for NLG micro-planners. In Proceedings of the 55th Annual Meeting of the Association for Computational Lin-
+  guistics (Volume 1: Long Papers), pages 179–188, Vancouver, Canada. Association for Computational Linguistics.
+  7
+Claire Gardent, Anastasia Shimorina, Shashi Narayan, and Laura Perez-Beltrachini. 2017b. The WebNLG challenge:
+  Generating text from RDF data. In Proceedings of the 10th International Conference on Natural Language Gener-
+  ation, pages 124–133, Santiago de Compostela, Spain. Association for Computational Linguistics. 7
+Jonas Gehring, Michael Auli, David Grangier, Denis Yarats, and Yann N. Dauphin. 2017. Convolutional sequence to
+  sequence learning. In Proceedings of the 34th International Conference on Machine Learning, ICML 2017, Sydney,
+  NSW, Australia, 6-11 August 2017, volume 70 of Proceedings of Machine Learning Research, pages 1243–1252.
+  PMLR. 7
+Sayan Ghosh, Mathieu Chollet, Eugene Laksana, Louis-Philippe Morency, and Stefan Scherer. 2017. Affect-LM:
+  A neural language model for customizable affective text generation. In Proceedings of the 55th Annual Meeting
+  of the Association for Computational Linguistics (Volume 1: Long Papers), pages 634–642, Vancouver, Canada.
+  Association for Computational Linguistics. 2
+Tianyu He, Xu Tan, Yingce Xia, Di He, Tao Qin, Zhibo Chen, and Tie-Yan Liu. 2018. Layer-wise coordination
+  between encoder and decoder for neural machine translation. In Advances in Neural Information Processing Systems
+  31: Annual Conference on Neural Information Processing Systems 2018, NeurIPS 2018, December 3-8, 2018,
+  Montréal, Canada, pages 7955–7965. 3, 5, 8
+Melvin Johnson, Mike Schuster, Quoc V. Le, Maxim Krikun, Yonghui Wu, Zhifeng Chen, Nikhil Thorat, Fernanda
+ Viégas, Martin Wattenberg, Greg Corrado, Macduff Hughes, and Jeffrey Dean. 2017. Google’s multilingual neural
+ machine translation system: Enabling zero-shot translation. Transactions of the Association for Computational
+ Linguistics, 5:339–351. 7
+Hyunjik Kim, George Papamakarios, and Andriy Mnih. 2020. The lipschitz constant of self-attention. arXiv preprint
+  arXiv:2006.04710. 6, 19
+Guillaume Klein, Yoon Kim, Yuntian Deng, Jean Senellart, and Alexander Rush. 2017. OpenNMT: Open-source
+  toolkit for neural machine translation. In Proceedings of ACL 2017, System Demonstrations, pages 67–72, Vancou-
+  ver, Canada. Association for Computational Linguistics. 1
+Philipp Koehn and Rebecca Knowles. 2017. Six challenges for neural machine translation. In Proceedings of the First
+  Workshop on Neural Machine Translation, pages 28–39, Vancouver. Association for Computational Linguistics. 7
+
+
+                                                        14
+Zhenzhong Lan, Mingda Chen, Sebastian Goodman, Kevin Gimpel, Piyush Sharma, and Radu Soricut. 2020. AL-
+  BERT: A lite BERT for self-supervised learning of language representations. In 8th International Conference on
+  Learning Representations, ICLR 2020, Addis Ababa, Ethiopia, April 26-30, 2020. OpenReview.net. 3, 4
+Chin-Yew Lin. 2004. ROUGE: A package for automatic evaluation of summaries. In Text Summarization Branches
+  Out, pages 74–81, Barcelona, Spain. Association for Computational Linguistics. 8
+Peter J. Liu, Mohammad Saleh, Etienne Pot, Ben Goodrich, Ryan Sepassi, Lukasz Kaiser, and Noam Shazeer. 2018.
+  Generating wikipedia by summarizing long sequences. In 6th International Conference on Learning Representa-
+  tions, ICLR 2018, Vancouver, BC, Canada, April 30 - May 3, 2018, Conference Track Proceedings. OpenReview.net.
+  2, 8
+Tianyu Liu, Yizhe Zhang, Chris Brockett, Yi Mao, Zhifang Sui, Weizhu Chen, and Bill Dolan. 2021. A token-level
+  reference-free hallucination detection benchmark for free-form text generation. arXiv preprint arXiv:2104.08704.
+  10
+Thang Luong, Hieu Pham, and Christopher D. Manning. 2015. Effective approaches to attention-based neural machine
+  translation. In Proceedings of the 2015 Conference on Empirical Methods in Natural Language Processing, pages
+  1412–1421, Lisbon, Portugal. Association for Computational Linguistics. 7
+Tomáš Mikolov, Martin Karafiát, Lukáš Burget, Jan Černockỳ, and Sanjeev Khudanpur. 2010. Recurrent neural net-
+  work based language model. In Eleventh annual conference of the international speech communication association.
+  1
+Tomáš Mikolov, Stefan Kombrink, Lukáš Burget, Jan Černockỳ, and Sanjeev Khudanpur. 2011. Extensions of re-
+  current neural network language model. In 2011 IEEE international conference on acoustics, speech and signal
+  processing (ICASSP), pages 5528–5531. IEEE. 1
+Tomas Mikolov and Geoffrey Zweig. 2012. Context dependent recurrent neural network language model. In 2012
+  IEEE Spoken Language Technology Workshop (SLT), pages 234–239. 1
+Ramesh Nallapati, Bowen Zhou, Cicero dos Santos, Çağlar Gulçehre, and Bing Xiang. 2016. Abstractive text sum-
+  marization using sequence-to-sequence RNNs and beyond. In Proceedings of The 20th SIGNLL Conference on
+  Computational Natural Language Learning, pages 280–290, Berlin, Germany. Association for Computational Lin-
+  guistics. 8
+Shashi Narayan, Shay B. Cohen, and Mirella Lapata. 2018. Don’t give me the details, just the summary! topic-aware
+  convolutional neural networks for extreme summarization. In Proceedings of the 2018 Conference on Empirical
+  Methods in Natural Language Processing, pages 1797–1807, Brussels, Belgium. Association for Computational
+  Linguistics. 8
+Feng Nie, Jin-Ge Yao, Jinpeng Wang, Rong Pan, and Chin-Yew Lin. 2019. A simple recipe towards reducing halluci-
+  nation in neural surface realisation. In Proceedings of the 57th Annual Meeting of the Association for Computational
+  Linguistics, pages 2673–2679, Florence, Italy. Association for Computational Linguistics. 10
+Jekaterina Novikova, Ondřej Dušek, and Verena Rieser. 2017. The E2E dataset: New challenges for end-to-end gener-
+  ation. In Proceedings of the 18th Annual SIGdial Meeting on Discourse and Dialogue, pages 201–206, Saarbrücken,
+  Germany. Association for Computational Linguistics. 7
+Myle Ott, Sergey Edunov, Alexei Baevski, Angela Fan, Sam Gross, Nathan Ng, David Grangier, and Michael Auli.
+ 2019. fairseq: A fast, extensible toolkit for sequence modeling. In Proceedings of the 2019 Conference of the North
+ American Chapter of the Association for Computational Linguistics (Demonstrations), pages 48–53, Minneapolis,
+ Minnesota. Association for Computational Linguistics. 1, 3, 7, 8
+Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini
+  Agarwal, Katarina Slama, Alex Ray, et al. 2022. Training language models to follow instructions with human
+  feedback. Advances in Neural Information Processing Systems, 35:27730–27744. 1
+
+
+
+                                                         15
+Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu. 2002. Bleu: a method for automatic evaluation of
+  machine translation. In Proceedings of the 40th Annual Meeting of the Association for Computational Linguistics,
+  pages 311–318, Philadelphia, Pennsylvania, USA. Association for Computational Linguistics. 7, 8
+Romain Paulus, Caiming Xiong, and Richard Socher. 2018. A deep reinforced model for abstractive summarization.
+  In 6th International Conference on Learning Representations, ICLR 2018, Vancouver, BC, Canada, April 30 - May
+  3, 2018, Conference Track Proceedings. OpenReview.net. 8
+Laura Perez-Beltrachini, Rania Sayed, and Claire Gardent. 2016. Building RDF content for data-to-text generation. In
+  Proceedings of COLING 2016, the 26th International Conference on Computational Linguistics: Technical Papers,
+  pages 1493–1502, Osaka, Japan. The COLING 2016 Organizing Committee. 7
+Matthew Peters, Mark Neumann, Mohit Iyyer, Matt Gardner, Christopher Clark, Kenton Lee, and Luke Zettlemoyer.
+ 2018. Deep contextualized word representations. In Proceedings of the 2018 Conference of the North American
+ Chapter of the Association for Computational Linguistics: Human Language Technologies, Volume 1 (Long Papers),
+ pages 2227–2237, New Orleans, Louisiana. Association for Computational Linguistics. 3, 5
+Jonathan Pilault, Raymond Li, Sandeep Subramanian, and Christopher Pal. 2020. On extractive and abstractive neural
+  document summarization with transformer language models. In Proceedings of the 2020 Conference on Empirical
+  Methods in Natural Language Processing (EMNLP), pages 9308–9319. 8
+Alec Radford, Karthik Narasimhan, Tim Salimans, Ilya Sutskever, et al. 2018. Improving language understanding by
+  generative pre-training. 1
+Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. 2019. Language models are
+  unsupervised multitask learners. 1, 2, 3
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou, Wei Li,
+  and Peter J Liu. 2020. Exploring the limits of transfer learning with a unified text-to-text transformer. Journal of
+  Machine Learning Research, 21(140):1–67. 1, 2, 3, 7, 8
+Clément Rebuffel, Marco Roberti, Laure Soulier, Geoffrey Scoutheeten, Rossella Cancelliere, and Patrick Gallinari.
+  2021. Controlling hallucinations at word level in data-to-text generation. arXiv preprint arXiv:2102.02810. 10
+Alexander M. Rush, Sumit Chopra, and Jason Weston. 2015. A neural attention model for abstractive sentence sum-
+  marization. In Proceedings of the 2015 Conference on Empirical Methods in Natural Language Processing, pages
+  379–389, Lisbon, Portugal. Association for Computational Linguistics. 8
+Teven Le Scao, Angela Fan, Christopher Akiki, Ellie Pavlick, Suzana Ilić, Daniel Hesslow, Roman Castagné, Alexan-
+  dra Sasha Luccioni, François Yvon, Matthias Gallé, et al. 2022. Bloom: A 176b-parameter open-access multilingual
+  language model. arXiv preprint arXiv:2211.05100. 1
+Abigail See, Peter J. Liu, and Christopher D. Manning. 2017. Get to the point: Summarization with pointer-generator
+  networks. In Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Volume 1:
+  Long Papers), pages 1073–1083, Vancouver, Canada. Association for Computational Linguistics. 8
+Rico Sennrich, Barry Haddow, and Alexandra Birch. 2016. Controlling politeness in neural machine translation via
+  side constraints. In Proceedings of the 2016 Conference of the North American Chapter of the Association for
+  Computational Linguistics: Human Language Technologies, pages 35–40, San Diego, California. Association for
+  Computational Linguistics. 7
+Anastasia Shimorina, Elena Khasanova, and Claire Gardent. 2019. Creating a corpus for Russian data-to-text genera-
+  tion using neural machine translation and post-editing. In Proceedings of the 7th Workshop on Balto-Slavic Natural
+  Language Processing, pages 44–49, Florence, Italy. Association for Computational Linguistics. 7
+Ilya Sutskever, James Martens, and Geoffrey E. Hinton. 2011. Generating text with recurrent neural networks. In
+   Proceedings of the 28th International Conference on Machine Learning, ICML 2011, Bellevue, Washington, USA,
+   June 28 - July 2, 2011, pages 1017–1024. Omnipress. 1
+
+
+
+                                                         16
+Ilya Sutskever, Oriol Vinyals, and Quoc V. Le. 2014. Sequence to sequence learning with neural networks. In Advances
+   in Neural Information Processing Systems 27: Annual Conference on Neural Information Processing Systems 2014,
+   December 8-13 2014, Montreal, Quebec, Canada, pages 3104–3112. 1
+Ross Taylor, Marcin Kardas, Guillem Cucurull, Thomas Scialom, Anthony Hartshorn, Elvis Saravia, Andrew Poul-
+  ton, Viktor Kerkez, and Robert Stojnic. 2022. Galactica: A large language model for science. arXiv preprint
+  arXiv:2211.09085. 1
+Ran Tian, Shashi Narayan, Thibault Sellam, and Ankur P Parikh. 2019. Sticking to the facts: Confident decoding for
+  faithful data-to-text generation. arXiv preprint arXiv:1910.08684. 10
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timothée Lacroix, Baptiste
+  Rozière, Naman Goyal, Eric Hambro, Faisal Azhar, et al. 2023. Llama: Open and efficient foundation language
+  models. arXiv preprint arXiv:2302.13971. 1
+Ashish Vaswani, Samy Bengio, Eugene Brevdo, Francois Chollet, Aidan Gomez, Stephan Gouws, Llion Jones, Łukasz
+  Kaiser, Nal Kalchbrenner, Niki Parmar, Ryan Sepassi, Noam Shazeer, and Jakob Uszkoreit. 2018. Tensor2Tensor
+  for neural machine translation. In Proceedings of the 13th Conference of the Association for Machine Translation
+  in the Americas (Volume 1: Research Track), pages 193–199, Boston, MA. Association for Machine Translation in
+  the Americas. 7
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia
+  Polosukhin. 2017. Attention is all you need. In Advances in Neural Information Processing Systems 30: Annual
+  Conference on Neural Information Processing Systems 2017, December 4-9, 2017, Long Beach, CA, USA, pages
+  5998–6008. 3, 7, 8
+Ramakrishna Vedantam, C. Lawrence Zitnick, and Devi Parikh. 2015. Cider: Consensus-based image description
+  evaluation. In IEEE Conference on Computer Vision and Pattern Recognition, CVPR 2015, Boston, MA, USA, June
+  7-12, 2015, pages 4566–4575. IEEE Computer Society. 8
+Jesse Vig and Yonatan Belinkov. 2019. Analyzing the structure of attention in a transformer language model. In
+  Proceedings of the 2019 ACL Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP, pages
+  63–76, Florence, Italy. Association for Computational Linguistics. 1
+Yonghui Wu, Mike Schuster, Zhifeng Chen, Quoc V Le, Mohammad Norouzi, Wolfgang Macherey, Maxim Krikun,
+  Yuan Cao, Qin Gao, Klaus Macherey, et al. 2016. Google’s neural machine translation system: Bridging the gap
+  between human and machine translation. arXiv preprint arXiv:1609.08144. 7
+Yingce Xia, Tianyu He, Xu Tan, Fei Tian, Di He, and Tao Qin. 2019. Tied transformers: Neural machine translation
+  with shared encoder and decoder. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 33,
+  pages 5466–5473. 3, 4
+Susan Zhang, Stephen Roller, Naman Goyal, Mikel Artetxe, Moya Chen, Shuohui Chen, Christopher Dewan, Mona
+  Diab, Xian Li, Xi Victoria Lin, et al. 2022. Opt: Open pre-trained transformer language models. arXiv preprint
+  arXiv:2205.01068. 1
+Jinhua Zhu, Yingce Xia, Lijun Wu, Di He, Tao Qin, Wengang Zhou, Houqiang Li, and Tie-Yan Liu. 2020. Incorpo-
+   rating BERT into neural machine translation. In 8th International Conference on Learning Representations, ICLR
+   2020, Addis Ababa, Ethiopia, April 26-30, 2020. OpenReview.net. 2, 3
+
+
+
+
+                                                        17
+                         Appendix. Supplementary Material
+A.1      Proof of Proposition 3.1
+Proposition A.1.1. 3.1 Given a function y = f (x) with a Jacobian matrix Jf , if we have a pertubation vector ∆x
+and y + ∆y = f (x + ∆x), then
+                                                   k∆yk
+                                                        ≤ kJf k + o(1).                                            (5)
+                                                   k∆xk
+
+Proof. Let y = f (x) be given, in which x, y ∈ Rd . We denote the output of f when x is perturbed by a vector ∆x as
+f (x + ∆x). Since for the Jacobian matrix, we have f (x + ∆x) − f (x) = Jf ∆x + o(k∆xk), it follows that:
+                                   f (x + ∆x) − f (x) = Jf ∆x + o(k∆xk)
+                                 kf (x + ∆x) − f (x)k = kJf ∆x + o(k∆xk)k
+                                 kf (x + ∆x) − f (x)k ≤ kJf ∆xk + ko(k∆xk)k
+                                 kf (x + ∆x) − f (x)k ≤ kJf kk∆xk + ko(k∆xk)k
+                                                   k∆yk ≤ kJf kk∆xk + ko(k∆xk)k
+                                                   k∆yk           o(k∆xk)
+                                                        ≤ kJf k +
+                                                   k∆xk             k∆xk
+                                                   k∆yk
+                                                        ≤ kJf k + o(1)
+                                                   k∆xk
+
+
+
+A.2      Proof of Theorem 3.3
+Lemma A.2.1. Let Z = Softmax(Y A> X > )XW , zi> be the ith row of Z and x>
+                                                                         j be the jth row of X. Then,
+
+                                       ∂zi
+                               Jij =
+                                       ∂xj
+                                   =W > (X > (Diag(pi ) − pi p>             >
+                                                              i ) · (eji Y A ) + Ipij )
+
+in which P = Softmax(Y A> X > ), p>    i is the ith row of P , eji is a binary matrix with zeros exerywhere except the
+(i, j)th entry, N is the row number of X.
+
+Proof.
+                                                                     N
+                                                                     X
+                                             zi = (P XW )>
+                                                         i =               W > xk pik
+                                                                     k=1
+
+                                             PN         >
+                                         ∂     k=1 W        xk pik
+                                 Jij =
+                                                  ∂xj
+                                         N                           N
+                                         X              ∂pik X ∂W > xk
+                                    =          W > xk       +            pik
+                                                        ∂xj         ∂xj
+                                         k=1                  k=1
+                                                                 ∂pi1 
+                                                                         ∂zj
+                                                                 ∂pi2 
+                                       >
+                                                                 ∂zj  ∂W > xj
+                                    = W [x1 , x2 , · · · , xN ] 
+                                                                 ..  + ∂xj pij
+                                                                       
+                                                                 . 
+                                                                         ∂piN
+                                                                          ∂zj
+
+
+                                                                18
+                                               ∂pi
+                                 = W >X >          + W > pij
+                                               ∂xj
+                                            ∂Softmax((Y A> X > )> i )
+                                 = W > (X >                           + Ipij )
+                                                      ∂xj
+                                                                      ∂(XAyi )
+                                 = W > (X > Softmax0 ((Y A> X > )>
+                                                                 i ))          + Ipij )
+                                                                        ∂xj
+                                 = W > (X > Softmax0 ((Y A> X > )>
+                                                                 i ))·
+                                    ∂([x1 , x2 , · · · , xN ]> Ayi )
+                                                                     + Ipij )
+                                                  ∂xj
+                                 = W > (X > (Diag(pi ) − pi p>
+                                                             i )·
+                                         ∂x>       >
+                                           1 Ayi ∂x2 Ayi       ∂x> Ayi >
+                                    ([          ,        ,··· , N     ] ) + Ipij )
+                                           ∂xj     ∂xj           ∂xj
+                                 = W > (X > (Diag(pi ) − pi p>
+                                                             i )·
+
+                                    ([0, · · · , Ayi , · · · , 0]> ) + Ipij )
+                                                 |{z}
+                                               jth col
+
+                                 = W (X (Diag(pi ) − pi p>
+                                          >   >                        >
+                                                         i ) · (eji Y A ) + Ipij )
+
+
+
+
+Lemma A.2.2. Let Z = Softmax(QA> Q> )QW , zi> be the ith row of Z and qj> be the jth row of Q.
+
+                                    ∂zi
+                            Jij =
+                                    ∂qj
+                                =W > (Q> (Diag(pi ) − pi p>            >
+                                                          i ) · (eji QA + QAδij ) + Ipij ),
+
+in which P = Softmax(QA> Q> ), δij is a scalar equals to 1 if i = j and equals to 0 otherwise.
+The detailed proof can be found in Kim et al. (2020). To prove Theorem 3.3, we follow the obsevation of Kim et al.
+(2020) that the Softmax matrix P is a stochastic matrix, namely, its entries are non-negative and its rows sum to 1.
+For each element pij in P , pij ∈ [0, 1] and they have an equal chance of receiving attention. Therefore, we have
+E(pij ) = d1X .
+Theorem A.2.3. 3.3 For Z E = ATT(Y, X, X), where kXk, kY k, kAk, kWV k are bounded, ∃ C3 ≥ 0, δ ∈ (0, 1),
+with probability at least 1 − δ 2 ,                    r
+                                         E          1        1
+                                       kJij k ≤ C3 ( + ln ).
+                                                    N        δ
+
+For Z C = ATT(Y, [X > , Y > ], [X > , Y > ]), with probability at least 1 − δ 2 ,
+                                                                       r
+                                                 C             1            1
+                                              kJij k ≤ C3 (         + ln ).
+                                                            N +i            δ
+                                           E
+Proof. We first prove the upper bound for Jij . From Lemma A.2.1, we have:
+
+
+
+
+                                                                  19
+                    E
+                   Jij = W > (X > (Diag(pi ) − pi p>             >
+                                                   i ) · (eji Y A ) + Ipij )
+                     E
+                   kJij k = kW > (X > (Diag(pi ) − pi p>         >
+                                                       i )eji Y A + Ipij )k
+
+                    ≤ kW > kkX > (Diag(pi ) − pi p>         >
+                                                  i )eji Y A k + kIpij k
+
+                    ≤ kW > k(kX > kk(Diag(pi ) − pi p>                     >
+                                                        i )eji k · kY A k + kIpij k)
+                                                                        
+                                  0 ···     −pi1 pij         ··· 0
+                                0 ···      −p  i2   pij     · · · 0
+                                                                        
+                                ..    ..         ..            ..    .. 
+                                  .     .          .             .     .     >        >
+                    ≤ (kX > kk 
+                               
+                                0 · · · pij − pij pij · · · 0 k · kY A k + kIPij k)kW k
+                                                                         
+                                                                        
+                                .    ..         ..            ..    .. 
+                                ..    .          .             .     .
+                                  0 ···    −piN pij          ··· 0
+                    = (kX > kkpij kk[pi1 , pi2 , · · · , 1 − pij , · · · , piN ]> k · kY A> k + kIpij k)kW > k
+                            q
+                    ≤ C1 pij p2i1 + p2i2 + · · · 1 + p2ij − 2pij + · · · p2iN + C2 pij
+                            p
+                    ≤ C1 pij 1 + kpi k2 + C2 pij
+                            q
+                    ≤ C1 pij 1 + kpi k21 + C2 pij
+                         √
+                    = C1 2pij + C2 pij
+                    = C3 pij ,
+where C1 ≥ 0, C2 ≥ 1, C3 ≥ 1. Since we assume pij ∈ [0, 1] and E(pij ) = N1 , Therefore, with Hoeffding inequality,
+for pij we have:
+                                                      1               2
+                                           Pr(pij ≥      + t) ≤ e−2t
+                                                     N
+                                                     r
+                                                1           1
+                                      Pr(pij ≥    + ln ) ≤ δ 2
+                                               N            δ
+                                                     r
+                                                1           1
+                                      Pr(pij ≤    + ln ) ≤ 1 − δ 2 .
+                                               N            δ
+
+Therefore, with probability at least 1 − δ 2
+                                                                      r
+                                                              1            1
+                                                 kJij k ≤ C3 ( +         ln )
+                                                              N            δ
+                                                                      
+                                    C                                 X          C
+Next, we prove the upper bound for Jij . We denote Q as Q =             . Then, Jij is the Jacobian matrix for ∂qN +i /∂qj .
+                                                                      Y
+From Lemma A.2.2, we have:
+
+                                       C
+                                      Jij = W > (Q> (Diag(pN +i ) − pN +i p>
+                                                                           N +i )·
+
+                                               (ej,N +i QA> + QAδN +i,j ) + IpN +i,j )
+                                     C
+                                   kJij k = kW > (Q> (Diag(pN +i ) − pN +i p>
+                                                                            N +i )·
+
+                                               (ej,N +i QA> + QAδN +i,j ) + IpN +i,j )k
+                                           = kW > (Q> (Diag(pN +i ) − pN +i p>
+                                                                             N +i )·
+
+                                               (ej,N +i QA> ) + IpN +i,j )k
+                                           ≤ C3 pN +i,j ,
+
+
+                                                               20
+where C1 ≥ 0, C3 ≥ 1. Since we assume pN +i,j ∈ [0, 1] and E(pN +i,j ) = N1+i , Therefore, with Hoeffding
+inequality, for pN +i,j we have:
+                                                     1              2
+                                      Pr(pN +i,j ≥      + t) ≤ e−2t
+                                                   N +i
+                                                      r
+                                                1        1
+                                 Pr(pN +i,j ≥       + ln ) ≤ δ 2
+                                              N +i       δ
+                                                      r
+                                                1        1
+                                 Pr(pN +i,j ≤       + ln ) ≤ 1 − δ 2 .
+                                              N +i       δ
+
+Therefore, with probability at least 1 − δ 2
+                                                                                       r
+                                                  C                      1                   1
+                                                kJij k ≤ C3 (               +              ln )
+                                                                       N +i                  δ
+
+
+
+
+A.3      Detailed Model Structure
+In this section, we provide a more detailed description of each model including LM (Table 8), ED (Table 10), RED
+(Table 9) and PALM (Table 11). We denote Fl as the feedforward layer in the lth block. The positional embedding is
+denoted as Ep = Embp (ps ) while the word embedding layer is denoted as Ew = Embw (s). Ew , Ep ∈ R|s|×d and d
+is the dimension size.
+
+                                                                Language Model
+                                              a = [s1 , s2 , · · · , s|s| , ⇒, t1 , t2 , · · · , t|t| ]
+                                              pa = [1, 2, · · · , |s| + |t|]
+                                              Ep = Embp (pa ); Ew = Embw (a)
+                                              G 1 = Ep + Ew
+                                              for l in [1, · · · , 6]:
+                                                 Ql = ATTl (Gl , Gl , Gl )
+                                                 Gl+1 = Hl = Fl (Ql )
+                                              L = L(H−1 , a)
+
+
+                                           Table 8: Language model framework.
+
+
+                                                           Regularized Encoder Decoder
+                                                 Encoder                                   Decoder
+                                 ps = [1, 2, · · · , |s|]             pt = [|s| + 1, · · · , |s| + |t| + 1]
+                                 EpE = Embp (ps )                     EpD = Embp (pt )
+                                   E                                     D
+                                 Ew    = Embw (s)                     Ew     = Embw (‘ ⇒ ’ + t)
+                                 GE1   =   E E
+                                             p   +   E  E
+                                                        w             G  D        D
+                                                                         1 = Ep + Ew
+                                                                                              D
+
+                                 for l in [1, · · · , 6]:             for l in [1, · · · , 6]:    E  E
+                                                                                                  Gl     Gl
+                                    QE                   E   E
+                                      l = ATTl (Gl , Gl , Gl )
+                                                                  E
+                                                                          QDl = ATTi (Gl ,
+                                                                                               D
+                                                                                                       ,    )
+                                                                                                  GD
+                                                                                                   l     GD
+                                                                                                          l
+                                      E             E          E            D            D           D
+                                    Gl+1 = Hl = Fl (Ql )                  Gl+1 = Hl = Fl (Gl )
+                                                                    E                 D
+                                                          L = L(H−1    , s) + L(H−1        , t)
+
+
+                                   Table 9: Regularized encoder decoder framework.
+
+Here, for the feedforward layer FP,l in Table 11, it can be interpreted as:
+
+                                    Pl1 = Dropout(tanh(Gl[1:|s|] WP,l1 + 1b>
+                                                                           P,l1 ))
+
+                                    Pl2 = Dropout(Pl1 WP,l2 + 1b>
+                                                                P,l2 )
+                                    Pl = Pl2 + Pl1 ,
+
+                                                                        21
+                                                                 Encoder-Decoder
+                                                  Encoder                                  Decoder
+                                 ps = [1, 2, · · · , |s|]               pt = [1, 2, · · · , |t|]
+                                   E              E                       D              D
+                                 Ep = Embp (ps )                        Ep = Embp (pt )
+                                                                          D
+                                 EwE
+                                       = EmbE     w (s)                 Ew    = EmbD     w (t)
+                                 GE          E
+                                   1 = Ep + Ew
+                                                        E
+                                                                        G0D
+                                                                          1 = Ep + Ew
+                                                                                     D           D
+
+                                 for l in [1, · · · , 6]:               for l in [1, · · · , 6]:
+                                                                                                  0D     0D     0D
+                                    QE             E      E
+                                      l = ATTl (Gl , Gl , Gl )
+                                                               E    E
+                                                                           GD             D
+                                                                             l = ATTl (Gl , Gl , Gl )
+                                                                             D             J     D     E      E
+                                    GEl+1   =   H   E
+                                                    l   =  Fl
+                                                             E
+                                                               (G E
+                                                                  l )      Q l   =   ATT   i (G  l , G l  , G l )
+                                                                           GD              D
+                                                                             l+1 = Hl+1 = Fl (Ql )
+                                                                                                      D      D
+                                                                           D
+                                                                 L = L(H−1 , t)
+
+
+                                          Table 10: Encoder-decoder framework.
+
+                                                      Partial Attention Language Model
+                                        a = [s1 , s2 , · · · , s|s| , ⇒, t1 , t2 , · · · , t|t| ]
+                                        pa = [1, 2, · · · , |s|, 1, 2, · · · , |t| + 1]
+                                        la = [0, 0, · · · , 0, 1, 1, · · · , 1]
+                                        Ep = Embp (pa ); Ew = Embw (a); El = Embl (la )
+                                        G 1 = Ep + Ew + El
+                                        for l in [1, · · · , 6]:
+                                           Ql = ATTl (Gl , Gl , Gl )
+                                           Pl = FP,l (Ql[1:|s|] ); Rl = ATTP        l (Ql , Pl , Pl )
+                                           Gl+1 = Hl = Fi (Rl )
+                                        L = L(H−1 , a)
+
+
+                                Table 11: Partial attention language model framework.
+
+
+where WP,l1 , WP,l2 ∈ Rd×d , bP,l1 , bP,l2 ∈ Rd are trainable parameters, 1 ∈ R|s|×1 is a vector with all elements equal
+to 1.
+
+
+
+
+                                                                       22
+
