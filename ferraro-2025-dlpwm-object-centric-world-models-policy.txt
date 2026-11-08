@@ -1,0 +1,507 @@
+                                         Preprint 11/2025
+
+
+
+
+                                         W HEN O BJECT-C ENTRIC W ORLD M ODELS M EET
+                                         P OLICY L EARNING : F ROM P IXELS TO P OLICIES , AND
+                                         W HERE I T B REAKS
+                                           Stefano Ferraro1,2 Akihiro Nakano2 Masahiro Suzuki2 Yutaka Matsuo2
+                                          1
+                                            IDLAB, Gent University, Gent, Belgium
+                                          2
+                                            Graduate School of Engineering, The University of Tokyo, Tokyo, Japan
+                                          Corresponding Email: stefano.ferraro@ugent.be
+
+
+
+
+arXiv:2511.06136v2 [cs.AI] 11 Nov 2025
+                                                                                     A BSTRACT
+
+                                                  Object-centric world models (OCWM) aim to decompose visual scenes into
+                                                  object-level representations, providing structured abstractions that could improve
+                                                  compositional generalization and data efficiency in reinforcement learning. We
+                                                  hypothesize that explicitly disentangled object-level representations, by localiz-
+                                                  ing task-relevant information, can enhance policy performance across novel fea-
+                                                  ture combinations. To test this hypothesis, we introduce DLPWM, a fully un-
+                                                  supervised, disentangled object-centric world model that learns object-level la-
+                                                  tents directly from pixels. DLPWM achieves strong reconstruction and predic-
+                                                  tion performance, including robustness to several out-of-distribution (OOD) vi-
+                                                  sual variations. However, when used for downstream model-based control, poli-
+                                                  cies trained on DLPWM latents underperform compared to DreamerV3. Through
+                                                  latent-trajectory analyses, we identify representation shift during multi-object in-
+                                                  teractions as a key driver of unstable policy learning. Our results suggest that,
+                                                  although object-centric perception supports robust visual modeling, achieving sta-
+                                                  ble control requires mitigating latent drift.
+
+
+
+                                         1    I NTRODUCTION
+
+                                         An enduring challenge in artificial intelligence is the development of agents that can reason about
+                                         the world in a structured, human-like manner. A promising avenue towards this goal lies in the
+                                         use of object-centric world models (OCWMs), which aim to decompose complex visual scenes
+                                         into object-level representations (Greff et al., 2020). Such structured abstractions have shown sig-
+                                         nificant potential for improving compositional generalization and data efficiency in various down-
+                                         stream tasks. Seminal works in this area have demonstrated that object-centric representations, often
+                                         learned in an unsupervised fashion, can facilitate robust object property prediction and exhibit re-
+                                         silience to certain out-of-distribution (OOD) visual variations (Dittadi et al., 2022; Locatello et al.,
+                                         2020a; Kipf et al., 2022). Furthermore, recent studies suggest that these representations can lead to
+                                         better compositional generalization with reduced computational overhead (Kapl et al., 2025).
+                                         Building on these findings, a key question arises: can structured, object-centric representations im-
+                                         prove policy learning in reinforcement learning (RL)? Although recent studies show gains in rela-
+                                         tional or compositional tasks (Mosbach et al., 2025; Zhang et al., 2025; Yoon et al., 2023), these
+                                         often fail to generalize beyond the training distribution. We posit that this limitation arises from a
+                                         misalignment between representation and control, where object-centric models still entangle task-
+                                         relevant and irrelevant factors—yielding policies that are structured but brittle.
+                                         We hypothesize that the key to unlocking the full potential of object-centric representations for
+                                         policy generalization lies in the disentanglement of task-relevant features. By isolating the factors
+                                         of variation that are crucial for a given task, the resulting latent space becomes a more reliable and
+                                         robust foundation for the policy, particularly in novel or out-of-distribution scenarios. A policy that
+                                         can consistently access and reason about these disentangled features should, in principle, generalize
+                                         more effectively to unseen combinations of object properties and environmental conditions.
+
+
+                                                                                            1
+Preprint 11/2025
+
+
+
+
+Disentangled object-centric methods pursue this goal by producing per-object latents that separate
+spatial attributes (e.g., position, scale) from appearance and dynamics (Jiang et al., 2020; Lin et al.,
+2020; Nakano et al., 2023). For example, Deep Latent Particles (DLP) represent objects as learned
+particles with explicit spatial and feature components, enabling interpretable, unsupervised learn-
+ing from pixels (Daniel & Tamar, 2022). Its temporal extension, Deep Dynamic Latent Particles
+(DDLP), augments DLP with dynamics-aware particles for object-level video prediction (Daniel &
+Tamar, 2024).
+To test our hypothesis, we introduce DLPWM, a fully unsupervised, disentangled object-centric
+world model that learns object-level latents directly from pixels. In our initial evaluations, DLPWM
+demonstrates strong performance in visual modeling, achieving high-fidelity reconstruction and ac-
+curate prediction, even in the presence of several OOD visual variations. This suggests that the
+model successfully learns a robust and generalizable representation of the visual scene. However,
+when these learned representations are leveraged for downstream model-based control, policies
+trained on DLPWM latents underperform in comparison to the state-of-the-art holistic world model,
+DreamerV3 (Hafner et al., 2025). Through in-depth latent-trajectory analyses, we identify a sig-
+nificant “representation shift” during multi-object interactions as a primary driver of this unstable
+policy learning.
+
+2     R ELATED W ORKS
+Model-based RL. Model-based reinforcement learning (MBRL) improves efficiency and gener-
+alization by learning environment dynamics for prediction, planning, and imagination-based policy
+training. Early neural world models, such as PlaNet (Hafner et al., 2019) and the Dreamer se-
+ries (Hafner et al., 2020; 2021; 2025), showed that latent dynamics can replace explicit simulators,
+enabling strong pixel-based control with far fewer samples than model-free approaches. More recent
+work enhances temporal expressiveness by leveraging Transformers to capture long-term dependen-
+cies and stabilize imagination rollouts (Micheli et al., 2023; Robine et al., 2023; Chen et al., 2022;
+Zhang et al., 2023; Meo et al., 2025; Nakano et al., 2023), establishing latent world models as a
+cornerstone of visual RL.
+
+Object-centric World Models. Conventional MBRL represents latent states as unstructured vec-
+tors, whereas object-centric approaches impose compositional structure by decomposing scenes
+into entities or “slots” with disentangled attributes (Burgess et al., 2019; Greff et al., 2019; Lo-
+catello et al., 2020b). Such structured representations improve interpretability and relational reason-
+ing (Veerapaneni et al., 2020; Greff et al., 2020; Wu et al., 2023). Building on this, Object-Centric
+World Models (OCWMs) (Mosbach et al., 2025; Ferraro et al., 2025; Zhang et al., 2025; Nishimoto
+& Matsubara, 2024) integrate slot-based perception with latent dynamics, enabling agents to learn
+multi-object interactions directly from pixels. Empirical results from SOLD (Mosbach et al., 2025)
+and FOCUS (Ferraro et al., 2025; 2024) show benefits on relational control tasks, though broader
+evidence across diverse benchmarks remains limited.
+
+3     M ETHOD
+3.1   P RELIMINARY: DYNAMIC D EEP L ATENT PARTICLES
+
+We build upon the Dynamic Deep Latent Particles (DDLP) architecture (Daniel & Tamar, 2022;
+2024), a method for unsupervised representation learning that disentangles object position from
+appearance. DDLP decomposes a visual input into a set of low-dimensional latent “particles”, where
+each particle is described by its spatial location, depth, scale, transparency and a visual feature
+vector. This VAE-based approach provides a structured and interpretable representation of a scene.
+Formally, for a given observation xt , the model processes it as follows:
+                                       Encoder:    zt1:K ∼ eψ (zt1:K |xt ),
+                                      Decoder:     x̂t ∼ dψ (x̂t |zt1:K ),
+                                                                                                    (1)
+                           Dynamics predictor:     h0:K          0:K
+                                                    1:t+1 = pψ (z0:t ),
+                              Particle decoder: ẑt0:K ∼ dψ (ẑt0:K |h0:K
+                                                                      t   ),
+
+                                                   2
+Preprint 11/2025
+
+
+
+
+where {ztk }K   k=1 denotes the set of K latent particles at time t. Each particle are expressed as zt =
+                                                                                                            k
+   k     k      k      k      k              k                          k
+(zp,t , zd,t , zs,t , zτ,t , zf,t ), where zp,t is the pixel position, zd,t represents the depth information,
+  k                                  k                                    k
+zs,t is the entity scaling, zτ,t       is the transparency feature and zf,t  is the visual features latent. The
+functions eψ and dψ represent the encoder and decoder, respectively.
+A dynamics model, pψ , is trained to predict the future states given the past latent trajectory. The
+model is trained by optimizing a modified evidence lower bound (ELBO) which is inspired by the
+Chamfer distance between particles.
+
+3.2   DLPWM
+
+To construct a world model from DDLP, we first condition the dynamics predictor on the agent’s
+actions a0:t . Unlike Dreamer, our model operates on a structured latent space, where information
+for each scene entity is disentangled. Many tasks require relating information across entities (e.g.,
+reaching an object requires combining positional data from both agent and object). To capture such
+relations for accurate reward prediction, we use a particle aggregator that takes h0:K
+                                                                                   t   as input and
+outputs gt . Next, to enable training of a joint policy in imagination, we add a reward prediction
+head. The aggregated information gt is provided as input to the reward predictor. The reward pre-
+dictor is trainedby minimizing
+                             the mean squared error between predicted and ground-truth rewards:
+Lreward = Et (r̂t − rt )2 .
+
+
+                                 Dynamics predictor:      h0:K          0:K
+                                                           1:t+1 = pψ (z0:t , a0:t ),
+                                 Particle aggregator:     gt = pψ (h0:Kt    ),                                       (2)
+                                  Reward predictor:       r̂t ∼ pψ (r̂t |gt ),
+
+Finally, we introduce a policy module based on the actor–critic architecture of DreamerV3 (Hafner
+et al., 2025). Similar to the reward predictor, the policy components use a particle aggregator to
+relate information across particles. Each of the reward predictor, actor, and critic employs its own
+independent aggregator module.
+
+                                   Actor: at ∼ πθ (at |gt ),     Critic: vγ (Rt |gt )                                (3)
+
+
+4     E XPERIMENTS
+
+We benchmark our model against DreamerV3 (Hafner et al., 2025). Both world models are trained
+offline on a standard block-lifting task and a generalized object-lifting task. For the latter, we
+introduce a novel Robosuite environment (Zhu et al., 2020), the Generalization Arena (see Ap-
+pendix A.1), which allows control over object shapes and colors. To test the generalization capabil-
+ities of our model, during training only a subset of shape–color combinations is available, enabling
+evaluation on out-of-distribution configurations.
+
+                                                         Reconstruction                        Prediction
+                                                    SSIM ⇑          LPIPS ⇓           SSIM ⇑            LPIPS ⇓
+                                  DreamerV3      0.979 ± 0.001   0.05 ± 0.0012     0.89 ± 0.019      0.08 ± 0.01
+      Cube lifting
+                                  DLPWM (ours)   0.976 ± 0.003   0.0384 ± 0.0025    0.9 ± 0.02       0.08 ± 0.019
+                                  DreamerV3      0.933 ± 0.012   0.102 ± 0.012      0.833 ± 0.033    0.122 ± 0.016
+      Generalization Arena ID
+                                  DLPWM (ours)   0.943 ± 0.012    0.066 ± 0.014    0.799 ± 0.031     0.11 ± 0.015
+                                  DreamerV3      0.936 ± 0.01    0.096 ± 0.007      0.837 ± 0.033    0.118 ± 0.014
+      Generalization Arena OOD
+                                  DLPWM (ours)   0.943 ± 0.011    0.064 ± 0.01     0.792 ± 0.037     0.118 ± 0.015
+
+
+Table 1: Reconstruction and prediction metrics for and DLPWM. Both world models are trained for
+50k using an offline dataset (for 2 seeds). Predictions are done over 15 steps. Metrics are averaged
+over 10 evaluation episodes. ± confidence intervals.
+
+
+                                                          3
+Preprint 11/2025
+
+
+
+
+We first compare reconstruction and prediction performance between models. Next, we analyze
+the learned policies to highlight the impact of object-centric learning. Finally, we discuss potential
+factors contributing to our model’s underperformance.
+
+Reconstructions and Predictions. We train both DLPWM and the DreamerV3 baseline on the
+cube-lift and Generalization Arena tasks. Evaluation results are reported in Table 1, considering both
+in-distribution (ID) and out-of-distribution (OOD) cases for the Generalization Arena. DLPWM
+generally achieves better reconstruction performance, while prediction accuracy remains compara-
+ble between the two models.
+
+Policy Learning. After 50k steps of offline DLPWM training, online policy learning is initiated
+concurrently to the world model training. We evaluate two implementations of the particle aggrega-
+tor: GNN-based and Transformer-based. Results are shown in Figure 1. Both policies successfully
+learn to reach the target object (initial 100k steps) but struggle with grasping and lifting. We hy-
+pothesize that this limitation arises from direct physical interactions between entities—when objects
+make contact, the particle representation may fail to preserve clear boundaries between them.
+
+
+
+
+Figure 1: Per episode reward over training steps.       Figure 2: Latent variation with respect to con-
+Trained on cube lift task. Policy trained with          tact point frames. The horizontal dashed-line
+DLPWM, are tested with both GNN and trans-              represent the frame where contact between the
+former (TF) particle aggregator. During the pol-        robotic arm and the target object is established.
+icy training phase, world model and policy up-          Visualized are the position latent zp , scale latent
+date occur every 10 steps. 2 seed for each run          zs and the visual features latent zf . Results are
+are considered.                                         averaged over 10 evaluation episodes where a
+                                                        total of 39 contact points are identified.
+
+Latent Trajectories. We analyze the latent representations of each object during contact events,
+as shown in Figure 2. Near contact frames, the positional (zp ), scale (zs ), and visual feature (zf )
+components of the latent space exhibit noticeable changes. Such alterations should occur only when
+the object interacts physically with the robotic arm (hence at frame 0 to 10); however, the arm’s
+proximity alone can perturb the object’s latent features (from frames -10 to 0). We hypothesize
+that this interference contributes to the observed policy underperformance. A visual example of this
+behavior is provided in Figure 5.a in the appendix, near the grasping frame (Frame 9).
+5   C ONCLUSION AND D ISCUSSION
+We introduce DLPWM, a disentangled object-centric world model that attains strong reconstruction
+and prediction but whose imagined latents sometimes yield unstable policy learning on interaction-
+heavy task phases. We hypothesize that brief, contact-induced perturbations (and occasional slot-
+identity drift) corrupt the per-slot inputs the policy uses.
+As next steps, we propose to supply the policy with an exponential moving average (EMA) of each
+slot — concatenated with the raw slot (and optionally the slot-delta) — which (i) attenuates high-
+frequency corruption, (ii) is trivial to compute online in both real and imagined rollouts, and (iii)
+preserves fast signals when raw+delta are also provided.
+
+
+                                                    4
+Preprint 11/2025
+
+
+
+
+ACKNOWLEDGMENTS
+Stefano Ferraro was supported by the Research Foundation Flanders (FWO), grant number
+V431625N, and by the Flemish Government through the AI Research Program.
+
+R EFERENCES
+Christopher P. Burgess, Loic Matthey, Nicholas Watters, Rishabh Kabra, Irina Higgins, Matt
+  Botvinick, and Alexander Lerchner. Monet: Unsupervised scene decomposition and represen-
+  tation. arXiv preprint arxiv.1901.11390, 2019.
+Chang Chen, Yi-Fu Wu, Jaesik Yoon, and Sungjin Ahn. Transdreamer: Reinforcement learning
+  with transformer world models. arXiv preprint arXiv:2202.09481, 2022.
+Tal Daniel and Aviv Tamar. Unsupervised image representation learning with deep latent particles.
+  In International Conference on Machine Learning, pp. 4644–4665. PMLR, 2022.
+Tal Daniel and Aviv Tamar. Ddlp: Unsupervised object-centric video prediction with deep dynamic
+  latent particles. Transactions on Machine Learning Research, 2024.
+Andrea Dittadi, Thomas Kipf, Sjoerd van Steenkiste, Francesco Locatello, Olivier Bachem, and Ole
+  Winther. Generalization and robustness implications in object-centric learning. arXiv preprint
+  arXiv:2202.00650, 2022.
+Stefano Ferraro, Pietro Mazzaglia, Tim Verbelen, Bart Dhoedt, and Sai Rajeswar. Represent-
+  ing positional information in generative world models for object manipulation. arXiv preprint
+  arXiv:2409.12005, 2024.
+Stefano Ferraro, Pietro Mazzaglia, Tim Verbelen, and Bart Dhoedt. Focus: object-centric world
+  models for robotic manipulation. Frontiers in Neurorobotics, 19:1585386, 2025.
+Klaus Greff, Raphaël Lopez Kaufman, Rishabh Kabra, Nick Watters, Christopher Burgess, Daniel
+  Zoran, Loic Matthey, Matthew Botvinick, and Alexander Lerchner. Multi-object representation
+  learning with iterative variational inference. In International conference on machine learning, pp.
+  2424–2433. PMLR, 2019.
+Klaus Greff, Raphael Kaufman, Rishabh Kabra, Elias Dyer, Yoshua Bengio, and Jürgen Schmid-
+  huber. On the binding problem in artificial neural networks. arXiv preprint arXiv:2012.05208,
+  2020.
+Danijar Hafner, Timothy Lillicrap, Ian Fischer, Ruben Villegas, David Ha, Honglak Lee, and James
+  Davidson. Learning latent dynamics for planning from pixels. In International conference on
+  machine learning, pp. 2555–2565. PMLR, 2019.
+Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi. Dream to control: Learning
+  behaviors by latent imagination. In International Conference on Learning Representations, 2020.
+Danijar Hafner, Timothy P Lillicrap, Mohammad Norouzi, and Jimmy Ba. Mastering atari with
+  discrete world models. In International Conference on Learning Representations, 2021.
+Danijar Hafner, Jurgis Pasukonis, Jimmy Ba, and Timothy Lillicrap. Mastering diverse control tasks
+  through world models. Nature, 640:647–653, 2025. doi: 10.1038/s41586-025-08744-2.
+Jindong Jiang, Sepehr Janghorbani, Gerard De Melo, and Sungjin Ahn. Scalor: Generative world
+   models with scalable object representations. In International Conference on Learning Represen-
+   tations, 2020. URL https://openreview.net/forum?id=SJxrKgStDH.
+Nikolaus Kapl, Andrea Dittadi, Francesco Locatello, Lars Buesing, and Thomas Kipf. Object-
+  centric representations generalize better compositionally with less compute. In International
+  Conference on Learning Representations, 2025.
+Thomas Kipf, Sjoerd van Steenkiste, Matthias Minderer, Lars Buesing, and Francesco Locatello.
+  Conditional object-centric learning from video. In International Conference on Learning Repre-
+  sentations, 2022.
+
+
+                                                 5
+Preprint 11/2025
+
+
+
+
+Zhixuan Lin, Yi-Fu Wu, Skand Peri, Bofeng Fu, Jindong Jiang, and Sungjin Ahn. Improving gen-
+  erative imagination in object-centric world models. In Proceedings of the 37th International
+  Conference on Machine Learning, volume 119, pp. 6140–6149. PMLR, 13–18 Jul 2020.
+Francesco Locatello, Dirk Weissenborn, Thomas Unterthiner, Aravindh Mahendran, Georg Heigold,
+  Jakob Uszkoreit, Alexey Dosovitskiy, and Thomas Kipf. Object-centric learning with slot atten-
+  tion. Advances in Neural Information Processing Systems, 33:11525–11538, 2020a.
+Francesco Locatello, Dirk Weissenborn, Thomas Unterthiner, A. Mahmood, Georg Heigold, Jakob
+  Uszkoreit, Alexey Dosovitskiy, and Thomas Kipf. Object-centric learning with slot attention. In
+  Advances in Neural Information Processing Systems, 2020b.
+Cristian Meo, Mircea Tudor Lică, Zarif Ikram, Akihiro Nakano, Vedant Shah, Aniket Rajiv Di-
+  dolkar, Dianbo Liu, Anirudh Goyal, and Justin Dauwels. Masked generative priors improve
+  world models sequence modelling capabilities. In ICLR 2025 Workshop on World Models: Un-
+  derstanding, Modelling and Scaling, 2025. URL https://openreview.net/forum?id=
+  vRdn74Jkqp.
+Vincent Micheli, Eloi Alonso, and François Fleuret. Transformers are sample-efficient world
+  models. In The Eleventh International Conference on Learning Representations, 2023. URL
+  https://openreview.net/forum?id=vhFu1Acb0xb.
+Malte Mosbach, Jan Niklas Ewertz, Angel Villar-Corrales, and Sven Behnke. SOLD: Slot object-
+ centric latent dynamics models for relational manipulation learning from pixels. In Forty-second
+ International Conference on Machine Learning, 2025. URL https://openreview.net/
+ forum?id=XOUpHJPYRX.
+Akihiro Nakano, Masahiro Suzuki, and Yutaka Matsuo. Interaction-based disentanglement of en-
+  tities for object-centric world models. In The Eleventh International Conference on Learning
+  Representations, 2023. URL https://openreview.net/forum?id=JQc2VowqCzz.
+Yosuke Nishimoto and Takashi Matsubara. Transformer-based imagination with slot attention. In
+  NeurIPS 2024 Workshop on Compositional Learning: Perspectives, Methods, and Paths Forward,
+  2024. URL https://openreview.net/forum?id=tDoDsPE1R5.
+Jan Robine, Marc Höftmann, Tobias Uelwer, and Stefan Harmeling. Transformer-based world mod-
+  els are happy with 100k interactions. In The Eleventh International Conference on Learning
+  Representations, 2023. URL https://openreview.net/forum?id=TdBaDGCpjly.
+Rishi Veerapaneni, John D. Co-Reyes, Michael Chang, Michael Janner, Chelsea Finn, Jiajun Wu,
+  Joshua Tenenbaum, and Sergey Levine. Entity abstraction in visual model-based reinforcement
+  learning. In Proceedings of the Conference on Robot Learning, volume 100, pp. 1439–1456.
+  PMLR, 2020.
+Ziyi Wu, Nikita Dvornik, Klaus Greff, Thomas Kipf, and Animesh Garg. Slotformer: Unsupervised
+  visual dynamics simulation with object-centric models. In The Eleventh International Conference
+  on Learning Representations, 2023.
+Jaesik Yoon, Yi-Fu Wu, Heechul Bae, and Sungjin Ahn. An investigation into pre-training object-
+  centric representations for reinforcement learning. In International Conference on Machine
+  Learning, pp. 40147–40174. PMLR, 2023.
+Weipu Zhang, Gang Wang, Jian Sun, Yetian Yuan, and Gao Huang. Storm: Efficient stochastic
+ transformer based world models for reinforcement learning. Advances in Neural Information
+ Processing Systems, 36:27147–27166, 2023.
+Weipu Zhang, Adam Jelley, Trevor McInroe, and Amos Storkey. Objects matter: object-centric
+ world models improve reinforcement learning in visually complex environments. arXiv preprint
+ arXiv:2501.16443, 2025.
+Yuke Zhu, Josiah Wong, Ajay Mandlekar, Roberto Martı́n-Martı́n, Abhishek Joshi, Soroush Nasiri-
+  any, and Yifeng Zhu. robosuite: A modular simulation framework and benchmark for robot
+  learning. arXiv preprint arXiv:2009.12293, 2020.
+
+
+                                               6
+Preprint 11/2025
+
+
+
+
+Figure 3: All the shape and color combinations present in the Generalization Arena task. On the
+left, 7 combinations used for training and one the right 2 combinations used for evaluation.
+
+
+A     A PPENDIX
+A.1   G ENERALIZATION A RENA
+
+We extend the standard Cube Lift RoboSuite environment to support multiple object types. Ob-
+ject properties are parameterized by shape and color, with available shapes [cube, ring,
+L-profile] and colors [red, blue, green]. At each episode, an object combination is
+randomly selected from a predefined set.
+The environment provides a stepwise reward signal identical to the Cube Lift task, structured into
+three phases: reaching, grasping, and lifting. The maximum reward is achieved when the agent
+successfully grasps and lifts the object from the table.
+
+A.2   DLPWM
+
+                               ^
+                               x                                   ^
+                                                                   x
+                                 t+1                                 t+2
+                               DLP                                     DLP
+                               Dec                                     Dec
+
+               ^                                   ^
+                                                   z0..2
+               z0..2
+                   t+1                               t+2
+
+
+
+
+                                       rt+1                                  rt+2
+
+
+               h0..2
+                 t
+                                                   h0..2
+                                                     t+2
+
+
+
+
+                                       Dynamics Predictor
+
+
+                                              at                                    at+1
+
+                   0..2
+                   zt                               z0..2
+                                                      t+1
+
+
+                                                                                           z2p   z2d   z2s   z2T   z2f
+
+                               DLP                                 DLP
+                               Enc                                 Enc
+
+                          xt                                xt+1
+
+
+
+
+                                       Figure 4: Architecture of DLPWM.
+
+
+A.3   PARTICLE AGGREGATOR
+
+For our experimentation we tested 2 implementation for the particle aggregator. The first uses a
+GraphSAGE-based GNN, where each particle corresponds to a node and an additional fully con-
+nected output node aggregates information from all others. The second follows a Transformer-based
+design inspired by the Slot Attention Transformer (SAT) from SOLD Mosbach et al. (2025), using
+one register token and one output token, with only the latter used as the final output.
+
+
+
+                                                                   7
+Preprint 11/2025
+
+
+
+
+A.4   R ECONSTRUCTIONS
+
+
+
+
+                                      (a) Cube task.
+
+
+
+
+                         (b) Generalization Arena in-distribution.
+
+
+
+
+                                            8
+Preprint 11/2025
+
+
+
+
+                         (c) Generalization Arena out-of-distribution.
+
+Figure 5: Reconstruction examples for DreamerV3 and DLPWM. Object masks are from DLPWM.
+
+
+A.5   P REDICTIONS
+
+
+
+
+                                        (a) Cube task.
+
+
+                                              9
+Preprint 11/2025
+
+
+
+
+                           (b) Generalization Arena in-distribution.
+
+
+
+
+                         (c) Generalization Arena out-of-distribution.
+
+  Figure 6: Prediction examples for DreamerV3 and DLPWM. Object masks are from DLPWM.
+
+
+
+
+                                              10
+
